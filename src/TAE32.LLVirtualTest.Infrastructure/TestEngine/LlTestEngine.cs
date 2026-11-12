@@ -46,8 +46,65 @@ public sealed class LlTestEngine : ILLTestEngine
         => _generator.GenerateAsync(llFunctionId, cancellationToken);
 
     public Task<IReadOnlyList<LlTestCaseEditModel>> GenerateCasesForPeripheralAsync(
-        Guid sdkProjectId, string peripheralName, int maxFunctions = 40, CancellationToken cancellationToken = default)
-        => _generator.GenerateForPeripheralAsync(sdkProjectId, peripheralName, maxFunctions, cancellationToken);
+        Guid sdkProjectId, string peripheralName, CancellationToken cancellationToken = default)
+        => _generator.GenerateForPeripheralAsync(sdkProjectId, peripheralName, cancellationToken);
+
+    public async Task<(int FunctionsProcessed, int CasesSaved)> GenerateAndSaveForPeripheralAsync(
+        Guid sdkProjectId,
+        string peripheralName,
+        IProgress<(int FunctionIndex, int FunctionTotal, int CasesSaved, string PeripheralName)>? progress = null,
+        CancellationToken cancellationToken = default)
+    {
+        await using var db = await _dbFactory.CreateDbContextAsync(cancellationToken);
+        var functionIds = await db.LlFunctions.AsNoTracking()
+            .Where(x => x.SdkProjectId == sdkProjectId
+                        && x.PeripheralName == peripheralName
+                        && (x.Form == null || x.Form.Contains("inline")))
+            .OrderBy(x => x.FunctionName)
+            .Select(x => x.Id)
+            .ToListAsync(cancellationToken);
+
+        var pending = new List<LlTestCaseEditModel>(32);
+        var casesSaved = 0;
+        var processed = 0;
+
+        async Task FlushAsync()
+        {
+            if (pending.Count == 0) return;
+            casesSaved += await _store.InsertManyAsync(pending, cancellationToken);
+            pending.Clear();
+        }
+
+        for (var i = 0; i < functionIds.Count; i++)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            processed++;
+            IReadOnlyList<LlTestCaseEditModel> generated;
+            try
+            {
+                generated = await _generator.GenerateAsync(functionIds[i], cancellationToken);
+            }
+            catch
+            {
+                progress?.Report((i + 1, functionIds.Count, casesSaved, peripheralName));
+                if (i % 4 == 0)
+                    await Task.Yield();
+                continue;
+            }
+
+            pending.AddRange(generated);
+            if (pending.Count >= 24)
+                await FlushAsync();
+
+            progress?.Report((i + 1, functionIds.Count, casesSaved, peripheralName));
+            if (i % 3 == 0)
+                await Task.Yield();
+        }
+
+        await FlushAsync();
+        progress?.Report((functionIds.Count, functionIds.Count, casesSaved, peripheralName));
+        return (processed, casesSaved);
+    }
 
     public async Task RunAsync(Guid sdkProjectId, CancellationToken cancellationToken = default)
     {

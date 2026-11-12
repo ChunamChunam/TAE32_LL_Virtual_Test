@@ -33,7 +33,9 @@ public partial class FunctionCallGraphViewModel : ObservableObject
     [ObservableProperty] private string _summaryText = "加载中…";
     [ObservableProperty] private string _detailText = "选择一行查看调用详情。";
     [ObservableProperty] private string _hintText =
-        "数据来自「LL 函数库 → 深度解析」。本页用于跨函数检索调用边；单函数明细见函数库「调用」Tab。";
+        "数据来自「LL 函数库 → 深度解析」。「(全部)」会检索库内所有匹配调用边，仅分页控制每页行数，不限制总结果条数。";
+
+    private int _databaseEdgeTotal;
 
     public FunctionCallGraphViewModel(IAppDataService data) => _data = data;
 
@@ -42,9 +44,12 @@ public partial class FunctionCallGraphViewModel : ObservableObject
     {
         await LoadFiltersAsync();
         var stats = await _data.GetCallGraphStatsAsync();
+        _databaseEdgeTotal = stats.TotalEdges;
         SummaryText = stats.TotalEdges == 0
-            ? "尚无调用边：请先在 LL 函数库对目标外设执行「深度解析」。"
-            : $"调用边 {stats.TotalEdges}　含调用的函数 {stats.CallerFunctions}　已解析函数 {stats.ParsedFunctionCount}　Unknown/Indirect {stats.UnknownCalleeEdges}";
+            ? "尚无调用边：请先在 LL 函数库对目标 SDK 执行「深度解析」。"
+            : $"库内调用边 {stats.TotalEdges}（{stats.CallerFunctions} 个调用方含 CallExpr）　" +
+              $"深度解析函数 {stats.ParsedFunctionCount}　Unknown/Indirect {stats.UnknownCalleeEdges}　" +
+              "（多数 inline 体内无函数调用，故边数通常远小于解析函数数）";
         PageIndex = 1;
         await LoadPageAsync();
     }
@@ -120,8 +125,29 @@ public partial class FunctionCallGraphViewModel : ObservableObject
         CanGoNext = PageIndex < TotalPages;
         PreviousPageCommand.NotifyCanExecuteChanged();
         NextPageCommand.NotifyCanExecuteChanged();
-        PageInfoText = TotalCount == 0
-            ? "无匹配调用边"
-            : $"共 {TotalCount} 条　第 {PageIndex}/{TotalPages} 页";
+
+        if (TotalCount == 0)
+        {
+            PageInfoText = _databaseEdgeTotal == 0
+                ? "无调用边（请先深度解析）"
+                : "无匹配调用边";
+            return;
+        }
+
+        var start = skip + 1;
+        var end = skip + rows.Count;
+        var scopeNote = TotalCount == _databaseEdgeTotal && IsUnfiltered(search, peri, kind)
+            ? "（库内全部，未截断）"
+            : $"（筛选结果 / 库内 {_databaseEdgeTotal} 条）";
+        var pageNote = TotalPages == 1
+            ? $"已全部显示 {start}–{end} 条"
+            : $"本页 {start}–{end} 条　第 {PageIndex}/{TotalPages} 页";
+
+        PageInfoText = $"共 {TotalCount} 条 {scopeNote}　{pageNote}　每页至多 {PageSize} 行";
     }
+
+    private static bool IsUnfiltered(string? search, string? peripheral, string? calleeKind) =>
+        string.IsNullOrWhiteSpace(search)
+        && string.IsNullOrWhiteSpace(peripheral)
+        && string.IsNullOrWhiteSpace(calleeKind);
 }

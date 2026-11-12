@@ -318,12 +318,8 @@ public partial class TestManagementViewModel : ObservableObject
                 StatusText = BusyOverlayText;
                 await Task.Yield();
 
-                var generated = await _engine.GenerateCasesForPeripheralAsync(pid, peri, maxFunctions: 40);
-                foreach (var g in generated)
-                {
-                    await _cases.UpsertAsync(g);
-                    generatedCount++;
-                }
+                var (_, saved) = await _engine.GenerateAndSaveForPeripheralAsync(pid, peri);
+                generatedCount += saved;
             }
 
             BusyOverlayText = $"已生成 {generatedCount} 条用例，正在批量执行（不限制条数）…";

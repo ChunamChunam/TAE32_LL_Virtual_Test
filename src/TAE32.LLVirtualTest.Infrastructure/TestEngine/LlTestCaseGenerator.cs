@@ -32,7 +32,6 @@ public sealed class LlTestCaseGenerator
     public async Task<IReadOnlyList<LlTestCaseEditModel>> GenerateForPeripheralAsync(
         Guid sdkProjectId,
         string peripheralName,
-        int maxFunctions = 40,
         CancellationToken cancellationToken = default)
     {
         await using var db = await _dbFactory.CreateDbContextAsync(cancellationToken);
@@ -42,12 +41,15 @@ public sealed class LlTestCaseGenerator
                         && x.PeripheralName == peripheralName
                         && (x.Form == null || x.Form.Contains("inline")))
             .OrderBy(x => x.FunctionName)
-            .Take(maxFunctions)
             .ToListAsync(cancellationToken);
 
         var all = new List<LlTestCaseEditModel>();
         foreach (var fn in functions)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
             all.AddRange(await GenerateForFunctionAsync(db, fn, cancellationToken));
+        }
+
         return all;
     }
 

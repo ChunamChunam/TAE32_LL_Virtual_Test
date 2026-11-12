@@ -14,11 +14,17 @@ public interface ILLTestEngine
         Guid llFunctionId,
         CancellationToken cancellationToken = default);
 
-    /// <summary>Generate cases for all inline LL functions under a peripheral (capped).</summary>
+    /// <summary>Generate cases for all inline LL functions under a peripheral module.</summary>
     Task<IReadOnlyList<LlTestCaseEditModel>> GenerateCasesForPeripheralAsync(
         Guid sdkProjectId,
         string peripheralName,
-        int maxFunctions = 40,
+        CancellationToken cancellationToken = default);
+
+    /// <summary>Generate and persist per function with batched DB writes (keeps UI responsive).</summary>
+    Task<(int FunctionsProcessed, int CasesSaved)> GenerateAndSaveForPeripheralAsync(
+        Guid sdkProjectId,
+        string peripheralName,
+        IProgress<(int FunctionIndex, int FunctionTotal, int CasesSaved, string PeripheralName)>? progress = null,
         CancellationToken cancellationToken = default);
 
     Task<LlTestRunResult> RunCaseAsync(

@@ -5,6 +5,7 @@ using System.Windows;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
 using Microsoft.Win32;
+using TAE32.LLVirtualTest.App.Views.Dialogs;
 using TAE32.LLVirtualTest.Core.Entities;
 using TAE32.LLVirtualTest.Core.Interfaces;
 using TAE32.LLVirtualTest.Core.Models;
@@ -20,7 +21,8 @@ public partial class AutomationTestViewModel : ObservableObject
     private readonly IAppDataService _data;
     private readonly ISdkProjectService _projects;
     private readonly HashSet<Guid> _checkedFunctionIds = new();
-    private CancellationTokenSource? _runCts;
+    private readonly HashSet<Guid> _checkedCaseIds = new();
+    private CancellationTokenSource? _busyCts;
     private bool _suppressAllSelectedSync;
     private bool _contentLoaded;
     private Guid? _contentProjectId;
@@ -58,6 +60,11 @@ public partial class AutomationTestViewModel : ObservableObject
     [ObservableProperty] private string _resultDetail = string.Empty;
     [ObservableProperty] private string _statusText = "就绪（虚拟环境测试，非真实硬件验证）";
     [ObservableProperty] private bool _isBusy;
+    [ObservableProperty] private string _busyOverlayText = "请稍候…";
+    [ObservableProperty] private double _progressValue;
+    [ObservableProperty] private double _progressMaximum = 100;
+    [ObservableProperty] private bool _isProgressIndeterminate = true;
+    [ObservableProperty] private bool _showBusyCancel;
     [ObservableProperty] private Guid? _activeProjectId;
     [ObservableProperty] private int _functionPageIndex = 1;
     [ObservableProperty] private int _functionPageSize = 100;
@@ -180,14 +187,14 @@ public partial class AutomationTestViewModel : ObservableObject
     private async Task FetchEmbeddedClangAsync()
     {
         if (IsBusy) return;
-        IsBusy = true;
+        BeginBusy("正在获取内置 Clang（首次约 350MB，需联网）…", indeterminate: true);
         try
         {
-            StatusText = "正在获取内置 Clang（首次约 350MB，需联网）…";
             var progress = new Progress<string>(m =>
             {
                 Application.Current.Dispatcher.Invoke(() =>
                 {
+                    BusyOverlayText = m;
                     StatusText = m;
                     LogLines.Insert(0, $"[{DateTime.Now:HH:mm:ss}] {m}");
                     if (LogLines.Count > 300) LogLines.RemoveAt(LogLines.Count - 1);
@@ -204,7 +211,7 @@ public partial class AutomationTestViewModel : ObservableObject
         {
             StatusText = "获取失败：" + ex.Message;
         }
-        finally { IsBusy = false; }
+        finally { EndBusy(); }
     }
 
     [RelayCommand]
@@ -219,30 +226,55 @@ public partial class AutomationTestViewModel : ObservableObject
             return;
         }
 
-        IsBusy = true;
+        BeginBusy($"准备为 {ids.Count} 个函数生成用例…", indeterminate: false, maximum: ids.Count);
+        ShowBusyCancel = ids.Count > 20;
+        await Task.Yield();
         try
         {
-            var n = 0;
+            var casesWritten = 0;
+            var funcWithCases = 0;
+            var funcEmpty = 0;
+            var funcFailed = 0;
             var fi = 0;
             foreach (var id in ids)
             {
                 fi++;
-                StatusText = $"正在生成 {fi}/{ids.Count}…";
-                var generated = await _engine.GenerateCasesAsync(id);
-                foreach (var g in generated)
+                SetBusyProgress(fi, $"正在生成用例 {fi}/{ids.Count}…");
+                try
                 {
-                    await _store.UpsertAsync(g);
-                    n++;
+                    var generated = await _engine.GenerateCasesAsync(id);
+                    if (generated.Count == 0)
+                        funcEmpty++;
+                    else
+                        funcWithCases++;
+                    if (generated.Count > 0)
+                    {
+                        await _store.InsertManyAsync(generated, _busyCts?.Token ?? default);
+                        casesWritten += generated.Count;
+                    }
+                }
+                catch (Exception ex)
+                {
+                    funcFailed++;
+                    LogLines.Insert(0, $"[{DateTime.Now:HH:mm:ss}] 跳过 {id}: {ex.Message}");
+                    if (LogLines.Count > 300) LogLines.RemoveAt(LogLines.Count - 1);
                 }
             }
-            StatusText = $"已对 {ids.Count} 个函数生成并保存 {n} 条用例（含读写成对/清标志草稿）。";
+
             await ReloadCasesAsync();
+            var filterNote = SelectedPeripheral == "(全部)"
+                ? $"库内用例共 {CaseTotalCount} 条"
+                : $"当前外设 {SelectedPeripheral} 用例 {CaseTotalCount} 条（左侧外设筛选用例表）";
+            StatusText =
+                $"生成完成：处理 {ids.Count} 个函数 → 写入 {casesWritten} 条用例（{funcWithCases} 个函数有产出，" +
+                $"{funcEmpty} 个无模板，{funcFailed} 个失败）。{filterNote}。" +
+                "说明：1 个函数常生成 1～2 条（如 draft + clear-check），不是 1:1；重复点生成会新增行而非覆盖。";
         }
         catch (Exception ex)
         {
             StatusText = "生成失败：" + ex.Message;
         }
-        finally { IsBusy = false; }
+        finally { EndBusy(); }
     }
 
     [RelayCommand]
@@ -272,19 +304,32 @@ public partial class AutomationTestViewModel : ObservableObject
             return;
         }
 
-        IsBusy = true;
+        BeginBusy("正在加载匹配函数列表…", indeterminate: true);
+        await Task.Yield();
         try
         {
             var peri = SelectedPeripheral == "(全部)" ? null : SelectedPeripheral;
+            var take = Math.Max(FunctionTotalCount, 1);
             var all = await _data.GetFunctionsAsync(
                 sdkProjectId: pid,
                 peripheralName: peri,
                 form: InlineForm,
                 skip: 0,
-                take: Math.Max(FunctionTotalCount, 1));
+                take: take);
+
             _checkedFunctionIds.Clear();
-            foreach (var f in all)
-                _checkedFunctionIds.Add(f.Id);
+            BeginBusy($"正在勾选 {all.Count} 个函数…", indeterminate: false, maximum: all.Count);
+            await Task.Yield();
+            for (var i = 0; i < all.Count; i++)
+            {
+                _checkedFunctionIds.Add(all[i].Id);
+                if (i % 80 == 0 || i == all.Count - 1)
+                {
+                    SetBusyProgress(i + 1, $"正在勾选 {i + 1}/{all.Count}…");
+                    await Task.Yield();
+                }
+            }
+
             foreach (var item in Functions)
                 item.IsSelected = _checkedFunctionIds.Contains(item.Function.Id);
             SyncCheckedCount();
@@ -295,7 +340,7 @@ public partial class AutomationTestViewModel : ObservableObject
         {
             StatusText = "全选失败：" + ex.Message;
         }
-        finally { IsBusy = false; }
+        finally { EndBusy(); }
     }
 
     [RelayCommand]
@@ -329,33 +374,60 @@ public partial class AutomationTestViewModel : ObservableObject
             return;
         }
 
-        IsBusy = true;
+        var totalFuncs = 0;
+        foreach (var peri in targets)
+        {
+            totalFuncs += await _data.CountFunctionsAsync(
+                sdkProjectId: pid, peripheralName: peri, form: InlineForm);
+        }
+
+        if (totalFuncs == 0)
+        {
+            StatusText = "没有可生成的 inline 函数";
+            return;
+        }
+
+        BeginBusy($"外设批量：{targets.Count} 个模块、{totalFuncs} 个函数…", indeterminate: false, maximum: totalFuncs);
+        ShowBusyCancel = true;
+        await Task.Yield();
+        var ct = _busyCts?.Token ?? CancellationToken.None;
         try
         {
-            var n = 0;
-            var periDone = 0;
+            var globalFuncDone = 0;
+            var totalCases = 0;
             foreach (var peri in targets)
             {
-                periDone++;
-                StatusText = $"正在批量生成 {peri}（{periDone}/{targets.Count}）…";
-                var generated = await _engine.GenerateCasesForPeripheralAsync(pid, peri, maxFunctions: 40);
-                foreach (var g in generated)
-                {
-                    await _store.UpsertAsync(g);
-                    n++;
-                }
+                var offset = globalFuncDone;
+                var (funcs, cases) = await _engine.GenerateAndSaveForPeripheralAsync(
+                    pid,
+                    peri,
+                    new Progress<(int FunctionIndex, int FunctionTotal, int CasesSaved, string PeripheralName)>(p =>
+                    {
+                        var done = offset + p.FunctionIndex;
+                        SetBusyProgress(
+                            done,
+                            $"{p.PeripheralName}：函数 {p.FunctionIndex}/{p.FunctionTotal}，已写入约 {p.CasesSaved} 条");
+                    }),
+                    ct);
+                globalFuncDone += funcs;
+                totalCases += cases;
             }
 
-            StatusText = targets.Count == 1
-                ? $"外设 {targets[0]}：已批量生成并保存 {n} 条（最多 40 个函数；含写读成对）。"
-                : $"全部外设（{targets.Count} 个）：已批量生成并保存 {n} 条（每外设最多 40 个函数；含写读成对）。";
             await ReloadCasesAsync();
+            StatusText = targets.Count == 1
+                ? $"外设 {targets[0]}：处理 {globalFuncDone} 个函数，写入 {totalCases} 条用例。库内共 {CaseTotalCount} 条。"
+                : $"全部外设（{targets.Count} 个）：处理 {globalFuncDone} 个函数，写入 {totalCases} 条用例。库内共 {CaseTotalCount} 条。";
+        }
+        catch (OperationCanceledException)
+        {
+            await ReloadCasesAsync();
+            StatusText = "外设批量生成已取消（已写入部分用例）";
         }
         catch (Exception ex)
         {
             StatusText = "批量生成失败：" + ex.Message;
         }
-        finally { IsBusy = false; }
+        finally { EndBusy(); }
     }
 
     [RelayCommand]
@@ -385,39 +457,84 @@ public partial class AutomationTestViewModel : ObservableObject
     [RelayCommand]
     private async Task DeleteCaseAsync()
     {
-        var ids = Cases.Where(c => c.IsSelected).Select(c => c.Case.Id).ToList();
-        if (ids.Count == 0 && SelectedCase is not null)
-            ids.Add(SelectedCase.Id);
+        var ids = GetSelectedCaseIds();
         if (ids.Count == 0)
         {
             StatusText = "请先勾选要删除的用例";
             return;
         }
 
-        var confirm = MessageBox.Show(
-            $"确认删除选中的 {ids.Count} 条测试用例及其运行记录？",
-            "批量删除",
-            MessageBoxButton.YesNo,
-            MessageBoxImage.Warning);
-        if (confirm != MessageBoxResult.Yes) return;
+        if (!ConfirmDialog.Show(
+                "批量删除",
+                $"确认删除选中的 {ids.Count} 条测试用例及其运行记录？",
+                confirmLabel: "删除",
+                cancelLabel: "取消",
+                dangerConfirm: true))
+            return;
 
         var n = await _store.DeleteManyAsync(ids);
+        _checkedCaseIds.Clear();
         StatusText = $"已删除 {n} 条用例";
         await ReloadCasesAsync();
     }
 
     [RelayCommand]
-    private void SelectAllCases()
+    private void SelectAllCasesOnPage()
     {
-        foreach (var c in Cases) c.IsSelected = true;
+        foreach (var c in Cases)
+        {
+            c.IsSelected = true;
+            _checkedCaseIds.Add(c.Case.Id);
+        }
         RefreshCaseSelectionUi();
+    }
+
+    [RelayCommand]
+    private async Task SelectAllMatchingCasesAsync()
+    {
+        if (ActiveProjectId is null)
+        {
+            StatusText = "无 SDK 项目";
+            return;
+        }
+
+        BeginBusy("正在加载筛选用例…", indeterminate: true);
+        await Task.Yield();
+        try
+        {
+            var all = await LoadFilteredCasesAsync();
+            _checkedCaseIds.Clear();
+            BeginBusy($"正在勾选 {all.Count} 条用例…", indeterminate: false, maximum: all.Count);
+            await Task.Yield();
+            for (var i = 0; i < all.Count; i++)
+            {
+                _checkedCaseIds.Add(all[i].Id);
+                if (i % 100 == 0 || i == all.Count - 1)
+                {
+                    SetBusyProgress(i + 1, $"正在勾选 {i + 1}/{all.Count}…");
+                    await Task.Yield();
+                }
+            }
+
+            foreach (var item in Cases)
+                item.IsSelected = _checkedCaseIds.Contains(item.Case.Id);
+            RefreshCaseSelectionUi();
+            StatusText = $"已勾选当前筛选全部 {_checkedCaseIds.Count} 条用例（跨页；删除/运行作用于全部勾选）";
+        }
+        catch (Exception ex)
+        {
+            StatusText = "全选用例失败：" + ex.Message;
+        }
+        finally { EndBusy(); }
     }
 
     [RelayCommand]
     private void ClearCaseSelection()
     {
+        _checkedCaseIds.Clear();
         foreach (var c in Cases) c.IsSelected = false;
         RefreshCaseSelectionUi();
+        StatusText = "已清空用例勾选";
     }
 
     [RelayCommand]
@@ -435,7 +552,7 @@ public partial class AutomationTestViewModel : ObservableObject
         if (Cases.Count == 0) return;
         var dlg = new SaveFileDialog { Filter = "JSON|*.json", FileName = "ll-test-cases.json" };
         if (dlg.ShowDialog() != true) return;
-        var exportIds = Cases.Where(c => c.IsSelected).Select(c => c.Case.Id).ToList();
+        var exportIds = GetSelectedCaseIds();
         if (exportIds.Count == 0)
         {
             var all = await LoadFilteredCasesAsync();
@@ -461,9 +578,7 @@ public partial class AutomationTestViewModel : ObservableObject
     [RelayCommand]
     private async Task RunSelectedAsync()
     {
-        var runIds = Cases.Where(c => c.IsSelected).Select(c => c.Case.Id).ToList();
-        if (runIds.Count == 0 && SelectedCase is not null)
-            runIds.Add(SelectedCase.Id);
+        var runIds = GetSelectedCaseIds();
         if (runIds.Count == 0)
         {
             StatusText = "请勾选要运行的用例";
@@ -501,23 +616,51 @@ public partial class AutomationTestViewModel : ObservableObject
     [RelayCommand]
     private async Task MarkListedReadyAsync()
     {
-        var all = await LoadFilteredCasesAsync();
-        var n = 0;
-        foreach (var c in all.Where(x => x.Status != "Ready"))
+        if (ActiveProjectId is not Guid pid)
         {
-            var edit = Infrastructure.TestEngine.LlTestCaseStore.ToEdit(c);
-            edit.Status = "Ready";
-            await _store.UpsertAsync(edit);
-            n++;
+            StatusText = "无 SDK 项目";
+            return;
         }
-        StatusText = $"已将当前筛选内 {n} 条标为 Ready";
-        await ReloadCasesAsync();
+
+        var peri = CasePeripheralFilter();
+        var search = string.IsNullOrWhiteSpace(CaseSearchText) ? null : CaseSearchText.Trim();
+        var pending = await _store.CountFilteredNotReadyAsync(pid, peri, search);
+        if (pending == 0)
+        {
+            StatusText = "当前筛选内没有可标记的用例（已全部 Ready 或无匹配）";
+            return;
+        }
+
+        BeginBusy($"正在将 {pending} 条用例标为 Ready…", indeterminate: true);
+        await Task.Yield();
+        try
+        {
+            var n = await _store.MarkFilteredReadyAsync(
+                pid, peri, search, _busyCts?.Token ?? CancellationToken.None);
+            await ReloadCasesAsync();
+            var scope = peri is null && search is null
+                ? "当前项目全部筛选用例"
+                : $"外设/搜索筛选（{SelectedPeripheral}{(string.IsNullOrWhiteSpace(search) ? "" : " · 含搜索")}）";
+            StatusText = $"已将 {scope} 内 {n} 条标为 Ready";
+        }
+        catch (OperationCanceledException)
+        {
+            StatusText = "标 Ready 已取消";
+        }
+        catch (Exception ex)
+        {
+            StatusText = "标 Ready 失败：" + ex.Message;
+        }
+        finally
+        {
+            EndBusy();
+        }
     }
 
     [RelayCommand]
     private void CancelRun()
     {
-        _runCts?.Cancel();
+        _busyCts?.Cancel();
         StatusText = "正在取消…";
     }
 
@@ -526,6 +669,7 @@ public partial class AutomationTestViewModel : ObservableObject
         FunctionPageIndex = 1;
         CasePageIndex = 1;
         _checkedFunctionIds.Clear();
+        _checkedCaseIds.Clear();
         SyncCheckedCount();
         _ = ReloadFunctionsAsync();
         _ = ReloadCasesAsync();
@@ -535,6 +679,7 @@ public partial class AutomationTestViewModel : ObservableObject
     private async Task SearchCasesAsync()
     {
         CasePageIndex = 1;
+        _checkedCaseIds.Clear();
         await ReloadCasesAsync();
     }
 
@@ -627,7 +772,14 @@ public partial class AutomationTestViewModel : ObservableObject
     partial void OnIsAllCasesSelectedChanged(bool value)
     {
         if (_suppressCaseAllSelectedSync) return;
-        foreach (var c in Cases) c.IsSelected = value;
+        foreach (var c in Cases)
+        {
+            c.IsSelected = value;
+            if (value)
+                _checkedCaseIds.Add(c.Case.Id);
+            else
+                _checkedCaseIds.Remove(c.Case.Id);
+        }
         RefreshCaseSelectionUi(updateAllFlag: false);
     }
 
@@ -672,12 +824,12 @@ public partial class AutomationTestViewModel : ObservableObject
             return;
         }
 
-        var confirm = MessageBox.Show(
-            $"确认删除选中的 {ids.Count} 条运行记录？（不删除测试用例本身）",
-            "删除运行记录",
-            MessageBoxButton.YesNo,
-            MessageBoxImage.Warning);
-        if (confirm != MessageBoxResult.Yes) return;
+        if (!ConfirmDialog.Show(
+                "删除运行记录",
+                $"确认删除选中的 {ids.Count} 条运行记录？（不删除测试用例本身）",
+                confirmLabel: "删除",
+                dangerConfirm: true))
+            return;
 
         var n = await _store.DeleteRunsAsync(ids);
         StatusText = $"已删除 {n} 条运行记录";
@@ -735,13 +887,21 @@ public partial class AutomationTestViewModel : ObservableObject
 
     private async Task RunInternalAsync(IReadOnlyList<Guid> ids)
     {
-        IsBusy = true;
-        _runCts = new CancellationTokenSource();
+        BeginBusy($"准备执行 {ids.Count} 条用例…", indeterminate: false, maximum: ids.Count);
+        ShowBusyCancel = true;
+        await Task.Yield();
         LogLines.Clear();
+        var ct = _busyCts?.Token ?? CancellationToken.None;
+        var runIndex = 0;
         var progress = new Progress<string>(m =>
         {
             Application.Current.Dispatcher.Invoke(() =>
             {
+                if (m.StartsWith("运行用例", StringComparison.Ordinal))
+                {
+                    runIndex = Math.Min(runIndex + 1, ids.Count);
+                    SetBusyProgress(runIndex, $"执行中 {runIndex}/{ids.Count}（虚拟 MCU）…");
+                }
                 LogLines.Insert(0, $"[{DateTime.Now:HH:mm:ss}] {m}");
                 if (LogLines.Count > 300) LogLines.RemoveAt(LogLines.Count - 1);
             });
@@ -749,7 +909,7 @@ public partial class AutomationTestViewModel : ObservableObject
         try
         {
             StatusText = "测试执行中（虚拟 MCU，非真实硬件）…";
-            var results = await _engine.RunManyAsync(ids, progress, _runCts.Token);
+            var results = await _engine.RunManyAsync(ids, progress, ct);
             var passed = results.Count(r => r.Status == Core.Enums.LlTestRunStatus.Passed);
             StatusText = $"完成：{passed}/{results.Count} Passed（虚拟环境结果）";
             await ReloadRunsAsync();
@@ -770,9 +930,41 @@ public partial class AutomationTestViewModel : ObservableObject
         }
         finally
         {
-            IsBusy = false;
-            _runCts = null;
+            EndBusy();
         }
+    }
+
+    private void BeginBusy(string text, bool indeterminate = true, double maximum = 100)
+    {
+        _busyCts?.Cancel();
+        _busyCts?.Dispose();
+        _busyCts = new CancellationTokenSource();
+        IsBusy = true;
+        BusyOverlayText = text;
+        StatusText = text;
+        IsProgressIndeterminate = indeterminate;
+        ProgressMaximum = Math.Max(1, maximum);
+        ProgressValue = 0;
+        ShowBusyCancel = false;
+    }
+
+    private void SetBusyProgress(double value, string text)
+    {
+        IsProgressIndeterminate = false;
+        ProgressValue = Math.Min(value, ProgressMaximum);
+        BusyOverlayText = text;
+        StatusText = text;
+    }
+
+    private void EndBusy()
+    {
+        ShowBusyCancel = false;
+        IsBusy = false;
+        BusyOverlayText = string.Empty;
+        IsProgressIndeterminate = true;
+        ProgressValue = 0;
+        _busyCts?.Dispose();
+        _busyCts = null;
     }
 
     private async Task ReloadFunctionsAsync()
@@ -871,8 +1063,8 @@ public partial class AutomationTestViewModel : ObservableObject
         Cases.Clear();
         foreach (var c in list)
         {
-            var item = new CasePickItem(c);
-            item.SelectionChanged += _ => RefreshCaseSelectionUi();
+            var item = new CasePickItem(c, _checkedCaseIds.Contains(c.Id));
+            item.SelectionChanged += OnCaseItemSelectionChanged;
             Cases.Add(item);
         }
         SelectedCaseItem = Cases.FirstOrDefault(x => x.Case.Id == selectedId) ?? Cases.FirstOrDefault();
@@ -888,10 +1080,32 @@ public partial class AutomationTestViewModel : ObservableObject
         return await _store.ListFilteredAsync(pid, CasePeripheralFilter(), search);
     }
 
+    private void OnCaseItemSelectionChanged(CasePickItem item)
+    {
+        if (item.IsSelected)
+            _checkedCaseIds.Add(item.Case.Id);
+        else
+            _checkedCaseIds.Remove(item.Case.Id);
+        RefreshCaseSelectionUi();
+    }
+
+    private IReadOnlyList<Guid> GetSelectedCaseIds()
+    {
+        if (_checkedCaseIds.Count > 0)
+            return _checkedCaseIds.ToList();
+        var onPage = Cases.Where(c => c.IsSelected).Select(c => c.Case.Id).ToList();
+        if (onPage.Count > 0)
+            return onPage;
+        return SelectedCase is not null ? new[] { SelectedCase.Id } : Array.Empty<Guid>();
+    }
+
     private void RefreshCaseSelectionUi(bool updateAllFlag = true)
     {
-        var n = Cases.Count(c => c.IsSelected);
-        CaseCheckedCountText = $"已勾选用例 {n}";
+        var crossPage = _checkedCaseIds.Count;
+        var onPage = Cases.Count(c => c.IsSelected);
+        CaseCheckedCountText = crossPage > 0
+            ? $"已勾选 {crossPage} 条（含跨页）"
+            : $"已勾选用例 {onPage}";
         if (!updateAllFlag) return;
         _suppressCaseAllSelectedSync = true;
         IsAllCasesSelected = Cases.Count > 0 && Cases.All(c => c.IsSelected);
@@ -994,7 +1208,11 @@ public sealed class CasePickItem : ObservableObject
 {
     private bool _isSelected;
 
-    public CasePickItem(LlTestCase testCase) => Case = testCase;
+    public CasePickItem(LlTestCase testCase, bool isSelected = false)
+    {
+        Case = testCase;
+        _isSelected = isSelected;
+    }
 
     public LlTestCase Case { get; }
     public string Name => Case.Name;

@@ -29,6 +29,22 @@ public interface ILlTestCaseStore
 
     Task<LlTestCase> UpsertAsync(LlTestCaseEditModel model, CancellationToken cancellationToken = default);
 
+    /// <summary>Insert many new auto-generated cases in one transaction (models must have Id = null).</summary>
+    Task<int> InsertManyAsync(IReadOnlyList<LlTestCaseEditModel> models, CancellationToken cancellationToken = default);
+
+    /// <summary>Bulk set Status=Ready for cases matching the same filters as the case list (non-Ready only).</summary>
+    Task<int> MarkFilteredReadyAsync(
+        Guid sdkProjectId,
+        string? peripheralName = null,
+        string? searchText = null,
+        CancellationToken cancellationToken = default);
+
+    Task<int> CountFilteredNotReadyAsync(
+        Guid sdkProjectId,
+        string? peripheralName = null,
+        string? searchText = null,
+        CancellationToken cancellationToken = default);
+
     Task DeleteAsync(Guid id, CancellationToken cancellationToken = default);
 
     Task<int> DeleteManyAsync(IEnumerable<Guid> ids, CancellationToken cancellationToken = default);

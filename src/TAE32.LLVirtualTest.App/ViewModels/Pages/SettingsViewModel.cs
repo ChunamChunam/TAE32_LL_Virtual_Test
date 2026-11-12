@@ -4,6 +4,7 @@ using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
 using Microsoft.Win32;
 using TAE32.LLVirtualTest.App.Services;
+using TAE32.LLVirtualTest.App.Views.Dialogs;
 using TAE32.LLVirtualTest.Core.Interfaces;
 
 namespace TAE32.LLVirtualTest.App.ViewModels.Pages;
@@ -58,7 +59,7 @@ public partial class SettingsViewModel : ObservableObject
         catch (Exception ex)
         {
             StatusText = "备份失败：" + ex.Message;
-            MessageBox.Show(ex.Message, "备份失败");
+            MessageDialog.Show("备份失败", ex.Message);
         }
     }
 
@@ -67,10 +68,12 @@ public partial class SettingsViewModel : ObservableObject
     {
         var dlg = new OpenFileDialog { Filter = "SQLite DB|*.db|All|*.*", Title = "选择备份数据库" };
         if (dlg.ShowDialog() != true) return;
-        var confirm = MessageBox.Show(
-            "恢复将覆盖当前数据库（会先另存 pre_restore 副本）。需重启应用后生效。继续？",
-            "确认恢复", MessageBoxButton.YesNo, MessageBoxImage.Warning);
-        if (confirm != MessageBoxResult.Yes) return;
+        if (!ConfirmDialog.Show(
+                "确认恢复",
+                "恢复将覆盖当前数据库（会先另存 pre_restore 副本）。需重启应用后生效。继续？",
+                confirmLabel: "恢复",
+                dangerConfirm: true))
+            return;
         try
         {
             await _maintenance.RestoreDatabaseAsync(dlg.FileName);
@@ -79,7 +82,7 @@ public partial class SettingsViewModel : ObservableObject
         catch (Exception ex)
         {
             StatusText = "恢复失败：" + ex.Message;
-            MessageBox.Show(ex.Message, "恢复失败");
+            MessageDialog.Show("恢复失败", ex.Message);
         }
     }
 

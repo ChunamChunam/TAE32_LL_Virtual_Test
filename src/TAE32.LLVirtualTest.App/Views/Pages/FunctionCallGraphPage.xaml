@@ -29,7 +29,7 @@
           <ColumnDefinition Width="Auto"/>
         </Grid.ColumnDefinitions>
         <TextBox Grid.Column="0" Text="{Binding SearchText, UpdateSourceTrigger=PropertyChanged}"
-                 ToolTip="调用方 / 被调函数名"/>
+                 ToolTip="调用方 / 被调函数名；留空且选「(全部)」= 库内全部调用边（分页仅控制每页行数）"/>
         <ComboBox Grid.Column="1" Margin="8,0,0,0" ItemsSource="{Binding PeripheralFilters}"
                   SelectedItem="{Binding SelectedPeripheral}"/>
         <ComboBox Grid.Column="2" Margin="8,0,0,0" ItemsSource="{Binding CalleeKindFilters}"
@@ -48,7 +48,8 @@
           <Border DockPanel.Dock="Bottom" Style="{StaticResource GridPagerFooterStyle}">
             <DockPanel>
               <StackPanel DockPanel.Dock="Left" Orientation="Horizontal" VerticalAlignment="Center">
-                <TextBlock Text="每页" Foreground="{StaticResource BrushTextMuted}" VerticalAlignment="Center" Margin="0,0,8,0"/>
+                <TextBlock Text="每页行数" Foreground="{StaticResource BrushTextMuted}" VerticalAlignment="Center" Margin="0,0,8,0"
+                           ToolTip="仅限制单页显示行数，不限制查询总条数"/>
                 <ComboBox Width="72" ItemsSource="{Binding PageSizeOptions}" SelectedItem="{Binding PageSize}"/>
               </StackPanel>
               <StackPanel DockPanel.Dock="Right" Orientation="Horizontal">

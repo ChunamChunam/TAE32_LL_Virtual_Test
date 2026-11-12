@@ -68,11 +68,11 @@
               <Button Grid.Row="0" Grid.Column="0" Margin="0,0,0,6" Padding="8,4"
                       HorizontalAlignment="Stretch" HorizontalContentAlignment="Center"
                       Content="生成勾选" Command="{Binding GenerateCasesCommand}"
-                      ToolTip="对已勾选函数生成用例"/>
+                      ToolTip="对每个勾选函数生成 1～2+ 条用例（写读成对/Clear 等）；3628 函数≠3628 用例"/>
               <Button Grid.Row="0" Grid.Column="2" Margin="0,0,0,6" Padding="8,4"
                       HorizontalAlignment="Stretch" HorizontalContentAlignment="Center"
                       Content="外设批量" Command="{Binding GeneratePeripheralBatchCommand}"
-                      ToolTip="(全部)=所有外设；单外设=仅该模块"/>
+                      ToolTip="当前外设或全部 23 个外设：对该模块全部 inline 函数生成用例（无每外设数量上限）"/>
               <Button Grid.Row="1" Grid.Column="0" Margin="0,0,0,6" Padding="8,4"
                       HorizontalAlignment="Stretch" HorizontalContentAlignment="Center"
                       Content="全选匹配" Command="{Binding SelectAllMatchingCommand}"/>
@@ -150,7 +150,8 @@
                 <Button Content="Ready 批跑" Command="{Binding RunReadyBatchCommand}" Margin="0,0,4,4"/>
                 <Button Content="列表全跑" Command="{Binding RunAllListedCommand}" Margin="0,0,4,4"
                         ToolTip="当前左侧外设 + 搜索条件下的全部用例"/>
-                <Button Content="标 Ready" Command="{Binding MarkListedReadyCommand}" Margin="0,0,4,4"/>
+                <Button Content="标 Ready" Command="{Binding MarkListedReadyCommand}" Margin="0,0,4,4"
+                        ToolTip="将左侧外设 + 用例搜索条件下所有非 Ready 用例一次性标为 Ready（库内批量更新）"/>
                 <Button Content="取消" Command="{Binding CancelRunCommand}" Margin="0,0,4,4"/>
                 <Button Content="复制" Command="{Binding DuplicateCaseCommand}" Margin="0,0,4,4"/>
                 <Button Content="删除" Command="{Binding DeleteCaseCommand}" Margin="0,0,4,4"/>
@@ -164,16 +165,21 @@
                   <ColumnDefinition Width="Auto"/>
                   <ColumnDefinition Width="Auto"/>
                   <ColumnDefinition Width="Auto"/>
+                  <ColumnDefinition Width="Auto"/>
                 </Grid.ColumnDefinitions>
                 <TextBox Grid.Column="0" Text="{Binding CaseSearchText, UpdateSourceTrigger=PropertyChanged}"
                          ToolTip="名称 / 函数 / 外设 / 状态" Margin="0,0,8,0"/>
                 <Button Grid.Column="1" Style="{StaticResource GhostButtonStyle}" Content="查询"
                         Command="{Binding SearchCasesCommand}" Margin="0,0,8,0"/>
-                <CheckBox Grid.Column="2" Content="页全选" IsChecked="{Binding IsAllCasesSelected}"
-                          VerticalAlignment="Center" Margin="0,0,8,0"/>
-                <TextBlock Grid.Column="3" Text="{Binding CaseCheckedCountText}" Foreground="{StaticResource BrushAccent}"
+                <CheckBox Grid.Column="2" Content="本页全选" IsChecked="{Binding IsAllCasesSelected}"
+                          VerticalAlignment="Center" Margin="0,0,8,0"
+                          ToolTip="仅勾选当前页"/>
+                <Button Grid.Column="3" Style="{StaticResource GhostButtonStyle}" Content="全选匹配"
+                        Command="{Binding SelectAllMatchingCasesCommand}" Margin="0,0,8,0"
+                        ToolTip="勾选当前外设 + 搜索条件下的全部用例（跨所有分页）"/>
+                <TextBlock Grid.Column="4" Text="{Binding CaseCheckedCountText}" Foreground="{StaticResource BrushAccent}"
                            VerticalAlignment="Center" Margin="0,0,8,0"/>
-                <Button Grid.Column="4" Style="{StaticResource GhostButtonStyle}" Content="清空勾选"
+                <Button Grid.Column="5" Style="{StaticResource GhostButtonStyle}" Content="清空勾选"
                         Command="{Binding ClearCaseSelectionCommand}"/>
               </Grid>
               <Border DockPanel.Dock="Bottom" Style="{StaticResource GridPagerFooterStyle}" Margin="-10,-2,-10,-10"
@@ -339,14 +345,21 @@
       </TabControl>
     </Grid>
 
-    <Border Grid.RowSpan="2" Background="#990F1419"
+    <Border Grid.RowSpan="2" Background="#CC0F1419"
             Visibility="{Binding IsBusy, Converter={StaticResource BoolToVis}}">
-      <StackPanel VerticalAlignment="Center" HorizontalAlignment="Center">
-        <ProgressBar IsIndeterminate="True" Width="240" Height="4" Margin="0,0,0,12"/>
-        <TextBlock Text="测试执行中…" Foreground="{StaticResource BrushTextPrimary}" HorizontalAlignment="Center"/>
-        <TextBlock Text="{Binding StatusText}" Foreground="{StaticResource BrushTextMuted}" Margin="0,8,0,0"
-                   TextAlignment="Center" MaxWidth="400" TextWrapping="Wrap"/>
-        <Button Content="取消" Command="{Binding CancelRunCommand}" Margin="0,16,0,0" HorizontalAlignment="Center"/>
+      <StackPanel VerticalAlignment="Center" HorizontalAlignment="Center" MaxWidth="520" MinWidth="320">
+        <ProgressBar Height="6" Width="320" Margin="0,0,0,16"
+                     Minimum="0" Maximum="{Binding ProgressMaximum}" Value="{Binding ProgressValue}"
+                     IsIndeterminate="{Binding IsProgressIndeterminate}"
+                     Foreground="{StaticResource BrushAccent}" Background="{StaticResource BrushBorder}"/>
+        <TextBlock Text="{Binding BusyOverlayText}" Foreground="{StaticResource BrushTextPrimary}"
+                   FontSize="15" TextAlignment="Center" TextWrapping="Wrap"/>
+        <TextBlock Margin="0,10,0,0" Foreground="{StaticResource BrushTextMuted}" FontSize="12"
+                   TextAlignment="Center" TextWrapping="Wrap"
+                   Text="大批量操作可能持续数分钟，进度条未走完前请勿重复点击。"/>
+        <Button Content="取消" Command="{Binding CancelRunCommand}" Margin="0,20,0,0"
+                HorizontalAlignment="Center"
+                Visibility="{Binding ShowBusyCancel, Converter={StaticResource BoolToVis}}"/>
       </StackPanel>
     </Border>
   </Grid>

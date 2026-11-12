@@ -5,6 +5,7 @@ using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
 using Serilog;
 using TAE32.LLVirtualTest.App.Services;
+using TAE32.LLVirtualTest.App.Views.Dialogs;
 using TAE32.LLVirtualTest.App.ViewModels;
 using TAE32.LLVirtualTest.App.ViewModels.Pages;
 using TAE32.LLVirtualTest.Core.Interfaces;
@@ -26,7 +27,7 @@ public partial class App : Application
         DispatcherUnhandledException += (_, args) =>
         {
             Log.Error(args.Exception, "Dispatcher unhandled exception");
-            MessageBox.Show(args.Exception.Message, "TAE32 LL Virtual Test", MessageBoxButton.OK, MessageBoxImage.Error);
+            MessageDialog.Show("TAE32 LL Virtual Test", args.Exception.Message);
             args.Handled = true;
         };
         AppDomain.CurrentDomain.UnhandledException += (_, args) =>
@@ -88,7 +89,7 @@ public partial class App : Application
         catch (Exception ex)
         {
             Log.Error(ex, "Database initialization / auto-import failed");
-            MessageBox.Show($"数据库初始化或自动导入失败：{ex.Message}", "TAE32 LL Virtual Test", MessageBoxButton.OK, MessageBoxImage.Error);
+            MessageDialog.Show("TAE32 LL Virtual Test", $"数据库初始化或自动导入失败：{ex.Message}");
             Shutdown(-1);
             return;
         }
