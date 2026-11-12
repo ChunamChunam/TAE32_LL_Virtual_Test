@@ -27,7 +27,7 @@ public partial class SettingsViewModel : ObservableObject
     [ObservableProperty] private string _logDirectory = AppPaths.LogDirectory;
     [ObservableProperty] private string _diagnostics = string.Empty;
     [ObservableProperty] private string _statusText = "就绪";
-    [ObservableProperty] private string _note = "移除 SDK 项目仅删除数据库元数据，不会删除 SDKContent 中的原始文件。备份/恢复针对 SQLite 数据库文件。";
+    [ObservableProperty] private string _note = "数据库与日志位于程序目录下的 data 文件夹。移除 SDK 项目仅删除数据库元数据，不会删除 SDKContent 中的原始文件。";
 
     public SettingsViewModel(ISystemMaintenanceService maintenance, UiScaleService uiScale)
     {

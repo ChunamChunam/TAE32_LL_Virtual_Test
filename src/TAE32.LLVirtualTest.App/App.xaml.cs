@@ -44,6 +44,7 @@ public partial class App : Application
         Directory.CreateDirectory(AppPaths.DataDirectory);
         Directory.CreateDirectory(AppPaths.LogDirectory);
         SerilogConfigurator.Configure(AppPaths.LogDirectory);
+        TryMigrateLegacyDatabaseFromWorkspace();
 
         var services = new ServiceCollection();
         services.AddLogging(b =>
@@ -105,5 +106,26 @@ public partial class App : Application
         _services?.Dispose();
         Log.CloseAndFlush();
         base.OnExit(e);
+    }
+
+    private static void TryMigrateLegacyDatabaseFromWorkspace()
+    {
+        var target = AppPaths.DatabasePath;
+        if (File.Exists(target)) return;
+
+        var legacy = Path.Combine(AppPaths.WorkspaceRoot, "data", "tae32_ll_virtual_test.db");
+        if (!File.Exists(legacy)) return;
+        if (string.Equals(Path.GetFullPath(legacy), Path.GetFullPath(target), StringComparison.OrdinalIgnoreCase))
+            return;
+
+        try
+        {
+            File.Copy(legacy, target);
+            Log.Information("Migrated SQLite database from {Legacy} to {Target}", legacy, target);
+        }
+        catch (Exception ex)
+        {
+            Log.Warning(ex, "Could not migrate legacy database from {Legacy}", legacy);
+        }
     }
 }

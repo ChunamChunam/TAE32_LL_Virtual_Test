@@ -4,24 +4,44 @@ internal static class TestEnginePaths
 {
     public static string HostSdkIncludeDirectory()
     {
-        var baseDir = Path.GetDirectoryName(typeof(TestEnginePaths).Assembly.Location) ?? AppContext.BaseDirectory;
-        var shipped = Path.Combine(baseDir, "HostSdk");
-        if (Directory.Exists(shipped))
-            return shipped;
+        var roots = new List<string> { AppContext.BaseDirectory };
+        var loc = typeof(TestEnginePaths).Assembly.Location;
+        if (!string.IsNullOrEmpty(loc))
+        {
+            var asmDir = Path.GetDirectoryName(loc);
+            if (!string.IsNullOrEmpty(asmDir))
+                roots.Add(asmDir);
+        }
 
-        // dotnet run from project output may nest DLLs; walk up to find HostSdk next to Infrastructure.dll
+        foreach (var baseDir in roots.Distinct(StringComparer.OrdinalIgnoreCase))
+        {
+            foreach (var rel in new[] { "HostSdk", Path.Combine("TestEngine", "HostSdk") })
+            {
+                var candidate = Path.Combine(baseDir, rel);
+                if (Directory.Exists(candidate))
+                    return candidate;
+            }
+        }
+
+        var walk = roots[0];
         for (var i = 0; i < 6; i++)
         {
-            var candidate = Path.Combine(baseDir, "HostSdk");
-            if (Directory.Exists(candidate))
-                return candidate;
-            baseDir = Path.GetDirectoryName(baseDir) ?? baseDir;
+            foreach (var rel in new[] { "HostSdk", Path.Combine("TestEngine", "HostSdk") })
+            {
+                var candidate = Path.Combine(walk, rel);
+                if (Directory.Exists(candidate))
+                    return candidate;
+            }
+
+            walk = Path.GetDirectoryName(walk) ?? walk;
         }
+
+        var fallback = Path.Combine(AppContext.BaseDirectory, "HostSdk");
 
         // Development tree (TestEngine/HostSdk beside source)
         var dev = Path.GetFullPath(Path.Combine(
             AppContext.BaseDirectory,
             "..", "..", "..", "TestEngine", "HostSdk"));
-        return Directory.Exists(dev) ? dev : shipped;
+        return Directory.Exists(dev) ? dev : fallback;
     }
 }

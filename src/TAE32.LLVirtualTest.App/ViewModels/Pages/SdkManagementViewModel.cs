@@ -57,7 +57,7 @@ public partial class SdkManagementViewModel : ObservableObject
             var folderName = Path.GetFileName(SdkRootPath.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar));
             if (string.Equals(folderName, "LL", StringComparison.OrdinalIgnoreCase))
                 folderName = Path.GetFileName(Path.GetDirectoryName(SdkRootPath)!) ?? "SDK";
-            ScanResultsPath = Path.Combine(AppPaths.WorkspaceRoot, "data", "scan", Sanitize(folderName));
+            ScanResultsPath = Path.Combine(AppPaths.DataDirectory, "scan", Sanitize(folderName));
             if (string.IsNullOrWhiteSpace(NewName) || NewName == "TAE32G58xx DFP LL")
                 NewName = folderName;
             StatusMessage = $"已选择 SDK：{SdkRootPath}。扫描结果将输出到：{ScanResultsPath}";

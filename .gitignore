@@ -2,6 +2,7 @@
 **/bin/
 **/obj/
 **/out/
+/Publish/
 *.user
 *.suo
 *.userosscache

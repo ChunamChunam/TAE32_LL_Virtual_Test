@@ -4,22 +4,45 @@
     <ProjectReference Include="..\TAE32.LLVirtualTest.Core\TAE32.LLVirtualTest.Core.csproj" />
     <ProjectReference Include="..\TAE32.LLVirtualTest.Infrastructure\TAE32.LLVirtualTest.Infrastructure.csproj" />
     <ProjectReference Include="..\TAE32.LLVirtualTest.SDK\TAE32.LLVirtualTest.SDK.csproj" />
-    <ProjectReference Include="..\TAE32.LLVirtualTest.NativeRunner\TAE32.LLVirtualTest.NativeRunner.csproj">
-      <ReferenceOutputAssembly>false</ReferenceOutputAssembly>
-      <Private>false</Private>
-    </ProjectReference>
   </ItemGroup>
 
-  <!-- Copy out-of-process native harness runner beside the WPF app (AVE isolation). -->
-  <Target Name="CopyNativeRunner" AfterTargets="Build">
+  <!-- NativeRunner is a sibling exe (not ProjectReference — NETSDK1150 if App is self-contained). -->
+  <PropertyGroup>
+    <_NativeRunnerProj>$([System.IO.Path]::GetFullPath('$(MSBuildThisFileDirectory)..\TAE32.LLVirtualTest.NativeRunner\TAE32.LLVirtualTest.NativeRunner.csproj'))</_NativeRunnerProj>
+  </PropertyGroup>
+
+  <Target Name="BuildNativeRunner" BeforeTargets="CopyNativeRunner">
     <PropertyGroup>
-      <_NativeRunnerOut>$([System.IO.Path]::GetFullPath('$(MSBuildThisFileDirectory)..\TAE32.LLVirtualTest.NativeRunner\bin\$(Configuration)\net8.0\'))</_NativeRunnerOut>
+      <_NrSelfContained Condition="'$(SelfContained)' == 'true'">true</_NrSelfContained>
+      <_NrSelfContained Condition="'$(_NrSelfContained)' == ''">false</_NrSelfContained>
+      <_NrRid>$(RuntimeIdentifier)</_NrRid>
+    </PropertyGroup>
+  </Target>
+
+  <Target Name="BuildNativeRunnerCore" DependsOnTargets="BuildNativeRunner" BeforeTargets="CopyNativeRunner">
+    <MSBuild Condition="'$(_NrRid)' != ''"
+             Projects="$(_NativeRunnerProj)"
+             Targets="Publish"
+             Properties="Configuration=$(Configuration);RuntimeIdentifier=$(_NrRid);SelfContained=$(_NrSelfContained);PublishProfile=;PublishDir=$([System.IO.Path]::GetFullPath('$(MSBuildThisFileDirectory)..\TAE32.LLVirtualTest.NativeRunner\bin\$(Configuration)\net8.0\$(_NrRid)\native-runner-publish\'))" />
+    <MSBuild Condition="'$(_NrRid)' == ''"
+             Projects="$(_NativeRunnerProj)"
+             Targets="Build"
+             Properties="Configuration=$(Configuration)" />
+  </Target>
+
+  <!-- Copy out-of-process native harness runner beside the WPF app (AVE isolation). -->
+  <Target Name="CopyNativeRunner" AfterTargets="Build;Publish">
+    <PropertyGroup>
+      <_NativeRunnerOut Condition="'$(_NrRid)' == ''">$([System.IO.Path]::GetFullPath('$(MSBuildThisFileDirectory)..\TAE32.LLVirtualTest.NativeRunner\bin\$(Configuration)\net8.0\'))</_NativeRunnerOut>
+      <_NativeRunnerOut Condition="'$(_NrRid)' != ''">$([System.IO.Path]::GetFullPath('$(MSBuildThisFileDirectory)..\TAE32.LLVirtualTest.NativeRunner\bin\$(Configuration)\net8.0\$(_NrRid)\native-runner-publish\'))</_NativeRunnerOut>
+      <_CopyDest Condition="'$(PublishDir)' != '' and Exists('$(PublishDir)')">$(PublishDir)</_CopyDest>
+      <_CopyDest Condition="'$(_CopyDest)' == ''">$(OutputPath)</_CopyDest>
     </PropertyGroup>
     <ItemGroup>
       <_NativeRunnerFiles Include="$(_NativeRunnerOut)**\*.*" Condition="Exists('$(_NativeRunnerOut)')" />
     </ItemGroup>
     <Copy SourceFiles="@(_NativeRunnerFiles)"
-          DestinationFolder="$(OutputPath)"
+          DestinationFolder="$(_CopyDest)"
           SkipUnchangedFiles="true"
           Condition="'@(_NativeRunnerFiles)' != ''" />
   </Target>
@@ -45,6 +68,11 @@
     <UseWPF>true</UseWPF>
     <ApplicationManifest>app.manifest</ApplicationManifest>
     <ApplicationHighDpiMode>PerMonitorV2</ApplicationHighDpiMode>
+  </PropertyGroup>
+
+  <!-- Single-file publish (FolderProfile): native clang + content beside exe -->
+  <PropertyGroup Condition="'$(PublishSingleFile)' == 'true'">
+    <IncludeNativeLibrariesForSelfExtract>true</IncludeNativeLibrariesForSelfExtract>
   </PropertyGroup>
 
 </Project>

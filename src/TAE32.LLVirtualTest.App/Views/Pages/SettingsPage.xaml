@@ -41,7 +41,7 @@
           <TextBlock Text="工作区根目录" FontSize="12" Foreground="{StaticResource BrushTextMuted}"/>
           <TextBox Margin="0,6,0,10" IsReadOnly="True" FontFamily="Consolas" FontSize="12"
                    Text="{Binding WorkspaceRoot, Mode=OneWay}" TextWrapping="Wrap"/>
-          <TextBlock Text="SQLite 数据库" FontSize="12" Foreground="{StaticResource BrushTextMuted}"/>
+          <TextBlock Text="SQLite 数据库（程序目录\data）" FontSize="12" Foreground="{StaticResource BrushTextMuted}"/>
           <TextBox Margin="0,6,0,10" IsReadOnly="True" FontFamily="Consolas" FontSize="12"
                    Text="{Binding DatabasePath, Mode=OneWay}" TextWrapping="Wrap"/>
           <TextBlock Text="应用日志目录" FontSize="12" Foreground="{StaticResource BrushTextMuted}"/>
