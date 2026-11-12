@@ -1,0 +1,24 @@
+---
+description: TAE32 LL Phase-1 confirmed structure baseline — mandatory for all later work
+alwaysApply: true
+---
+
+# TAE32 LL 结构基线（已人工确认）
+
+后续所有开发、解析、建模必须以已确认基线为准，禁止臆造芯片/外设/函数/寄存器。
+
+## 权威文件（按此读取）
+
+- `KnowledgeBase/01_TAE32_LL_Structure_Baseline.md`
+- `KnowledgeBase/01_TAE32_LL_Structure_Baseline.json`
+- 详细证据：`ScanResults/01_*`～`08_*`
+
+## 硬约束
+
+1. 芯片系列：**TAE32G58xx**（当前仅此系列；勿另推型号）。
+2. 外设：**23 个模块**（含 CORTEX）；`ll.h` / `ll_def.h` 为公共文件，不算外设。
+3. 定时器独立模块映射：GPTMRX→TMR0/1/2；GPTMRY→TMR3/4；LPTMR→TMR6；BSTMR→TMR7/8；ADTMR→TMR9/10。
+4. LL 主计数口径：仅 `__STATIC_INLINE` 等 inline **定义**（合计 3628）。
+5. SDK LL 根：`SDKContent/Tai-Action.TAE32G58xx_DFP.2.0.0 ReleaseV2.0.0/LL`（只读，勿改原始源码）。
+6. 设备头 `tae32g58xx.h` / `tae32g58xx_ll_conf.h` 不在 LL 目录；缺失内容不得虚构。
+7. 目标架构仍为 C# / WPF / MVVM；阶段门禁见 `AGENTS.md`（当前 Phase 7 等待人工确认）。

@@ -1,0 +1,33 @@
+TAE32 LL Phase-1 Directory Tree
+Generated: 2026-11-12T03:03:34Z
+Scan package: d:\Code\12_TAE32_LL_Virtual_Test\SDKContent\Tai-Action.TAE32G58xx_DFP.2.0.0 ReleaseV2.0.0
+LL root: d:\Code\12_TAE32_LL_Virtual_Test\SDKContent\Tai-Action.TAE32G58xx_DFP.2.0.0 ReleaseV2.0.0\LL
+========================================================================
+
+d:/Code/12_TAE32_LL_Virtual_Test/SDKContent/Tai-Action.TAE32G58xx_DFP.2.0.0 ReleaseV2.0.0/
+└── LL/
+    ├── tae32g58xx_ll.h  (2953 bytes)
+    ├── tae32g58xx_ll_adc.h  (163894 bytes)
+    ├── tae32g58xx_ll_adtmr.h  (137931 bytes)
+    ├── tae32g58xx_ll_bstmr.h  (26104 bytes)
+    ├── tae32g58xx_ll_can.h  (230473 bytes)
+    ├── tae32g58xx_ll_cmp.h  (25005 bytes)
+    ├── tae32g58xx_ll_cortex.h  (11889 bytes)
+    ├── tae32g58xx_ll_dac.h  (35401 bytes)
+    ├── tae32g58xx_ll_def.h  (23884 bytes)
+    ├── tae32g58xx_ll_dma.h  (40332 bytes)
+    ├── tae32g58xx_ll_eflash.h  (65483 bytes)
+    ├── tae32g58xx_ll_gpio.h  (22312 bytes)
+    ├── tae32g58xx_ll_gptmrx.h  (104500 bytes)
+    ├── tae32g58xx_ll_gptmry.h  (105844 bytes)
+    ├── tae32g58xx_ll_hrpwm.h  (606330 bytes)
+    ├── tae32g58xx_ll_i2c.h  (106647 bytes)
+    ├── tae32g58xx_ll_iir.h  (29806 bytes)
+    ├── tae32g58xx_ll_iwdg.h  (12684 bytes)
+    ├── tae32g58xx_ll_lptmr.h  (46459 bytes)
+    ├── tae32g58xx_ll_qei.h  (60917 bytes)
+    ├── tae32g58xx_ll_rcu.h  (223084 bytes)
+    ├── tae32g58xx_ll_spi.h  (72276 bytes)
+    ├── tae32g58xx_ll_sysctrl.h  (96491 bytes)
+    ├── tae32g58xx_ll_uart.h  (74224 bytes)
+    └── tae32g58xx_ll_wwdg.h  (9185 bytes)

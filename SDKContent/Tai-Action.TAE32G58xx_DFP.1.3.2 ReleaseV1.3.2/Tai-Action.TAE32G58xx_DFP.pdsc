@@ -1,0 +1,1191 @@
+<?xml version="1.0" encoding="utf-8"?>
+
+<package schemaVersion="1.4" xmlns:xs="http://www.w3.org/2001/XMLSchema-instance" xs:noNamespaceSchemaLocation="PACK.xsd">
+  <vendor>Tai-Action</vendor>
+  <name>TAE32G58xx_DFP</name>
+  <description>Device Family Pack For Tai-Action TAE32 Series</description>
+  <url>https://www.keil.com/pack/</url>
+  <supportContact>http://www.tai-action.com</supportContact>
+  <supportContact>https://www.tai-micro.com</supportContact>
+  <!-- optional license file -->
+  <!--
+  <license>
+  </license>
+  -->
+
+  <releases>
+    <release version="1.3.2" date="2026-06-09">
+		Update to match V1.3.2 SDK Release.
+	</release>
+  </releases>
+
+  <keywords>
+    <!-- keywords for indexing -->
+    <keyword>Tai-Action</keyword>
+    <keyword>TAE</keyword>
+    <keyword>TAE32</keyword>
+    <keyword>TAE32G58xx</keyword>
+    <keyword>Device Support</keyword>
+    <keyword>Device Family Package Tai-Action</keyword>
+  </keywords>
+
+  <taxonomy>
+    <description Cclass="TAE Device">TAE Device System and Startup</description>
+    <description Cclass="TAE Drivers">TAE LL Module Drivers</description>
+    <description Cclass="TAE Middlewares">TAE Middlewares Drivers</description>
+    <description Cclass="TAE Utilities">TAE Utilities Drivers</description>
+  </taxonomy>
+
+  <!-- devices section (mandatory for Device Family Packs) -->
+  <devices>
+    <family Dfamily="TAE32 Series" Dvendor="Tai-Action:166">
+      <processor Dcore="Cortex-M4" DcoreVersion="r0p1" Dfpu="1" Dmpu="0" Dendian="Little-endian"/>
+      <debug svd="SVD/TAE32G58xx.svd"/>
+      <description>
+        The TAE32 Series device family contains an ARM Cortex-M4 processor, running up to 200 MHz with a versatile set of on-chip peripherals.
+      </description>
+      <!-- ************************  Subfamily 'TAE32G58xx'  **************************** -->
+      <subFamily DsubFamily="TAE32G58xx">
+        <processor  Dclock="200000000"/>
+        <!-- *************************  Device 'TAE32G5800'  ***************************** -->
+        <device Dname="TAE32G5800">
+          <!-- Memory Map -->
+          <memory     id="IROM1"                      start="0x08000000"  size="0x40000"    startup="1"   default="1"/>
+          <!--memory     id="IROM2"                      start="0x18000000"  size="0x6000"    startup="0"   default="0"/-->
+          <memory     id="IRAM1"                      start="0x20000000"  size="0x10000"    uninit ="0"   default="1"/>
+          <memory     id="IRAM2"                      start="0x20010000"  size="0x10000"    uninit ="0"   default="0"/>
+          <!-- Debug port -->
+          <debugconfig default="swd" clock="5000000">
+            <swj>1</swj>
+          </debugconfig>
+          <!-- Flash Download Algorithm -->
+          <algorithm name="Flash/TAE32G58xx_128kB.FLM" start="0x08000000" size="0x20000" RAMstart="0x20000000" RAMsize="0x8000" default="0"/>
+          <algorithm name="Flash/TAE32G58xx_256kB.FLM" start="0x08000000" size="0x40000" RAMstart="0x20000000" RAMsize="0x8000" default="1"/>
+        </device>
+      </subFamily>
+    </family>
+  </devices>
+
+
+  <!-- conditions section (optional for all Software Packs)-->
+  <conditions>
+    <condition id="TAE32 CMSIS-CORE">
+      <!-- conditions selecting Devices -->
+      <description>Tai-Action TAE32 Series devices and CMSIS-CORE</description>
+      <!--require Cclass="CMSIS" Cgroup="CORE"/-->
+      <require Dvendor="Tai-Action:166" Dname="TAE32*"/>
+    </condition>
+    <condition id="Startup ARM">
+      <description>Startup assembler file for ARMCC</description>
+      <require Tcompiler="ARMCC"/>
+    </condition>
+    <condition id="Startup GCC">
+      <description>Startup assembler file for GCC</description>
+      <require Tcompiler="GCC"/>
+    </condition>
+    <condition id="Startup IAR">
+      <description>Startup assembler file for IAR</description>
+      <require Tcompiler="IAR"/>
+    </condition>
+  </conditions>
+
+
+  <!-- component section (optional for all Software Packs)-->
+  <components>
+    <!-- TAE32G58xx Device Startup Config-->
+    <component Cclass="Device" Cgroup="Startup" Cversion="1.0.0" Condition="TAE32 CMSIS-CORE">
+      <description>Empty Startup for TAE32G58xx</description>
+    </component> 
+
+    <!-- TAE32G58xx Startup Config-->
+    <component Cclass="TAE Device" Cgroup="TAE32G58xx" Csub="Startup" Cversion="1.0.0" condition="TAE32 CMSIS-CORE">
+      <description>System and Startup for TAE32G58xx</description>
+      <files>
+        <!-- include folder -->
+        <file category="include" name="SDK/Drivers/TAE32G58xx_Device/Inc/"/>
+
+        <!-- startup file -->
+        <file category="source"  name="SDK/Drivers/TAE32G58xx_Device/Src/startup_tae32g58xx.c" condition="Startup ARM" version="1.0.0"/>
+        <file category="source"  name="SDK/Drivers/TAE32G58xx_Device/Src/startup_tae32g58xx.c" condition="Startup GCC" version="1.0.0"/>
+        <file category="source"  name="SDK/Drivers/TAE32G58xx_Device/Src/startup_tae32g58xx.c" condition="Startup IAR" version="1.0.0"/>
+
+        <!--  header file -->
+        <file category="header"  name="SDK/Drivers/TAE32G58xx_Device/Inc/tae32g58xx.h" version="1.0.0"/>
+
+        <!-- system file -->
+        <file category="source"  name="SDK/Drivers/TAE32G58xx_Device/Src/system_tae32g58xx.c"  version="1.0.0"/>
+      </files>
+    </component>
+
+
+    <!-- TAE32G58xx Driver Config-->
+    <component Cclass="TAE Drivers" Cgroup="TAE32G58xx" Csub="LL" Cversion="1.0.0" condition="TAE32 CMSIS-CORE">
+      <description>TAE32G58xx LL module driver</description>
+      <files>
+        <file category="include" name="SDK/Utilities/"/>
+        <file category="include" name="SDK/Drivers/TAE32G58xx_Driver/Inc/"/>
+        <file category="header"  name="SDK/Drivers/TAE32G58xx_Driver/Inc/tae32g58xx_ll.h" version="1.0.0"/>
+        <file category="source"  name="SDK/Drivers/TAE32G58xx_Driver/Src/tae32g58xx_ll.c" version="1.0.0"/>
+      </files>
+    </component>
+
+    <component Cclass="TAE Drivers" Cgroup="TAE32G58xx" Csub="CORTEX" Cversion="1.0.0" condition="TAE32 CMSIS-CORE">
+      <description>TAE32G58xx CORTEX LL module driver</description>
+      <files>
+        <file category="include" name="SDK/Utilities/"/>
+        <file category="include" name="SDK/Drivers/TAE32G58xx_Driver/Inc/"/>
+        <file category="header"  name="SDK/Drivers/TAE32G58xx_Driver/Inc/tae32g58xx_ll.h" version="1.0.0"/>
+        <file category="header"  name="SDK/Drivers/TAE32G58xx_Driver/Inc/tae32g58xx_ll_cortex.h" version="1.0.0"/>
+        <file category="source"  name="SDK/Drivers/TAE32G58xx_Driver/Src/tae32g58xx_ll_cortex.c" version="1.0.0"/>
+      </files>
+    </component>
+
+
+    <component Cclass="TAE Drivers" Cgroup="TAE32G58xx" Csub="ADC" Cversion="1.0.0" condition="TAE32 CMSIS-CORE">
+      <description>TAE32G58xx ADC LL module driver</description>
+      <files>
+        <file category="include" name="SDK/Utilities/"/>
+        <file category="include" name="SDK/Drivers/TAE32G58xx_Driver/Inc/"/>
+        <file category="header"  name="SDK/Drivers/TAE32G58xx_Driver/Inc/tae32g58xx_ll.h" version="1.0.0"/>
+        <file category="header"  name="SDK/Drivers/TAE32G58xx_Driver/Inc/tae32g58xx_ll_adc.h" version="1.0.0"/>
+        <file category="source"  name="SDK/Drivers/TAE32G58xx_Driver/Src/tae32g58xx_ll_adc.c" version="1.0.0"/>
+      </files>
+    </component>
+
+    <component Cclass="TAE Drivers" Cgroup="TAE32G58xx" Csub="CAN" Cversion="1.0.0" condition="TAE32 CMSIS-CORE">
+      <description>TAE32G58xx CAN LL module driver</description>
+      <files>
+        <file category="include" name="SDK/Utilities/"/>
+        <file category="include" name="SDK/Drivers/TAE32G58xx_Driver/Inc/"/>
+        <file category="header"  name="SDK/Drivers/TAE32G58xx_Driver/Inc/tae32g58xx_ll.h" version="1.0.0"/>
+        <file category="header"  name="SDK/Drivers/TAE32G58xx_Driver/Inc/tae32g58xx_ll_can.h" version="1.0.0"/>
+        <file category="source"  name="SDK/Drivers/TAE32G58xx_Driver/Src/tae32g58xx_ll_can.c" version="1.0.0"/>
+      </files>
+    </component>
+
+    <component Cclass="TAE Drivers" Cgroup="TAE32G58xx" Csub="CMP" Cversion="1.0.0" condition="TAE32 CMSIS-CORE">
+      <description>TAE32G58xx CMP LL module driver</description>
+      <files>
+        <file category="include" name="SDK/Utilities/"/>
+        <file category="include" name="SDK/Drivers/TAE32G58xx_Driver/Inc/"/>
+        <file category="header"  name="SDK/Drivers/TAE32G58xx_Driver/Inc/tae32g58xx_ll.h" version="1.0.0"/>
+        <file category="header"  name="SDK/Drivers/TAE32G58xx_Driver/Inc/tae32g58xx_ll_cmp.h" version="1.0.0"/>
+        <file category="source"  name="SDK/Drivers/TAE32G58xx_Driver/Src/tae32g58xx_ll_cmp.c" version="1.0.0"/>
+      </files>
+    </component>
+
+    <component Cclass="TAE Drivers" Cgroup="TAE32G58xx" Csub="CORDIC" Cversion="1.0.0" condition="TAE32 CMSIS-CORE">
+      <description>TAE32G58xx CORDIC LL module driver</description>
+      <files>
+        <file category="include" name="SDK/Utilities/"/>
+        <file category="include" name="SDK/Drivers/TAE32G58xx_Driver/Inc/"/>
+        <file category="header"  name="SDK/Drivers/TAE32G58xx_Driver/Inc/tae32g58xx_ll.h" version="1.0.0"/>
+        <file category="header"  name="SDK/Drivers/TAE32G58xx_Driver/Inc/tae32g58xx_ll_cordic.h" version="1.0.0"/>
+        <file category="source"  name="SDK/Drivers/TAE32G58xx_Driver/Src/tae32g58xx_ll_cordic.c" version="1.0.0"/>
+      </files>
+    </component>
+
+    <component Cclass="TAE Drivers" Cgroup="TAE32G58xx" Csub="DAC" Cversion="1.0.0" condition="TAE32 CMSIS-CORE">
+      <description>TAE32G58xx DAC LL module driver</description>
+      <files>
+        <file category="include" name="SDK/Utilities/"/>
+        <file category="include" name="SDK/Drivers/TAE32G58xx_Driver/Inc/"/>
+        <file category="header"  name="SDK/Drivers/TAE32G58xx_Driver/Inc/tae32g58xx_ll.h" version="1.0.0"/>
+        <file category="header"  name="SDK/Drivers/TAE32G58xx_Driver/Inc/tae32g58xx_ll_dac.h" version="1.0.0"/>
+        <file category="source"  name="SDK/Drivers/TAE32G58xx_Driver/Src/tae32g58xx_ll_dac.c" version="1.0.0"/>
+      </files>
+    </component>
+
+    <component Cclass="TAE Drivers" Cgroup="TAE32G58xx" Csub="DMA" Cversion="1.0.0" condition="TAE32 CMSIS-CORE">
+      <description>TAE32G58xx DMA LL module driver</description>
+      <files>
+        <file category="include" name="SDK/Utilities/"/>
+        <file category="include" name="SDK/Drivers/TAE32G58xx_Driver/Inc/"/>
+        <file category="header"  name="SDK/Drivers/TAE32G58xx_Driver/Inc/tae32g58xx_ll.h" version="1.0.0"/>
+        <file category="header"  name="SDK/Drivers/TAE32G58xx_Driver/Inc/tae32g58xx_ll_dma.h" version="1.0.0"/>
+        <file category="source"  name="SDK/Drivers/TAE32G58xx_Driver/Src/tae32g58xx_ll_dma.c" version="1.0.0"/>
+      </files>
+    </component>
+
+    <component Cclass="TAE Drivers" Cgroup="TAE32G58xx" Csub="EFLASH" Cversion="1.0.0" condition="TAE32 CMSIS-CORE">
+      <description>TAE32G58xx EFLASH LL module driver</description>
+      <files>
+        <file category="include" name="SDK/Utilities/"/>
+        <file category="include" name="SDK/Drivers/TAE32G58xx_Driver/Inc/"/>
+        <file category="header"  name="SDK/Drivers/TAE32G58xx_Driver/Inc/tae32g58xx_ll.h" version="1.0.0"/>
+        <file category="header"  name="SDK/Drivers/TAE32G58xx_Driver/Inc/tae32g58xx_ll_eflash.h" version="1.0.0"/>
+        <file category="source"  name="SDK/Drivers/TAE32G58xx_Driver/Src/tae32g58xx_ll_eflash.c" version="1.0.0"/>
+      </files>
+    </component>
+
+    <component Cclass="TAE Drivers" Cgroup="TAE32G58xx" Csub="GPIO" Cversion="1.0.0" condition="TAE32 CMSIS-CORE">
+      <description>TAE32G58xx GPIO LL module driver</description>
+      <files>
+        <file category="include" name="SDK/Utilities/"/>
+        <file category="include" name="SDK/Drivers/TAE32G58xx_Driver/Inc/"/>
+        <file category="header"  name="SDK/Drivers/TAE32G58xx_Driver/Inc/tae32g58xx_ll.h" version="1.0.0"/>
+        <file category="header"  name="SDK/Drivers/TAE32G58xx_Driver/Inc/tae32g58xx_ll_gpio.h" version="1.0.0"/>
+        <file category="source"  name="SDK/Drivers/TAE32G58xx_Driver/Src/tae32g58xx_ll_gpio.c" version="1.0.0"/>
+      </files>
+    </component>
+
+    <component Cclass="TAE Drivers" Cgroup="TAE32G58xx" Csub="HRPWM" Cversion="1.0.0" condition="TAE32 CMSIS-CORE">
+      <description>TAE32G58xx HRPWM LL module driver</description>
+      <files>
+        <file category="include" name="SDK/Utilities/"/>
+        <file category="include" name="SDK/Drivers/TAE32G58xx_Driver/Inc/"/>
+        <file category="header"  name="SDK/Drivers/TAE32G58xx_Driver/Inc/tae32g58xx_ll.h" version="1.0.0"/>
+        <file category="header"  name="SDK/Drivers/TAE32G58xx_Driver/Inc/tae32g58xx_ll_hrpwm.h" version="1.0.0"/>
+        <file category="source"  name="SDK/Drivers/TAE32G58xx_Driver/Src/tae32g58xx_ll_hrpwm.c" version="1.0.0"/>
+      </files>
+    </component>
+
+    <component Cclass="TAE Drivers" Cgroup="TAE32G58xx" Csub="I2C" Cversion="1.0.0" condition="TAE32 CMSIS-CORE">
+      <description>TAE32G58xx I2C LL module driver</description>
+      <files>
+        <file category="include" name="SDK/Utilities/"/>
+        <file category="include" name="SDK/Drivers/TAE32G58xx_Driver/Inc/"/>
+        <file category="header"  name="SDK/Drivers/TAE32G58xx_Driver/Inc/tae32g58xx_ll.h" version="1.0.0"/>
+        <file category="header"  name="SDK/Drivers/TAE32G58xx_Driver/Inc/tae32g58xx_ll_i2c.h" version="1.0.0"/>
+        <file category="source"  name="SDK/Drivers/TAE32G58xx_Driver/Src/tae32g58xx_ll_i2c.c" version="1.0.0"/>
+      </files>
+    </component>
+
+    <component Cclass="TAE Drivers" Cgroup="TAE32G58xx" Csub="IIR" Cversion="1.0.0" condition="TAE32 CMSIS-CORE">
+      <description>TAE32G58xx IIR LL module driver</description>
+      <files>
+        <file category="include" name="SDK/Utilities/"/>
+        <file category="include" name="SDK/Drivers/TAE32G58xx_Driver/Inc/"/>
+        <file category="header"  name="SDK/Drivers/TAE32G58xx_Driver/Inc/tae32g58xx_ll.h" version="1.0.0"/>
+        <file category="header"  name="SDK/Drivers/TAE32G58xx_Driver/Inc/tae32g58xx_ll_iir.h" version="1.0.0"/>
+        <file category="source"  name="SDK/Drivers/TAE32G58xx_Driver/Src/tae32g58xx_ll_iir.c" version="1.0.0"/>
+      </files>
+    </component>
+
+    <component Cclass="TAE Drivers" Cgroup="TAE32G58xx" Csub="IWDG" Cversion="1.0.0" condition="TAE32 CMSIS-CORE">
+      <description>TAE32G58xx IWDG LL module driver</description>
+      <files>
+        <file category="include" name="SDK/Utilities/"/>
+        <file category="include" name="SDK/Drivers/TAE32G58xx_Driver/Inc/"/>
+        <file category="header"  name="SDK/Drivers/TAE32G58xx_Driver/Inc/tae32g58xx_ll.h" version="1.0.0"/>
+        <file category="header"  name="SDK/Drivers/TAE32G58xx_Driver/Inc/tae32g58xx_ll_iwdg.h" version="1.0.0"/>
+        <file category="source"  name="SDK/Drivers/TAE32G58xx_Driver/Src/tae32g58xx_ll_iwdg.c" version="1.0.0"/>
+      </files>
+    </component>
+
+    <component Cclass="TAE Drivers" Cgroup="TAE32G58xx" Csub="PDM" Cversion="1.0.0" condition="TAE32 CMSIS-CORE">
+      <description>TAE32G58xx PDM LL module driver</description>
+      <files>
+        <file category="include" name="SDK/Utilities/"/>
+        <file category="include" name="SDK/Drivers/TAE32G58xx_Driver/Inc/"/>
+        <file category="header"  name="SDK/Drivers/TAE32G58xx_Driver/Inc/tae32g58xx_ll.h" version="1.0.0"/>
+        <file category="header"  name="SDK/Drivers/TAE32G58xx_Driver/Inc/tae32g58xx_ll_pdm.h" version="1.0.0"/>
+        <file category="source"  name="SDK/Drivers/TAE32G58xx_Driver/Src/tae32g58xx_ll_pdm.c" version="1.0.0"/>
+      </files>
+    </component>
+
+    <component Cclass="TAE Drivers" Cgroup="TAE32G58xx" Csub="QEI" Cversion="1.0.0" condition="TAE32 CMSIS-CORE">
+      <description>TAE32G58xx QEI LL module driver</description>
+      <files>
+        <file category="include" name="SDK/Utilities/"/>
+        <file category="include" name="SDK/Drivers/TAE32G58xx_Driver/Inc/"/>
+        <file category="header"  name="SDK/Drivers/TAE32G58xx_Driver/Inc/tae32g58xx_ll.h" version="1.0.0"/>
+        <file category="header"  name="SDK/Drivers/TAE32G58xx_Driver/Inc/tae32g58xx_ll_qei.h" version="1.0.0"/>
+        <file category="source"  name="SDK/Drivers/TAE32G58xx_Driver/Src/tae32g58xx_ll_qei.c" version="1.0.0"/>
+      </files>
+    </component>
+
+    <component Cclass="TAE Drivers" Cgroup="TAE32G58xx" Csub="RCU" Cversion="1.0.0" condition="TAE32 CMSIS-CORE">
+      <description>TAE32G58xx RCU LL module driver</description>
+      <files>
+        <file category="include" name="SDK/Utilities/"/>
+        <file category="include" name="SDK/Drivers/TAE32G58xx_Driver/Inc/"/>
+        <file category="header"  name="SDK/Drivers/TAE32G58xx_Driver/Inc/tae32g58xx_ll.h" version="1.0.0"/>
+        <file category="header"  name="SDK/Drivers/TAE32G58xx_Driver/Inc/tae32g58xx_ll_rcu.h" version="1.0.0"/>
+        <file category="source"  name="SDK/Drivers/TAE32G58xx_Driver/Src/tae32g58xx_ll_rcu.c" version="1.0.0"/>
+      </files>
+    </component>
+
+    <component Cclass="TAE Drivers" Cgroup="TAE32G58xx" Csub="SPI" Cversion="1.0.0" condition="TAE32 CMSIS-CORE">
+      <description>TAE32G58xx SPI LL module driver</description>
+      <files>
+        <file category="include" name="SDK/Utilities/"/>
+        <file category="include" name="SDK/Drivers/TAE32G58xx_Driver/Inc/"/>
+        <file category="header"  name="SDK/Drivers/TAE32G58xx_Driver/Inc/tae32g58xx_ll.h" version="1.0.0"/>
+        <file category="header"  name="SDK/Drivers/TAE32G58xx_Driver/Inc/tae32g58xx_ll_spi.h" version="1.0.0"/>
+        <file category="source"  name="SDK/Drivers/TAE32G58xx_Driver/Src/tae32g58xx_ll_spi.c" version="1.0.0"/>
+      </files>
+    </component>
+
+    <component Cclass="TAE Drivers" Cgroup="TAE32G58xx" Csub="SYSCTRL" Cversion="1.0.0" condition="TAE32 CMSIS-CORE">
+      <description>TAE32G58xx SYSCTRL LL module driver</description>
+      <files>
+        <file category="include" name="SDK/Utilities/"/>
+        <file category="include" name="SDK/Drivers/TAE32G58xx_Driver/Inc/"/>
+        <file category="header"  name="SDK/Drivers/TAE32G58xx_Driver/Inc/tae32g58xx_ll.h" version="1.0.0"/>
+        <file category="header"  name="SDK/Drivers/TAE32G58xx_Driver/Inc/tae32g58xx_ll_sysctrl.h" version="1.0.0"/>
+        <file category="source"  name="SDK/Drivers/TAE32G58xx_Driver/Src/tae32g58xx_ll_sysctrl.c" version="1.0.0"/>
+      </files>
+    </component>
+
+    <component Cclass="TAE Drivers" Cgroup="TAE32G58xx" Csub="TMR" Cversion="1.0.0" condition="TAE32 CMSIS-CORE">
+      <description>TAE32G58xx TMR LL module driver</description>
+      <files>
+        <file category="include" name="SDK/Utilities/"/>
+        <file category="include" name="SDK/Drivers/TAE32G58xx_Driver/Inc/"/>
+        <file category="header"  name="SDK/Drivers/TAE32G58xx_Driver/Inc/tae32g58xx_ll.h" version="1.0.0"/>
+        <file category="header"  name="SDK/Drivers/TAE32G58xx_Driver/Inc/tae32g58xx_ll_tmr.h" version="1.0.0"/>
+        <file category="source"  name="SDK/Drivers/TAE32G58xx_Driver/Src/tae32g58xx_ll_tmr.c" version="1.0.0"/>
+      </files>
+    </component>
+
+    <component Cclass="TAE Drivers" Cgroup="TAE32G58xx" Csub="UART" Cversion="1.0.0" condition="TAE32 CMSIS-CORE">
+      <description>TAE32G58xx UART LL module driver</description>
+      <files>
+        <file category="include" name="SDK/Utilities/"/>
+        <file category="include" name="SDK/Drivers/TAE32G58xx_Driver/Inc/"/>
+        <file category="header"  name="SDK/Drivers/TAE32G58xx_Driver/Inc/tae32g58xx_ll.h" version="1.0.0"/>
+        <file category="header"  name="SDK/Drivers/TAE32G58xx_Driver/Inc/tae32g58xx_ll_uart.h" version="1.0.0"/>
+        <file category="source"  name="SDK/Drivers/TAE32G58xx_Driver/Src/tae32g58xx_ll_uart.c" version="1.0.0"/>
+      </files>
+    </component>
+
+    <component Cclass="TAE Drivers" Cgroup="TAE32G58xx" Csub="USB" Cversion="1.0.0" condition="TAE32 CMSIS-CORE">
+      <description>TAE32G58xx USB LL module driver</description>
+      <files>
+        <file category="include" name="SDK/Utilities/"/>
+        <file category="include" name="SDK/Drivers/TAE32G58xx_Driver/Inc/"/>
+        <file category="header"  name="SDK/Drivers/TAE32G58xx_Driver/Inc/tae32g58xx_ll.h" version="1.0.0"/>
+        <file category="header"  name="SDK/Drivers/TAE32G58xx_Driver/Inc/tae32g58xx_ll_usb.h" version="1.0.0"/>
+        <file category="source"  name="SDK/Drivers/TAE32G58xx_Driver/Src/tae32g58xx_ll_usb.c" version="1.0.0"/>
+      </files>
+    </component>
+
+    <component Cclass="TAE Drivers" Cgroup="TAE32G58xx" Csub="WWDG" Cversion="1.0.0" condition="TAE32 CMSIS-CORE">
+      <description>TAE32G58xx WWDG LL module driver</description>
+      <files>
+        <file category="include" name="SDK/Utilities/"/>
+        <file category="include" name="SDK/Drivers/TAE32G58xx_Driver/Inc/"/>
+        <file category="header"  name="SDK/Drivers/TAE32G58xx_Driver/Inc/tae32g58xx_ll.h" version="1.0.0"/>
+        <file category="header"  name="SDK/Drivers/TAE32G58xx_Driver/Inc/tae32g58xx_ll_wwdg.h" version="1.0.0"/>
+        <file category="source"  name="SDK/Drivers/TAE32G58xx_Driver/Src/tae32g58xx_ll_wwdg.c" version="1.0.0"/>
+      </files>
+    </component>
+
+    <component Cclass="TAE Drivers" Cgroup="TAE32G58xx" Csub="XIF" Cversion="1.0.0" condition="TAE32 CMSIS-CORE">
+      <description>TAE32G58xx XIF LL module driver</description>
+      <files>
+        <file category="include" name="SDK/Utilities/"/>
+        <file category="include" name="SDK/Drivers/TAE32G58xx_Driver/Inc/"/>
+        <file category="header"  name="SDK/Drivers/TAE32G58xx_Driver/Inc/tae32g58xx_ll.h" version="1.0.0"/>
+        <file category="header"  name="SDK/Drivers/TAE32G58xx_Driver/Inc/tae32g58xx_ll_xif.h" version="1.0.0"/>
+        <file category="source"  name="SDK/Drivers/TAE32G58xx_Driver/Src/tae32g58xx_ll_xif.c" version="1.0.0"/>
+      </files>
+    </component>
+
+
+	<!-- TAE32G58xx Middlewares Config-->
+    <component Cclass="TAE Middlewares" Cgroup="USB Core" Cversion="1.0.0" condition="TAE32 CMSIS-CORE">
+      <description>TAE32G58xx USB Device Library Core driver</description>
+      <files>
+        <file category="include" name="SDK/Utilities/"/>
+        <file category="include" name="SDK/Middlewares/TAE/USB_Device/Core/Inc/"/>
+        <file category="header"  name="SDK/Middlewares/TAE/USB_Device/Core/Inc/usbd_def.h"    version="1.0.0"/>
+        <file category="header"  name="SDK/Middlewares/TAE/USB_Device/Core/Inc/usbd_core.h"   version="1.0.0"/>
+        <file category="header"  name="SDK/Middlewares/TAE/USB_Device/Core/Inc/usbd_ctlreq.h" version="1.0.0"/>
+        <file category="header"  name="SDK/Middlewares/TAE/USB_Device/Core/Inc/usbd_ioreq.h"  version="1.0.0"/>
+        <file category="source"  name="SDK/Middlewares/TAE/USB_Device/Core/Src/usbd_core.c"   version="1.0.0"/>
+        <file category="source"  name="SDK/Middlewares/TAE/USB_Device/Core/Src/usbd_ctlreq.c" version="1.0.0"/>
+        <file category="source"  name="SDK/Middlewares/TAE/USB_Device/Core/Src/usbd_ioreq.c"  version="1.0.0"/>
+      </files>
+	</component>
+
+    <component Cclass="TAE Middlewares" Cgroup="USB Class" Csub="HID" Cversion="1.0.0" condition="TAE32 CMSIS-CORE">
+      <description>TAE32G58xx USB Device Library HID Class driver</description>
+      <files>
+        <file category="include" name="SDK/Utilities/"/>
+        <file category="include" name="SDK/Middlewares/TAE/USB_Device/Class/HID/Inc/"/>
+        <file category="header"  name="SDK/Middlewares/TAE/USB_Device/Class/HID/Inc/usbd_hid.h" version="1.0.0"/>
+        <file category="source"  name="SDK/Middlewares/TAE/USB_Device/Class/HID/Src/usbd_hid.c" version="1.0.0"/>
+      </files>
+	</component>
+
+
+	<!-- TAE32G58xx User Debug Config-->
+    <component Cclass="TAE Utilities" Cgroup="TAE32G58xx" Csub="debug" Cversion="1.0.0" condition="TAE32 CMSIS-CORE">
+      <description>TAE32G58xx user debug driver</description>
+      <files>
+        <file category="include" name="SDK/Utilities/"/>
+        <file category="include" name="SDK/Drivers/TAE32G58xx_Driver/Inc/"/>
+        <file category="header"  name="SDK/Utilities/dbg/user_debug.h" version="1.0.0"/>
+        <file category="source"  name="SDK/Utilities/dbg/user_debug.c" version="1.0.0"/>
+      </files>
+    </component>
+
+  </components>
+
+
+  <!-- boards section (mandatory for Board Support Packs) -->
+  <boards>
+    <board vendor="Tai-Action" name="TAE32G5800_EVAL_BOARD" revision="V1.0" salesContact="http://www.tai-action.com" orderForm="https://www.tai-micro.com">
+      <description>Tai-Action TAE32G5800_EVAL_BOARD Board Description</description>
+      <image large="BSP/TAE32G5800_EVAL/Images/TAE32G5800_EVAL_BOARD.png"/>
+      <book category="setup"     name="BSP/TAE32G5800_EVAL/Quick_Start/TAE32G5800_EVAL_Board_Quick_Start.pdf" title="Getting Started"/>
+      <book category="schematic" name="BSP/TAE32G5800_EVAL/Schematic/TAE32G4_EVAL_BOARD_20210917_V1.0_SCH_PCB.pdf" title="Schematics"/>
+      <!-- <book category="manual"    name="BSP/TAE32G5800_EVAL/TAE32G5800_um.pdf" title="User Manual"/> -->
+      <mountedDevice    deviceIndex="0" Dvendor="Tai-Action:166" Dname="TAE32G5800"/>
+      <compatibleDevice deviceIndex="0" Dvendor="Tai-Action:166" DsubFamily="TAE32G58xx"/>
+      <feature type="PWR"       n="5"              name="USB Powered"/>
+      <feature type="PWR"       n="5"              name="Power Adapter"/>
+      <feature type="LED"       n="5"              name="User LEDs"/>
+      <feature type="DIO"       n="49"/>
+      <feature type="USB"       n="1"/>
+      <feature type="XTAL"      n="8000000"/>
+      <feature type="I2C"       n="1"/>
+      <!--feature type="RS485"     n="1"/-->
+      <feature type="CAN"       n="1"/>
+      <feature type="Button"    n="4"/>
+      <debugInterface connector="JTAG"/>
+    </board>
+  </boards>
+
+
+  <!-- examples section (optional for all Software Packs)-->
+  <examples>
+    <example name="ProjectTemplate" doc="readme.md" folder="SDK/ProjectTemplate">
+      <description>TAE32G58xx Template example</description>
+      <board name="TAE32G5800_EVAL_BOARD" vendor="Tai-Action"/>
+      <project>
+        <environment name="uv" load="Project/MDK/ProjectTemplate.uvprojx"/>
+      </project>
+      <attributes>
+        <!--component Cclass="CMSIS"      Cgroup="CORE"/>
+        <component Cclass="TAE Device" Cgroup="TAE32G58xx"/-->
+      </attributes>
+    </example>
+
+
+	<!-- USB Device Examples -->
+    <example name="HID_Standalone" doc="readme.md" folder="SDK/Board/TAE32G58xx-EVAL/Applications/USB_Device/HID_Standalone">
+      <description>TAE32G58xx HID_Standalone example</description>
+      <board name="TAE32G5800_EVAL_BOARD" vendor="Tai-Action"/>
+      <project>
+        <environment name="uv" load="Project/MDK/Project.uvprojx"/>
+      </project>
+      <attributes>
+        <category>USB Device</category>
+		<keyword>HID</keyword>
+      </attributes>
+    </example>
+
+
+	<!-- ADC Examples -->
+    <example name="ADC_ExtPinTriggerSingle_DMA" doc="readme.md" folder="SDK/Board/TAE32G58xx-EVAL/Examples/ADC/ADC_ExtPinTriggerSingle_DMA">
+      <description>TAE32G58xx ADC_ExtPinTriggerSingle_DMA example</description>
+      <board name="TAE32G5800_EVAL_BOARD" vendor="Tai-Action"/>
+      <project>
+        <environment name="uv" load="Project/MDK/Project.uvprojx"/>
+      </project>
+      <attributes>
+      </attributes>
+    </example>
+
+    <example name="ADC_HrpwmTriggerSingle_DMA" doc="readme.md" folder="SDK/Board/TAE32G58xx-EVAL/Examples/ADC/ADC_HrpwmTriggerSingle_DMA">
+      <description>TAE32G58xx ADC_HrpwmTriggerSingle_DMA example</description>
+      <board name="TAE32G5800_EVAL_BOARD" vendor="Tai-Action"/>
+      <project>
+        <environment name="uv" load="Project/MDK/Project.uvprojx"/>
+      </project>
+      <attributes>
+      </attributes>
+    </example>
+
+    <example name="ADC_SwTriggerContinue_DMA" doc="readme.md" folder="SDK/Board/TAE32G58xx-EVAL/Examples/ADC/ADC_SwTriggerContinue_DMA">
+      <description>TAE32G58xx ADC_SwTriggerContinue_DMA example</description>
+      <board name="TAE32G5800_EVAL_BOARD" vendor="Tai-Action"/>
+      <project>
+        <environment name="uv" load="Project/MDK/Project.uvprojx"/>
+      </project>
+      <attributes>
+      </attributes>
+    </example>
+
+    <example name="ADC_SwTriggerContinueAWDG_DMA" doc="readme.md" folder="SDK/Board/TAE32G58xx-EVAL/Examples/ADC/ADC_SwTriggerContinueAWDG_DMA">
+      <description>TAE32G58xx ADC_SwTriggerContinueAWDG_DMA example</description>
+      <board name="TAE32G5800_EVAL_BOARD" vendor="Tai-Action"/>
+      <project>
+        <environment name="uv" load="Project/MDK/Project.uvprojx"/>
+      </project>
+      <attributes>
+      </attributes>
+    </example>
+
+    <example name="ADC_SwTriggerSingle_IT" doc="readme.md" folder="SDK/Board/TAE32G58xx-EVAL/Examples/ADC/ADC_SwTriggerSingle_IT">
+      <description>TAE32G58xx ADC_SwTriggerSingle_IT example</description>
+      <board name="TAE32G5800_EVAL_BOARD" vendor="Tai-Action"/>
+      <project>
+        <environment name="uv" load="Project/MDK/Project.uvprojx"/>
+      </project>
+      <attributes>
+      </attributes>
+    </example>
+
+    <example name="ADC_TmrCapTriggerSingle_DMA" doc="readme.md" folder="SDK/Board/TAE32G58xx-EVAL/Examples/ADC/ADC_TmrCapTriggerSingle_DMA">
+      <description>TAE32G58xx ADC_TmrCapTriggerSingle_DMA example</description>
+      <board name="TAE32G5800_EVAL_BOARD" vendor="Tai-Action"/>
+      <project>
+        <environment name="uv" load="Project/MDK/Project.uvprojx"/>
+      </project>
+      <attributes>
+      </attributes>
+    </example>
+
+    <example name="ADC_TmrUpdateTriggerSingle_DMA" doc="readme.md" folder="SDK/Board/TAE32G58xx-EVAL/Examples/ADC/ADC_TmrUpdateTriggerSingle_DMA">
+      <description>TAE32G58xx ADC_TmrUpdateTriggerSingle_DMA example</description>
+      <board name="TAE32G5800_EVAL_BOARD" vendor="Tai-Action"/>
+      <project>
+        <environment name="uv" load="Project/MDK/Project.uvprojx"/>
+      </project>
+      <attributes>
+      </attributes>
+    </example>
+
+
+	<!-- CAN Examples -->
+    <example name="CAN_TxRx_CPU" doc="readme.md" folder="SDK/Board/TAE32G58xx-EVAL/Examples/CAN/CAN_TxRx_CPU">
+      <description>TAE32G58xx CAN_TxRx_CPU example</description>
+      <board name="TAE32G5800_EVAL_BOARD" vendor="Tai-Action"/>
+      <project>
+        <environment name="uv" load="Project/MDK/Project.uvprojx"/>
+      </project>
+      <attributes>
+      </attributes>
+    </example>
+
+    <example name="CAN_TxRx_IT" doc="readme.md" folder="SDK/Board/TAE32G58xx-EVAL/Examples/CAN/CAN_TxRx_IT">
+      <description>TAE32G58xx CAN_TxRx_IT example</description>
+      <board name="TAE32G5800_EVAL_BOARD" vendor="Tai-Action"/>
+      <project>
+        <environment name="uv" load="Project/MDK/Project.uvprojx"/>
+      </project>
+      <attributes>
+      </attributes>
+    </example>
+
+
+	<!-- CMP Examples -->
+    <example name="CMP_Base" doc="readme.md" folder="SDK/Board/TAE32G58xx-EVAL/Examples/CMP/CMP_Base">
+      <description>TAE32G58xx CMP_Base example</description>
+      <board name="TAE32G5800_EVAL_BOARD" vendor="Tai-Action"/>
+      <project>
+        <environment name="uv" load="Project/MDK/Project.uvprojx"/>
+      </project>
+      <attributes>
+      </attributes>
+    </example>
+
+
+	<!-- CORDIC Examples -->
+    <example name="CORDIC_Base" doc="readme.md" folder="SDK/Board/TAE32G58xx-EVAL/Examples/CORDIC/CORDIC_Base">
+      <description>TAE32G58xx CORDIC_Base example</description>
+      <board name="TAE32G5800_EVAL_BOARD" vendor="Tai-Action"/>
+      <project>
+        <environment name="uv" load="Project/MDK/Project.uvprojx"/>
+      </project>
+      <attributes>
+      </attributes>
+    </example>
+	
+	
+	<!-- DAC Examples -->
+    <example name="DAC_DirectOut" doc="readme.md" folder="SDK/Board/TAE32G58xx-EVAL/Examples/DAC/DAC_DirectOut">
+      <description>TAE32G58xx DAC_DirectOut example</description>
+      <board name="TAE32G5800_EVAL_BOARD" vendor="Tai-Action"/>
+      <project>
+        <environment name="uv" load="Project/MDK/Project.uvprojx"/>
+      </project>
+      <attributes>
+      </attributes>
+    </example>
+	
+    <example name="DAC_WaveOut_TmrTrigger" doc="readme.md" folder="SDK/Board/TAE32G58xx-EVAL/Examples/DAC/DAC_WaveOut_TmrTrigger">
+      <description>TAE32G58xx DAC_WaveOut_TmrTrigger example</description>
+      <board name="TAE32G5800_EVAL_BOARD" vendor="Tai-Action"/>
+      <project>
+        <environment name="uv" load="Project/MDK/Project.uvprojx"/>
+      </project>
+      <attributes>
+      </attributes>
+    </example>
+
+
+	<!-- DMA Examples -->
+    <example name="DMA_CPU" doc="readme.md" folder="SDK/Board/TAE32G58xx-EVAL/Examples/DMA/DMA_CPU">
+      <description>TAE32G58xx DMA_CPU example</description>
+      <board name="TAE32G5800_EVAL_BOARD" vendor="Tai-Action"/>
+      <project>
+        <environment name="uv" load="Project/MDK/Project.uvprojx"/>
+      </project>
+      <attributes>
+      </attributes>
+    </example>
+
+    <example name="DMA_IT" doc="readme.md" folder="SDK/Board/TAE32G58xx-EVAL/Examples/DMA/DMA_IT">
+      <description>TAE32G58xx DMA_IT example</description>
+      <board name="TAE32G5800_EVAL_BOARD" vendor="Tai-Action"/>
+      <project>
+        <environment name="uv" load="Project/MDK/Project.uvprojx"/>
+      </project>
+      <attributes>
+      </attributes>
+    </example>
+
+
+	<!-- EFLASH Examples -->
+    <example name="EFLASH_EraseProgram" doc="readme.md" folder="SDK/Board/TAE32G58xx-EVAL/Examples/EFLASH/EFLASH_EraseProgram">
+      <description>TAE32G58xx EFLASH_EraseProgram example</description>
+      <board name="TAE32G5800_EVAL_BOARD" vendor="Tai-Action"/>
+      <project>
+        <environment name="uv" load="Project/MDK/Project.uvprojx"/>
+      </project>
+      <attributes>
+      </attributes>
+    </example>
+
+    <example name="EFLASH_WriteProtect" doc="readme.md" folder="SDK/Board/TAE32G58xx-EVAL/Examples/EFLASH/EFLASH_WriteProtect">
+      <description>TAE32G58xx EFLASH_WriteProtect example</description>
+      <board name="TAE32G5800_EVAL_BOARD" vendor="Tai-Action"/>
+      <project>
+        <environment name="uv" load="Project/MDK/Project.uvprojx"/>
+      </project>
+      <attributes>
+      </attributes>
+    </example>
+
+
+	<!-- GPIO Examples -->
+    <example name="GPIO_Flow_LED" doc="readme.md" folder="SDK/Board/TAE32G58xx-EVAL/Examples/GPIO/GPIO_Flow_LED">
+      <description>TAE32G58xx GPIO_Flow_LED example</description>
+      <board name="TAE32G5800_EVAL_BOARD" vendor="Tai-Action"/>
+      <project>
+        <environment name="uv" load="Project/MDK/Project.uvprojx"/>
+      </project>
+      <attributes>
+      </attributes>
+    </example>
+
+    <example name="GPIO_Input_IT" doc="readme.md" folder="SDK/Board/TAE32G58xx-EVAL/Examples/GPIO/GPIO_Input_IT">
+      <description>TAE32G58xx GPIO_Input_IT example</description>
+      <board name="TAE32G5800_EVAL_BOARD" vendor="Tai-Action"/>
+      <project>
+        <environment name="uv" load="Project/MDK/Project.uvprojx"/>
+      </project>
+      <attributes>
+      </attributes>
+    </example>
+
+
+	<!-- HRPWM Examples -->
+    <example name="HRPWM_BaseOutput" doc="readme.md" folder="SDK/Board/TAE32G58xx-EVAL/Examples/HRPWM/HRPWM_BaseOutput">
+      <description>TAE32G58xx HRPWM_BaseOutput example</description>
+      <board name="TAE32G5800_EVAL_BOARD" vendor="Tai-Action"/>
+      <project>
+        <environment name="uv" load="Project/MDK/Project.uvprojx"/>
+      </project>
+      <attributes>
+      </attributes>
+    </example>
+
+    <example name="HRPWM_EventInput" doc="readme.md" folder="SDK/Board/TAE32G58xx-EVAL/Examples/HRPWM/HRPWM_EventInput">
+      <description>TAE32G58xx HRPWM_EventInput example</description>
+      <board name="TAE32G5800_EVAL_BOARD" vendor="Tai-Action"/>
+      <project>
+        <environment name="uv" load="Project/MDK/Project.uvprojx"/>
+      </project>
+      <attributes>
+      </attributes>
+    </example>
+
+    <example name="HRPWM_FaultInput" doc="readme.md" folder="SDK/Board/TAE32G58xx-EVAL/Examples/HRPWM/HRPWM_FaultInput">
+      <description>TAE32G58xx HRPWM_FaultInput example</description>
+      <board name="TAE32G5800_EVAL_BOARD" vendor="Tai-Action"/>
+      <project>
+        <environment name="uv" load="Project/MDK/Project.uvprojx"/>
+      </project>
+      <attributes>
+      </attributes>
+    </example>
+
+    <example name="HRPWM_OutputChopper" doc="readme.md" folder="SDK/Board/TAE32G58xx-EVAL/Examples/HRPWM/HRPWM_OutputChopper">
+      <description>TAE32G58xx HRPWM_OutputChopper example</description>
+      <board name="TAE32G5800_EVAL_BOARD" vendor="Tai-Action"/>
+      <project>
+        <environment name="uv" load="Project/MDK/Project.uvprojx"/>
+      </project>
+      <attributes>
+      </attributes>
+    </example>
+
+    <example name="HRPWM_OutputDeadTime" doc="readme.md" folder="SDK/Board/TAE32G58xx-EVAL/Examples/HRPWM/HRPWM_OutputDeadTime">
+      <description>TAE32G58xx HRPWM_OutputDeadTime example</description>
+      <board name="TAE32G5800_EVAL_BOARD" vendor="Tai-Action"/>
+      <project>
+        <environment name="uv" load="Project/MDK/Project.uvprojx"/>
+      </project>
+      <attributes>
+      </attributes>
+    </example>
+
+    <example name="HRPWM_OutputInterLeaved" doc="readme.md" folder="SDK/Board/TAE32G58xx-EVAL/Examples/HRPWM/HRPWM_OutputInterLeaved">
+      <description>TAE32G58xx HRPWM_OutputInterLeaved example</description>
+      <board name="TAE32G5800_EVAL_BOARD" vendor="Tai-Action"/>
+      <project>
+        <environment name="uv" load="Project/MDK/Project.uvprojx"/>
+      </project>
+      <attributes>
+      </attributes>
+    </example>
+
+    <example name="HRPWM_OutputPushpull" doc="readme.md" folder="SDK/Board/TAE32G58xx-EVAL/Examples/HRPWM/HRPWM_OutputPushpull">
+      <description>TAE32G58xx HRPWM_OutputPushpull example</description>
+      <board name="TAE32G5800_EVAL_BOARD" vendor="Tai-Action"/>
+      <project>
+        <environment name="uv" load="Project/MDK/Project.uvprojx"/>
+      </project>
+      <attributes>
+      </attributes>
+    </example>
+
+    <example name="HRPWM_Repetition_IT" doc="readme.md" folder="SDK/Board/TAE32G58xx-EVAL/Examples/HRPWM/HRPWM_Repetition_IT">
+      <description>TAE32G58xx HRPWM_Repetition_IT example</description>
+      <board name="TAE32G5800_EVAL_BOARD" vendor="Tai-Action"/>
+      <project>
+        <environment name="uv" load="Project/MDK/Project.uvprojx"/>
+      </project>
+      <attributes>
+      </attributes>
+    </example>
+
+    <example name="HRPWM_SyncIn" doc="readme.md" folder="SDK/Board/TAE32G58xx-EVAL/Examples/HRPWM/HRPWM_SyncIn">
+      <description>TAE32G58xx HRPWM_SyncIn example</description>
+      <board name="TAE32G5800_EVAL_BOARD" vendor="Tai-Action"/>
+      <project>
+        <environment name="uv" load="Project/MDK/Project.uvprojx"/>
+      </project>
+      <attributes>
+      </attributes>
+    </example>
+
+    <example name="HRPWM_SyncOut" doc="readme.md" folder="SDK/Board/TAE32G58xx-EVAL/Examples/HRPWM/HRPWM_SyncOut">
+      <description>TAE32G58xx HRPWM_SyncOut example</description>
+      <board name="TAE32G5800_EVAL_BOARD" vendor="Tai-Action"/>
+      <project>
+        <environment name="uv" load="Project/MDK/Project.uvprojx"/>
+      </project>
+      <attributes>
+      </attributes>
+    </example>
+
+
+	<!-- I2C Examples -->
+    <example name="I2C_MasterReadWrite_CPU" doc="readme.md" folder="SDK/Board/TAE32G58xx-EVAL/Examples/I2C/I2C_MasterReadWrite_CPU">
+      <description>TAE32G58xx I2C_MasterReadWrite_CPU example</description>
+      <board name="TAE32G5800_EVAL_BOARD" vendor="Tai-Action"/>
+      <project>
+        <environment name="uv" load="Project/MDK/Project.uvprojx"/>
+      </project>
+      <attributes>
+      </attributes>
+    </example>
+
+    <example name="I2C_MasterReadWrite_DMA" doc="readme.md" folder="SDK/Board/TAE32G58xx-EVAL/Examples/I2C/I2C_MasterReadWrite_DMA">
+      <description>TAE32G58xx I2C_MasterReadWrite_DMA example</description>
+      <board name="TAE32G5800_EVAL_BOARD" vendor="Tai-Action"/>
+      <project>
+        <environment name="uv" load="Project/MDK/Project.uvprojx"/>
+      </project>
+      <attributes>
+      </attributes>
+    </example>
+
+    <example name="I2C_MasterReadWrite_IT" doc="readme.md" folder="SDK/Board/TAE32G58xx-EVAL/Examples/I2C/I2C_MasterReadWrite_IT">
+      <description>TAE32G58xx I2C_MasterReadWrite_IT example</description>
+      <board name="TAE32G5800_EVAL_BOARD" vendor="Tai-Action"/>
+      <project>
+        <environment name="uv" load="Project/MDK/Project.uvprojx"/>
+      </project>
+      <attributes>
+      </attributes>
+    </example>
+
+    <example name="I2C_SlaveReadWrite_CPU" doc="readme.md" folder="SDK/Board/TAE32G58xx-EVAL/Examples/I2C/I2C_SlaveReadWrite_CPU">
+      <description>TAE32G58xx I2C_SlaveReadWrite_CPU example</description>
+      <board name="TAE32G5800_EVAL_BOARD" vendor="Tai-Action"/>
+      <project>
+        <environment name="uv" load="Project/MDK/Project.uvprojx"/>
+      </project>
+      <attributes>
+      </attributes>
+    </example>
+
+    <example name="I2C_SlaveReadWrite_DMA" doc="readme.md" folder="SDK/Board/TAE32G58xx-EVAL/Examples/I2C/I2C_SlaveReadWrite_DMA">
+      <description>TAE32G58xx I2C_SlaveReadWrite_DMA example</description>
+      <board name="TAE32G5800_EVAL_BOARD" vendor="Tai-Action"/>
+      <project>
+        <environment name="uv" load="Project/MDK/Project.uvprojx"/>
+      </project>
+      <attributes>
+      </attributes>
+    </example>
+
+    <example name="I2C_SlaveReadWrite_IT" doc="readme.md" folder="SDK/Board/TAE32G58xx-EVAL/Examples/I2C/I2C_SlaveReadWrite_IT">
+      <description>TAE32G58xx I2C_SlaveReadWrite_IT example</description>
+      <board name="TAE32G5800_EVAL_BOARD" vendor="Tai-Action"/>
+      <project>
+        <environment name="uv" load="Project/MDK/Project.uvprojx"/>
+      </project>
+      <attributes>
+      </attributes>
+    </example>
+
+
+	<!-- IIR Examples -->
+    <example name="IIR_Base" doc="readme.md" folder="SDK/Board/TAE32G58xx-EVAL/Examples/IIR/IIR_Base">
+      <description>TAE32G58xx IIR_Base example</description>
+      <board name="TAE32G5800_EVAL_BOARD" vendor="Tai-Action"/>
+      <project>
+        <environment name="uv" load="Project/MDK/Project.uvprojx"/>
+      </project>
+      <attributes>
+      </attributes>
+    </example>
+
+
+	<!-- IWDG Examples -->
+    <example name="IWDG_IT" doc="readme.md" folder="SDK/Board/TAE32G58xx-EVAL/Examples/IWDG/IWDG_IT">
+      <description>TAE32G58xx IWDG_IT example</description>
+      <board name="TAE32G5800_EVAL_BOARD" vendor="Tai-Action"/>
+      <project>
+        <environment name="uv" load="Project/MDK/Project.uvprojx"/>
+      </project>
+      <attributes>
+      </attributes>
+    </example>
+
+    <example name="IWDG_Reset" doc="readme.md" folder="SDK/Board/TAE32G58xx-EVAL/Examples/IWDG/IWDG_Reset">
+      <description>TAE32G58xx IWDG_Reset example</description>
+      <board name="TAE32G5800_EVAL_BOARD" vendor="Tai-Action"/>
+      <project>
+        <environment name="uv" load="Project/MDK/Project.uvprojx"/>
+      </project>
+      <attributes>
+      </attributes>
+    </example>
+
+
+	<!-- PDM Examples -->
+    <example name="PDM_CmpFilter_CPU" doc="readme.md" folder="SDK/Board/TAE32G58xx-EVAL/Examples/PDM/PDM_CmpFilter_CPU">
+      <description>TAE32G58xx PDM_CmpFilter_CPU example</description>
+      <board name="TAE32G5800_EVAL_BOARD" vendor="Tai-Action"/>
+      <project>
+        <environment name="uv" load="Project/MDK/Project.uvprojx"/>
+      </project>
+      <attributes>
+      </attributes>
+    </example>
+
+    <example name="PDM_DataFilter_CPU" doc="readme.md" folder="SDK/Board/TAE32G58xx-EVAL/Examples/PDM/PDM_DataFilter_CPU">
+      <description>TAE32G58xx PDM_DataFilter_CPU example</description>
+      <board name="TAE32G5800_EVAL_BOARD" vendor="Tai-Action"/>
+      <project>
+        <environment name="uv" load="Project/MDK/Project.uvprojx"/>
+      </project>
+      <attributes>
+      </attributes>
+    </example>
+
+    <example name="PDM_DataFilter_DMA" doc="readme.md" folder="SDK/Board/TAE32G58xx-EVAL/Examples/PDM/PDM_DataFilter_DMA">
+      <description>TAE32G58xx PDM_DataFilter_DMA example</description>
+      <board name="TAE32G5800_EVAL_BOARD" vendor="Tai-Action"/>
+      <project>
+        <environment name="uv" load="Project/MDK/Project.uvprojx"/>
+      </project>
+      <attributes>
+      </attributes>
+    </example>
+
+    <example name="PDM_DataFilter_HrpwmTrigger" doc="readme.md" folder="SDK/Board/TAE32G58xx-EVAL/Examples/PDM/PDM_DataFilter_HrpwmTrigger">
+      <description>TAE32G58xx PDM_DataFilter_HrpwmTrigger example</description>
+      <board name="TAE32G5800_EVAL_BOARD" vendor="Tai-Action"/>
+      <project>
+        <environment name="uv" load="Project/MDK/Project.uvprojx"/>
+      </project>
+      <attributes>
+      </attributes>
+    </example>
+
+    <example name="PDM_DataFilter_IT" doc="readme.md" folder="SDK/Board/TAE32G58xx-EVAL/Examples/PDM/PDM_DataFilter_IT">
+      <description>TAE32G58xx PDM_DataFilter_IT example</description>
+      <board name="TAE32G5800_EVAL_BOARD" vendor="Tai-Action"/>
+      <project>
+        <environment name="uv" load="Project/MDK/Project.uvprojx"/>
+      </project>
+      <attributes>
+      </attributes>
+    </example>
+
+    <example name="PDM_DataFilter_Master" doc="readme.md" folder="SDK/Board/TAE32G58xx-EVAL/Examples/PDM/PDM_DataFilter_Master">
+      <description>TAE32G58xx PDM_DataFilter_Master example</description>
+      <board name="TAE32G5800_EVAL_BOARD" vendor="Tai-Action"/>
+      <project>
+        <environment name="uv" load="Project/MDK/Project.uvprojx"/>
+      </project>
+      <attributes>
+      </attributes>
+    </example>
+
+
+	<!-- QEI Examples -->
+    <example name="QEI_Capture" doc="readme.md" folder="SDK/Board/TAE32G58xx-EVAL/Examples/QEI/QEI_Capture">
+      <description>TAE32G58xx QEI_Capture example</description>
+      <board name="TAE32G5800_EVAL_BOARD" vendor="Tai-Action"/>
+      <project>
+        <environment name="uv" load="Project/MDK/Project.uvprojx"/>
+      </project>
+      <attributes>
+      </attributes>
+    </example>
+
+    <example name="QEI_Compare" doc="readme.md" folder="SDK/Board/TAE32G58xx-EVAL/Examples/QEI/QEI_Compare">
+      <description>TAE32G58xx QEI_Compare example</description>
+      <board name="TAE32G5800_EVAL_BOARD" vendor="Tai-Action"/>
+      <project>
+        <environment name="uv" load="Project/MDK/Project.uvprojx"/>
+      </project>
+      <attributes>
+      </attributes>
+    </example>
+
+    <example name="QEI_Quadrature" doc="readme.md" folder="SDK/Board/TAE32G58xx-EVAL/Examples/QEI/QEI_Quadrature">
+      <description>TAE32G58xx QEI_Quadrature example</description>
+      <board name="TAE32G5800_EVAL_BOARD" vendor="Tai-Action"/>
+      <project>
+        <environment name="uv" load="Project/MDK/Project.uvprojx"/>
+      </project>
+      <attributes>
+      </attributes>
+    </example>
+
+    <example name="QEI_Timer" doc="readme.md" folder="SDK/Board/TAE32G58xx-EVAL/Examples/QEI/QEI_Timer">
+      <description>TAE32G58xx QEI_Timer example</description>
+      <board name="TAE32G5800_EVAL_BOARD" vendor="Tai-Action"/>
+      <project>
+        <environment name="uv" load="Project/MDK/Project.uvprojx"/>
+      </project>
+      <attributes>
+      </attributes>
+    </example>
+
+
+	<!-- SPI Examples -->
+    <example name="SPI_MasterWriteRead_CPU" doc="readme.md" folder="SDK/Board/TAE32G58xx-EVAL/Examples/SPI/SPI_MasterWriteRead_CPU">
+      <description>TAE32G58xx SPI_MasterWriteRead_CPU example</description>
+      <board name="TAE32G5800_EVAL_BOARD" vendor="Tai-Action"/>
+      <project>
+        <environment name="uv" load="Project/MDK/Project.uvprojx"/>
+      </project>
+      <attributes>
+      </attributes>
+    </example>
+
+    <example name="SPI_MasterWriteRead_DMA" doc="readme.md" folder="SDK/Board/TAE32G58xx-EVAL/Examples/SPI/SPI_MasterWriteRead_DMA">
+      <description>TAE32G58xx SPI_MasterWriteRead_DMA example</description>
+      <board name="TAE32G5800_EVAL_BOARD" vendor="Tai-Action"/>
+      <project>
+        <environment name="uv" load="Project/MDK/Project.uvprojx"/>
+      </project>
+      <attributes>
+      </attributes>
+    </example>
+
+    <example name="SPI_MasterWriteRead_IT" doc="readme.md" folder="SDK/Board/TAE32G58xx-EVAL/Examples/SPI/SPI_MasterWriteRead_IT">
+      <description>TAE32G58xx SPI_MasterWriteRead_IT example</description>
+      <board name="TAE32G5800_EVAL_BOARD" vendor="Tai-Action"/>
+      <project>
+        <environment name="uv" load="Project/MDK/Project.uvprojx"/>
+      </project>
+      <attributes>
+      </attributes>
+    </example>
+
+    <example name="SPI_SlaveReadWrite_CPU" doc="readme.md" folder="SDK/Board/TAE32G58xx-EVAL/Examples/SPI/SPI_SlaveReadWrite_CPU">
+      <description>TAE32G58xx SPI_SlaveReadWrite_CPU example</description>
+      <board name="TAE32G5800_EVAL_BOARD" vendor="Tai-Action"/>
+      <project>
+        <environment name="uv" load="Project/MDK/Project.uvprojx"/>
+      </project>
+      <attributes>
+      </attributes>
+    </example>
+
+    <example name="SPI_SlaveReadWrite_DMA" doc="readme.md" folder="SDK/Board/TAE32G58xx-EVAL/Examples/SPI/SPI_SlaveReadWrite_DMA">
+      <description>TAE32G58xx SPI_SlaveReadWrite_DMA example</description>
+      <board name="TAE32G5800_EVAL_BOARD" vendor="Tai-Action"/>
+      <project>
+        <environment name="uv" load="Project/MDK/Project.uvprojx"/>
+      </project>
+      <attributes>
+      </attributes>
+    </example>
+
+    <example name="SPI_SlaveReadWrite_IT" doc="readme.md" folder="SDK/Board/TAE32G58xx-EVAL/Examples/SPI/SPI_SlaveReadWrite_IT">
+      <description>TAE32G58xx SPI_SlaveReadWrite_IT example</description>
+      <board name="TAE32G5800_EVAL_BOARD" vendor="Tai-Action"/>
+      <project>
+        <environment name="uv" load="Project/MDK/Project.uvprojx"/>
+      </project>
+      <attributes>
+      </attributes>
+    </example>
+
+    <example name="SPI_W25Q32JV_ReadWrite_CPU" doc="readme.md" folder="SDK/Board/TAE32G58xx-EVAL/Examples/SPI/SPI_W25Q32JV_ReadWrite_CPU">
+      <description>TAE32G58xx SPI_W25Q32JV_ReadWrite_CPU example</description>
+      <board name="TAE32G5800_EVAL_BOARD" vendor="Tai-Action"/>
+      <project>
+        <environment name="uv" load="Project/MDK/Project.uvprojx"/>
+      </project>
+      <attributes>
+      </attributes>
+    </example>
+
+    <example name="SPI_W25Q32JV_ReadWrite_DMA" doc="readme.md" folder="SDK/Board/TAE32G58xx-EVAL/Examples/SPI/SPI_W25Q32JV_ReadWrite_DMA">
+      <description>TAE32G58xx SPI_W25Q32JV_ReadWrite_DMA example</description>
+      <board name="TAE32G5800_EVAL_BOARD" vendor="Tai-Action"/>
+      <project>
+        <environment name="uv" load="Project/MDK/Project.uvprojx"/>
+      </project>
+      <attributes>
+      </attributes>
+    </example>
+
+    <example name="SPI_W25Q32JV_ReadWrite_IT" doc="readme.md" folder="SDK/Board/TAE32G58xx-EVAL/Examples/SPI/SPI_W25Q32JV_ReadWrite_IT">
+      <description>TAE32G58xx SPI_W25Q32JV_ReadWrite_IT example</description>
+      <board name="TAE32G5800_EVAL_BOARD" vendor="Tai-Action"/>
+      <project>
+        <environment name="uv" load="Project/MDK/Project.uvprojx"/>
+      </project>
+      <attributes>
+      </attributes>
+    </example>
+
+
+	<!-- TMR Examples -->
+    <example name="TMR_Base" doc="readme.md" folder="SDK/Board/TAE32G58xx-EVAL/Examples/TMR/TMR_Base">
+      <description>TAE32G58xx TMR_Base example</description>
+      <board name="TAE32G5800_EVAL_BOARD" vendor="Tai-Action"/>
+      <project>
+        <environment name="uv" load="Project/MDK/Project.uvprojx"/>
+      </project>
+      <attributes>
+      </attributes>
+    </example>
+
+    <example name="TMR_InputCapOutputCmp" doc="readme.md" folder="SDK/Board/TAE32G58xx-EVAL/Examples/TMR/TMR_InputCapOutputCmp">
+      <description>TAE32G58xx TMR_InputCapOutputCmp example</description>
+      <board name="TAE32G5800_EVAL_BOARD" vendor="Tai-Action"/>
+      <project>
+        <environment name="uv" load="Project/MDK/Project.uvprojx"/>
+      </project>
+      <attributes>
+      </attributes>
+    </example>
+
+
+	<!-- UART Examples -->
+    <example name="UART_TxRx_CPU" doc="readme.md" folder="SDK/Board/TAE32G58xx-EVAL/Examples/UART/UART_TxRx_CPU">
+      <description>TAE32G58xx UART_TxRx_CPU example</description>
+      <board name="TAE32G5800_EVAL_BOARD" vendor="Tai-Action"/>
+      <project>
+        <environment name="uv" load="Project/MDK/Project.uvprojx"/>
+      </project>
+      <attributes>
+      </attributes>
+    </example>
+
+    <example name="UART_TxRx_DMA" doc="readme.md" folder="SDK/Board/TAE32G58xx-EVAL/Examples/UART/UART_TxRx_DMA">
+      <description>TAE32G58xx UART_TxRx_DMA example</description>
+      <board name="TAE32G5800_EVAL_BOARD" vendor="Tai-Action"/>
+      <project>
+        <environment name="uv" load="Project/MDK/Project.uvprojx"/>
+      </project>
+      <attributes>
+      </attributes>
+    </example>
+
+    <example name="UART_TxRx_IT" doc="readme.md" folder="SDK/Board/TAE32G58xx-EVAL/Examples/UART/UART_TxRx_IT">
+      <description>TAE32G58xx UART_TxRx_IT example</description>
+      <board name="TAE32G5800_EVAL_BOARD" vendor="Tai-Action"/>
+      <project>
+        <environment name="uv" load="Project/MDK/Project.uvprojx"/>
+      </project>
+      <attributes>
+      </attributes>
+    </example>
+
+
+	<!-- WWDG Examples -->
+    <example name="WWDG_IT" doc="readme.md" folder="SDK/Board/TAE32G58xx-EVAL/Examples/WWDG/WWDG_IT">
+      <description>TAE32G58xx WWDG_IT example</description>
+      <board name="TAE32G5800_EVAL_BOARD" vendor="Tai-Action"/>
+      <project>
+        <environment name="uv" load="Project/MDK/Project.uvprojx"/>
+      </project>
+      <attributes>
+      </attributes>
+    </example>
+
+    <example name="WWDG_Reset" doc="readme.md" folder="SDK/Board/TAE32G58xx-EVAL/Examples/WWDG/WWDG_Reset">
+      <description>TAE32G58xx WWDG_Reset example</description>
+      <board name="TAE32G5800_EVAL_BOARD" vendor="Tai-Action"/>
+      <project>
+        <environment name="uv" load="Project/MDK/Project.uvprojx"/>
+      </project>
+      <attributes>
+      </attributes>
+    </example>
+
+
+	<!-- XIF Examples -->
+    <example name="XIF_Rx_CPU" doc="readme.md" folder="SDK/Board/TAE32G58xx-EVAL/Examples/XIF/XIF_Rx_CPU">
+      <description>TAE32G58xx XIF_Rx_CPU example</description>
+      <board name="TAE32G5800_EVAL_BOARD" vendor="Tai-Action"/>
+      <project>
+        <environment name="uv" load="Project/MDK/Project.uvprojx"/>
+      </project>
+      <attributes>
+      </attributes>
+    </example>
+
+    <example name="XIF_Rx_DMA" doc="readme.md" folder="SDK/Board/TAE32G58xx-EVAL/Examples/XIF/XIF_Rx_DMA">
+      <description>TAE32G58xx XIF_Rx_DMA example</description>
+      <board name="TAE32G5800_EVAL_BOARD" vendor="Tai-Action"/>
+      <project>
+        <environment name="uv" load="Project/MDK/Project.uvprojx"/>
+      </project>
+      <attributes>
+      </attributes>
+    </example>
+
+    <example name="XIF_Rx_IT" doc="readme.md" folder="SDK/Board/TAE32G58xx-EVAL/Examples/XIF/XIF_Rx_IT">
+      <description>TAE32G58xx XIF_Rx_IT example</description>
+      <board name="TAE32G5800_EVAL_BOARD" vendor="Tai-Action"/>
+      <project>
+        <environment name="uv" load="Project/MDK/Project.uvprojx"/>
+      </project>
+      <attributes>
+      </attributes>
+    </example>
+
+  </examples>
+
+</package>

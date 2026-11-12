@@ -1,0 +1,40 @@
+﻿{
+  "generated_at": "2026-11-12T04:04:21Z",
+  "discovery_policy": "仅依据 LL 目录内源码证据；不以 SDK 包名单独推断全部芯片型号",
+  "chips": [
+    {
+      "chip_model": "TAE32G58xx",
+      "related_files": [
+        "SDKContent/Tai-Action.TAE32G58xx_DFP.2.0.0 ReleaseV2.0.0/LL/tae32g58xx_ll.h",
+        "SDKContent/Tai-Action.TAE32G58xx_DFP.2.0.0 ReleaseV2.0.0/LL/tae32g58xx_ll_adc.h",
+        "SDKContent/Tai-Action.TAE32G58xx_DFP.2.0.0 ReleaseV2.0.0/LL/tae32g58xx_ll_adtmr.h",
+        "SDKContent/Tai-Action.TAE32G58xx_DFP.2.0.0 ReleaseV2.0.0/LL/tae32g58xx_ll_bstmr.h",
+        "SDKContent/Tai-Action.TAE32G58xx_DFP.2.0.0 ReleaseV2.0.0/LL/tae32g58xx_ll_can.h",
+        "SDKContent/Tai-Action.TAE32G58xx_DFP.2.0.0 ReleaseV2.0.0/LL/tae32g58xx_ll_cmp.h",
+        "SDKContent/Tai-Action.TAE32G58xx_DFP.2.0.0 ReleaseV2.0.0/LL/tae32g58xx_ll_cortex.h",
+        "SDKContent/Tai-Action.TAE32G58xx_DFP.2.0.0 ReleaseV2.0.0/LL/tae32g58xx_ll_dac.h",
+        "SDKContent/Tai-Action.TAE32G58xx_DFP.2.0.0 ReleaseV2.0.0/LL/tae32g58xx_ll_def.h",
+        "SDKContent/Tai-Action.TAE32G58xx_DFP.2.0.0 ReleaseV2.0.0/LL/tae32g58xx_ll_dma.h",
+        "SDKContent/Tai-Action.TAE32G58xx_DFP.2.0.0 ReleaseV2.0.0/LL/tae32g58xx_ll_eflash.h",
+        "SDKContent/Tai-Action.TAE32G58xx_DFP.2.0.0 ReleaseV2.0.0/LL/tae32g58xx_ll_gpio.h",
+        "SDKContent/Tai-Action.TAE32G58xx_DFP.2.0.0 ReleaseV2.0.0/LL/tae32g58xx_ll_gptmrx.h",
+        "SDKContent/Tai-Action.TAE32G58xx_DFP.2.0.0 ReleaseV2.0.0/LL/tae32g58xx_ll_gptmry.h",
+        "SDKContent/Tai-Action.TAE32G58xx_DFP.2.0.0 ReleaseV2.0.0/LL/tae32g58xx_ll_hrpwm.h",
+        "SDKContent/Tai-Action.TAE32G58xx_DFP.2.0.0 ReleaseV2.0.0/LL/tae32g58xx_ll_i2c.h",
+        "SDKContent/Tai-Action.TAE32G58xx_DFP.2.0.0 ReleaseV2.0.0/LL/tae32g58xx_ll_iir.h",
+        "SDKContent/Tai-Action.TAE32G58xx_DFP.2.0.0 ReleaseV2.0.0/LL/tae32g58xx_ll_iwdg.h",
+        "SDKContent/Tai-Action.TAE32G58xx_DFP.2.0.0 ReleaseV2.0.0/LL/tae32g58xx_ll_lptmr.h",
+        "SDKContent/Tai-Action.TAE32G58xx_DFP.2.0.0 ReleaseV2.0.0/LL/tae32g58xx_ll_qei.h",
+        "SDKContent/Tai-Action.TAE32G58xx_DFP.2.0.0 ReleaseV2.0.0/LL/tae32g58xx_ll_rcu.h",
+        "SDKContent/Tai-Action.TAE32G58xx_DFP.2.0.0 ReleaseV2.0.0/LL/tae32g58xx_ll_spi.h",
+        "SDKContent/Tai-Action.TAE32G58xx_DFP.2.0.0 ReleaseV2.0.0/LL/tae32g58xx_ll_sysctrl.h",
+        "SDKContent/Tai-Action.TAE32G58xx_DFP.2.0.0 ReleaseV2.0.0/LL/tae32g58xx_ll_uart.h",
+        "SDKContent/Tai-Action.TAE32G58xx_DFP.2.0.0 ReleaseV2.0.0/LL/tae32g58xx_ll_wwdg.h"
+      ],
+      "detection_status": "自动识别",
+      "confidence": "高",
+      "notes": "由应用内 LL 扫描器根据源码证据识别。"
+    }
+  ],
+  "chip_count": 1
+}

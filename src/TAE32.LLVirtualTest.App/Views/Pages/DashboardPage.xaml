@@ -1,0 +1,50 @@
+<UserControl x:Class="TAE32.LLVirtualTest.App.Views.Pages.DashboardPage"
+             xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
+  <ScrollViewer VerticalScrollBarVisibility="Auto">
+    <StackPanel>
+      <TextBlock Text="工作台" FontSize="22" FontWeight="SemiBold" Foreground="{StaticResource BrushTextPrimary}" Margin="0,0,0,4"/>
+      <TextBlock Text="基于第一阶段真实扫描结果的概览（禁止臆造数据）" Foreground="{StaticResource BrushTextMuted}" Margin="0,0,0,16"/>
+      <UniformGrid Columns="3">
+        <Border Style="{StaticResource StatCardStyle}">
+          <StackPanel>
+            <TextBlock Text="SDK 项目" Foreground="{StaticResource BrushTextMuted}"/>
+            <TextBlock Text="{Binding SdkProjectCount}" FontSize="28" FontWeight="Bold" Foreground="{StaticResource BrushAccent}"/>
+          </StackPanel>
+        </Border>
+        <Border Style="{StaticResource StatCardStyle}">
+          <StackPanel>
+            <TextBlock Text="芯片" Foreground="{StaticResource BrushTextMuted}"/>
+            <TextBlock Text="{Binding ChipCount}" FontSize="28" FontWeight="Bold" Foreground="{StaticResource BrushAccent}"/>
+          </StackPanel>
+        </Border>
+        <Border Style="{StaticResource StatCardStyle}">
+          <StackPanel>
+            <TextBlock Text="外设模块" Foreground="{StaticResource BrushTextMuted}"/>
+            <TextBlock Text="{Binding PeripheralCount}" FontSize="28" FontWeight="Bold" Foreground="{StaticResource BrushAccent}"/>
+          </StackPanel>
+        </Border>
+        <Border Style="{StaticResource StatCardStyle}">
+          <StackPanel>
+            <TextBlock Text="LL 函数（全形式）" Foreground="{StaticResource BrushTextMuted}"/>
+            <TextBlock Text="{Binding LlFunctionCount}" FontSize="28" FontWeight="Bold" Foreground="{StaticResource BrushAccent}"/>
+          </StackPanel>
+        </Border>
+        <Border Style="{StaticResource StatCardStyle}">
+          <StackPanel>
+            <TextBlock Text="Inline 定义" Foreground="{StaticResource BrushTextMuted}"/>
+            <TextBlock Text="{Binding InlineFunctionCount}" FontSize="28" FontWeight="Bold" Foreground="{StaticResource BrushAccent}"/>
+          </StackPanel>
+        </Border>
+        <Border Style="{StaticResource StatCardStyle}">
+          <StackPanel>
+            <TextBlock Text="扫描状态" Foreground="{StaticResource BrushTextMuted}"/>
+            <TextBlock Text="{Binding ScanStatusText}" FontSize="16" FontWeight="SemiBold" Foreground="{StaticResource BrushTextPrimary}" TextWrapping="Wrap"/>
+            <TextBlock Text="{Binding LastImportText}" Foreground="{StaticResource BrushTextMuted}" Margin="0,6,0,0"/>
+          </StackPanel>
+        </Border>
+      </UniformGrid>
+      <Button Content="刷新" Command="{Binding RefreshCommand}" Width="100" HorizontalAlignment="Left" Margin="0,8,0,0"/>
+    </StackPanel>
+  </ScrollViewer>
+</UserControl>

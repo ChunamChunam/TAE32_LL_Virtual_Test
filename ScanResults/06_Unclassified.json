@@ -1,0 +1,106 @@
+{
+  "generated_at": "2026-11-12T03:03:34Z",
+  "files": [],
+  "functions": [
+    {
+      "FunctionName": "LL_NVIC_SetPriorityGrouping",
+      "FilePath": "SDKContent/Tai-Action.TAE32G58xx_DFP.2.0.0 ReleaseV2.0.0/LL/tae32g58xx_ll_cortex.h",
+      "StartLine": 144,
+      "DetectionStatus": "待确认",
+      "reason": "函数 LL_NVIC_SetPriorityGrouping 位于 CORTEX 头文件，前缀非 LL_CORTEX_；按文件模块归属"
+    },
+    {
+      "FunctionName": "LL_NVIC_GetPriorityGrouping",
+      "FilePath": "SDKContent/Tai-Action.TAE32G58xx_DFP.2.0.0 ReleaseV2.0.0/LL/tae32g58xx_ll_cortex.h",
+      "StartLine": 155,
+      "DetectionStatus": "待确认",
+      "reason": "函数 LL_NVIC_GetPriorityGrouping 位于 CORTEX 头文件，前缀非 LL_CORTEX_；按文件模块归属"
+    },
+    {
+      "FunctionName": "LL_NVIC_SetPriority",
+      "FilePath": "SDKContent/Tai-Action.TAE32G58xx_DFP.2.0.0 ReleaseV2.0.0/LL/tae32g58xx_ll_cortex.h",
+      "StartLine": 174,
+      "DetectionStatus": "待确认",
+      "reason": "函数 LL_NVIC_SetPriority 位于 CORTEX 头文件，前缀非 LL_CORTEX_；按文件模块归属"
+    },
+    {
+      "FunctionName": "LL_NVIC_GetPreemptPriority",
+      "FilePath": "SDKContent/Tai-Action.TAE32G58xx_DFP.2.0.0 ReleaseV2.0.0/LL/tae32g58xx_ll_cortex.h",
+      "StartLine": 195,
+      "DetectionStatus": "待确认",
+      "reason": "函数 LL_NVIC_GetPreemptPriority 位于 CORTEX 头文件，前缀非 LL_CORTEX_；按文件模块归属"
+    },
+    {
+      "FunctionName": "LL_NVIC_GetSubPriority",
+      "FilePath": "SDKContent/Tai-Action.TAE32G58xx_DFP.2.0.0 ReleaseV2.0.0/LL/tae32g58xx_ll_cortex.h",
+      "StartLine": 219,
+      "DetectionStatus": "待确认",
+      "reason": "函数 LL_NVIC_GetSubPriority 位于 CORTEX 头文件，前缀非 LL_CORTEX_；按文件模块归属"
+    },
+    {
+      "FunctionName": "LL_InitTick",
+      "FilePath": "SDKContent/Tai-Action.TAE32G58xx_DFP.2.0.0 ReleaseV2.0.0/LL/tae32g58xx_ll_cortex.h",
+      "StartLine": 249,
+      "DetectionStatus": "待确认",
+      "reason": "函数 LL_InitTick 位于 CORTEX 头文件，前缀非 LL_CORTEX_；按文件模块归属"
+    },
+    {
+      "FunctionName": "LL_Init1msTick",
+      "FilePath": "SDKContent/Tai-Action.TAE32G58xx_DFP.2.0.0 ReleaseV2.0.0/LL/tae32g58xx_ll_cortex.h",
+      "StartLine": 268,
+      "DetectionStatus": "待确认",
+      "reason": "函数 LL_Init1msTick 位于 CORTEX 头文件，前缀非 LL_CORTEX_；按文件模块归属"
+    },
+    {
+      "FunctionName": "LL_Delay_NoISR",
+      "FilePath": "SDKContent/Tai-Action.TAE32G58xx_DFP.2.0.0 ReleaseV2.0.0/LL/tae32g58xx_ll_cortex.h",
+      "StartLine": 285,
+      "DetectionStatus": "待确认",
+      "reason": "函数 LL_Delay_NoISR 位于 CORTEX 头文件，前缀非 LL_CORTEX_；按文件模块归属"
+    }
+  ],
+  "missing_includes": [
+    {
+      "from_file": "SDKContent/Tai-Action.TAE32G58xx_DFP.2.0.0 ReleaseV2.0.0/LL/tae32g58xx_ll.h",
+      "line": 69,
+      "include": "tae32g58xx_ll_conf.h",
+      "detection_status": "待确认",
+      "reason": "被 LL 头文件引用，但不在当前扫描的 LL 目录内"
+    },
+    {
+      "from_file": "SDKContent/Tai-Action.TAE32G58xx_DFP.2.0.0 ReleaseV2.0.0/LL/tae32g58xx_ll_def.h",
+      "line": 31,
+      "include": "stddef.h",
+      "detection_status": "待确认",
+      "reason": "被 LL 头文件引用，但不在当前扫描的 LL 目录内"
+    },
+    {
+      "from_file": "SDKContent/Tai-Action.TAE32G58xx_DFP.2.0.0 ReleaseV2.0.0/LL/tae32g58xx_ll_def.h",
+      "line": 32,
+      "include": "tae32g58xx.h",
+      "detection_status": "待确认",
+      "reason": "被 LL 头文件引用，但不在当前扫描的 LL 目录内"
+    },
+    {
+      "from_file": "SDKContent/Tai-Action.TAE32G58xx_DFP.2.0.0 ReleaseV2.0.0/LL/tae32g58xx_ll_dma.h",
+      "line": 31,
+      "include": "tae32g58xx.h",
+      "detection_status": "待确认",
+      "reason": "被 LL 头文件引用，但不在当前扫描的 LL 目录内"
+    }
+  ],
+  "read_errors": [],
+  "notes": [
+    {
+      "topic": "no_c_sources",
+      "detail": "当前扫描根目录下 C 文件数量为 0。LL API 以头文件内 __STATIC_INLINE 定义为主。",
+      "detection_status": "已确认"
+    },
+    {
+      "topic": "external_device_header",
+      "detail": "多个文件 #include \"tae32g58xx.h\" / \"tae32g58xx_ll_conf.h\"，这些文件不在 LL 目录，寄存器结构体与外设基地址/实例定义的权威来源应在设备头中，本阶段无法从 LL 目录完整验证。",
+      "detection_status": "待确认"
+    }
+  ],
+  "functions_pending_count": 8
+}

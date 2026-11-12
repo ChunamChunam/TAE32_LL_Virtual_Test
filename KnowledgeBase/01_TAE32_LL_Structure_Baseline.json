@@ -1,0 +1,242 @@
+{
+  "baseline_id": "TAE32_LL_Structure_Baseline_v1",
+  "human_confirmed": true,
+  "confirmed_at": "2026-11-12",
+  "authority": "Subsequent phases MUST use this baseline. Do not invent chip/peripheral/function/register data.",
+  "sdk_ll_root": "SDKContent/Tai-Action.TAE32G58xx_DFP.2.0.0 ReleaseV2.0.0/LL",
+  "scan_results_dir": "ScanResults",
+  "scanner_script": "tools/phase1_ll_scan.py",
+  "directory": {
+    "total_directories": 2,
+    "total_files": 25,
+    "c_files": 0,
+    "h_files": 25,
+    "other_files": 0,
+    "layout": "flat_ll_headers_only"
+  },
+  "chip": {
+    "model": "TAE32G58xx",
+    "level": "series",
+    "note": "Only series-level identity found in LL sources; no finer orderable part macros in this scan root."
+  },
+  "common_files": [
+    {
+      "file": "tae32g58xx_ll.h",
+      "role": "aggregate_include",
+      "is_peripheral": false
+    },
+    {
+      "file": "tae32g58xx_ll_def.h",
+      "role": "common_definitions",
+      "is_peripheral": false
+    }
+  ],
+  "missing_external_headers": [
+    "tae32g58xx.h",
+    "tae32g58xx_ll_conf.h"
+  ],
+  "function_count_policy": "primary_count_is_inline_definition_only",
+  "inline_function_total": 3628,
+  "timer_module_instance_map": {
+    "GPTMRX": ["TMR0", "TMR1", "TMR2"],
+    "GPTMRY": ["TMR3", "TMR4"],
+    "LPTMR": ["TMR6"],
+    "BSTMR": ["TMR7", "TMR8"],
+    "ADTMR": ["TMR9", "TMR10"]
+  },
+  "peripherals": [
+    {
+      "id": 1,
+      "name": "ADC",
+      "file": "tae32g58xx_ll_adc.h",
+      "inline_functions": 213,
+      "instances": ["ADC0", "ADC1", "ADC2", "ADC3"],
+      "typedefs": ["ADC_TypeDef", "ADC_DMA_TypeDef"]
+    },
+    {
+      "id": 2,
+      "name": "ADTMR",
+      "file": "tae32g58xx_ll_adtmr.h",
+      "inline_functions": 211,
+      "instances": ["TMR9", "TMR10"],
+      "typedefs": ["ADTMR_TypeDef"]
+    },
+    {
+      "id": 3,
+      "name": "BSTMR",
+      "file": "tae32g58xx_ll_bstmr.h",
+      "inline_functions": 43,
+      "instances": ["TMR7", "TMR8"],
+      "typedefs": ["BSTMR_TypeDef"]
+    },
+    {
+      "id": 4,
+      "name": "CAN",
+      "file": "tae32g58xx_ll_can.h",
+      "inline_functions": 401,
+      "instances": ["CAN0", "CAN1"],
+      "typedefs": ["CAN_TypeDef"]
+    },
+    {
+      "id": 5,
+      "name": "CMP",
+      "file": "tae32g58xx_ll_cmp.h",
+      "inline_functions": 40,
+      "instances": ["CMP0", "CMP1", "CMP2", "CMP3", "CMP4", "CMP5", "CMP6", "CMP7", "CMP8"],
+      "typedefs": ["CMP_TypeDef"]
+    },
+    {
+      "id": 6,
+      "name": "CORTEX",
+      "file": "tae32g58xx_ll_cortex.h",
+      "inline_functions": 8,
+      "instances": [],
+      "typedefs": [],
+      "api_name_note": "LL_NVIC_*, LL_Init*, LL_Delay_* hosted in CORTEX header"
+    },
+    {
+      "id": 7,
+      "name": "DAC",
+      "file": "tae32g58xx_ll_dac.h",
+      "inline_functions": 48,
+      "instances": ["DAC0", "DAC1", "DAC2", "DAC3", "DAC4", "DAC5", "DAC6", "DAC7", "DAC8"],
+      "typedefs": ["DAC_TypeDef"]
+    },
+    {
+      "id": 8,
+      "name": "DMA",
+      "file": "tae32g58xx_ll_dma.h",
+      "inline_functions": 52,
+      "instances": ["DMA"],
+      "typedefs": ["DMA_TypeDef"]
+    },
+    {
+      "id": 9,
+      "name": "EFLASH",
+      "file": "tae32g58xx_ll_eflash.h",
+      "inline_functions": 99,
+      "instances": ["EFLASH"],
+      "typedefs": ["EFLASH_TypeDef"]
+    },
+    {
+      "id": 10,
+      "name": "GPIO",
+      "file": "tae32g58xx_ll_gpio.h",
+      "inline_functions": 35,
+      "instances": ["GPIOA", "GPIOB", "GPIOC", "GPIOD", "GPIOE", "GPIOF"],
+      "typedefs": ["GPIO_TypeDef"]
+    },
+    {
+      "id": 11,
+      "name": "GPTMRX",
+      "file": "tae32g58xx_ll_gptmrx.h",
+      "inline_functions": 152,
+      "instances": ["TMR0", "TMR1", "TMR2"],
+      "typedefs": ["GPTMRx_TypeDef"]
+    },
+    {
+      "id": 12,
+      "name": "GPTMRY",
+      "file": "tae32g58xx_ll_gptmry.h",
+      "inline_functions": 165,
+      "instances": ["TMR3", "TMR4"],
+      "typedefs": ["GPTMRy_TypeDef"]
+    },
+    {
+      "id": 13,
+      "name": "HRPWM",
+      "file": "tae32g58xx_ll_hrpwm.h",
+      "inline_functions": 695,
+      "instances": ["HRPWM"],
+      "typedefs": ["HRPWM_TypeDef"]
+    },
+    {
+      "id": 14,
+      "name": "I2C",
+      "file": "tae32g58xx_ll_i2c.h",
+      "inline_functions": 232,
+      "instances": ["I2C0", "I2C1", "I2C2"],
+      "typedefs": ["I2C_TypeDef"]
+    },
+    {
+      "id": 15,
+      "name": "IIR",
+      "file": "tae32g58xx_ll_iir.h",
+      "inline_functions": 42,
+      "instances": ["IIR0", "IIR1", "IIR2", "IIR3", "IIR4", "IIR5"],
+      "typedefs": ["IIR_TypeDef", "IIR_Coef_TypeDef"]
+    },
+    {
+      "id": 16,
+      "name": "IWDG",
+      "file": "tae32g58xx_ll_iwdg.h",
+      "inline_functions": 19,
+      "instances": ["IWDG"],
+      "typedefs": ["IWDG_TypeDef"]
+    },
+    {
+      "id": 17,
+      "name": "LPTMR",
+      "file": "tae32g58xx_ll_lptmr.h",
+      "inline_functions": 70,
+      "instances": ["TMR6"],
+      "typedefs": ["LPTMR_TypeDef"]
+    },
+    {
+      "id": 18,
+      "name": "QEI",
+      "file": "tae32g58xx_ll_qei.h",
+      "inline_functions": 106,
+      "instances": ["QEI0", "QEI1", "QEI2"],
+      "typedefs": ["QEI_TypeDef"]
+    },
+    {
+      "id": 19,
+      "name": "RCU",
+      "file": "tae32g58xx_ll_rcu.h",
+      "inline_functions": 503,
+      "instances": ["RCU"],
+      "typedefs": ["RCU_TypeDef"]
+    },
+    {
+      "id": 20,
+      "name": "SPI",
+      "file": "tae32g58xx_ll_spi.h",
+      "inline_functions": 155,
+      "instances": ["SPI0", "SPI1"],
+      "typedefs": ["SPI_TypeDef"]
+    },
+    {
+      "id": 21,
+      "name": "SYSCTRL",
+      "file": "tae32g58xx_ll_sysctrl.h",
+      "inline_functions": 188,
+      "instances": ["SYSCTRL"],
+      "typedefs": ["SYSCTRL_TypeDef"]
+    },
+    {
+      "id": 22,
+      "name": "UART",
+      "file": "tae32g58xx_ll_uart.h",
+      "inline_functions": 137,
+      "instances": ["UART0", "UART1", "UART2", "UART3", "UART4"],
+      "typedefs": ["UART_TypeDef"]
+    },
+    {
+      "id": 23,
+      "name": "WWDG",
+      "file": "tae32g58xx_ll_wwdg.h",
+      "inline_functions": 14,
+      "instances": ["WWDG"],
+      "typedefs": ["WWDG_TypeDef"]
+    }
+  ],
+  "rules": [
+    "Distinguish peripheral module vs instance.",
+    "Treat GPTMRX/GPTMRY/ADTMR/BSTMR/LPTMR as five independent modules.",
+    "Do not invent data missing from SDK; mark external gaps explicitly.",
+    "Do not modify original SDK sources.",
+    "Target app architecture remains C#/WPF/MVVM; Python is scan helper only.",
+    "If SDK content changes, re-scan and revise this baseline."
+  ]
+}

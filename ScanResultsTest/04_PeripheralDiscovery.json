@@ -1,0 +1,624 @@
+﻿{
+  "generated_at": "2026-11-12T04:04:21Z",
+  "discovery_policy": "综合 @brief/@defgroup/实例宏/TypeDef/LL_ 前缀/文件名；禁止仅用文件名定论",
+  "peripheral_count": 23,
+  "peripherals": [
+    {
+      "序号": 1,
+      "外设名称": "ADC",
+      "相关文件": [
+        "SDKContent/Tai-Action.TAE32G58xx_DFP.2.0.0 ReleaseV2.0.0/LL/tae32g58xx_ll_adc.h"
+      ],
+      "LL函数数量": 213,
+      "LL函数数量_全形式": 591,
+      "LL函数数量明细": {
+        "inline_definition": 213,
+        "function_macro": 377,
+        "declaration": 1
+      },
+      "外设实例": [
+        "ADC0",
+        "ADC1",
+        "ADC2",
+        "ADC3"
+      ],
+      "TypeDef": [
+        "ADC_DMA_TypeDef",
+        "ADC_TypeDef"
+      ],
+      "置信度": "高",
+      "识别状态": "自动识别",
+      "所属芯片": "TAE32G58xx",
+      "notes": null,
+      "is_common_driver": false
+    },
+    {
+      "序号": 2,
+      "外设名称": "ADTMR",
+      "相关文件": [
+        "SDKContent/Tai-Action.TAE32G58xx_DFP.2.0.0 ReleaseV2.0.0/LL/tae32g58xx_ll_adtmr.h"
+      ],
+      "LL函数数量": 211,
+      "LL函数数量_全形式": 493,
+      "LL函数数量明细": {
+        "inline_definition": 211,
+        "function_macro": 281,
+        "declaration": 1
+      },
+      "外设实例": [
+        "TMR9",
+        "TMR10"
+      ],
+      "TypeDef": [
+        "ADTMR_TypeDef"
+      ],
+      "置信度": "高",
+      "识别状态": "自动识别",
+      "所属芯片": "TAE32G58xx",
+      "notes": null,
+      "is_common_driver": false
+    },
+    {
+      "序号": 3,
+      "外设名称": "BSTMR",
+      "相关文件": [
+        "SDKContent/Tai-Action.TAE32G58xx_DFP.2.0.0 ReleaseV2.0.0/LL/tae32g58xx_ll_bstmr.h"
+      ],
+      "LL函数数量": 43,
+      "LL函数数量_全形式": 76,
+      "LL函数数量明细": {
+        "inline_definition": 43,
+        "function_macro": 32,
+        "declaration": 1
+      },
+      "外设实例": [
+        "TMR7",
+        "TMR8"
+      ],
+      "TypeDef": [
+        "BSTMR_TypeDef"
+      ],
+      "置信度": "高",
+      "识别状态": "自动识别",
+      "所属芯片": "TAE32G58xx",
+      "notes": null,
+      "is_common_driver": false
+    },
+    {
+      "序号": 4,
+      "外设名称": "CAN",
+      "相关文件": [
+        "SDKContent/Tai-Action.TAE32G58xx_DFP.2.0.0 ReleaseV2.0.0/LL/tae32g58xx_ll_can.h"
+      ],
+      "LL函数数量": 401,
+      "LL函数数量_全形式": 703,
+      "LL函数数量明细": {
+        "inline_definition": 401,
+        "function_macro": 301,
+        "declaration": 1
+      },
+      "外设实例": [
+        "CAN0",
+        "CAN1"
+      ],
+      "TypeDef": [
+        "CAN_TypeDef"
+      ],
+      "置信度": "高",
+      "识别状态": "自动识别",
+      "所属芯片": "TAE32G58xx",
+      "notes": null,
+      "is_common_driver": false
+    },
+    {
+      "序号": 5,
+      "外设名称": "CMP",
+      "相关文件": [
+        "SDKContent/Tai-Action.TAE32G58xx_DFP.2.0.0 ReleaseV2.0.0/LL/tae32g58xx_ll_cmp.h"
+      ],
+      "LL函数数量": 40,
+      "LL函数数量_全形式": 63,
+      "LL函数数量明细": {
+        "inline_definition": 40,
+        "function_macro": 22,
+        "declaration": 1
+      },
+      "外设实例": [
+        "CMP0",
+        "CMP1",
+        "CMP2",
+        "CMP3",
+        "CMP4",
+        "CMP5",
+        "CMP6",
+        "CMP7",
+        "CMP8"
+      ],
+      "TypeDef": [
+        "CMP_TypeDef"
+      ],
+      "置信度": "高",
+      "识别状态": "自动识别",
+      "所属芯片": "TAE32G58xx",
+      "notes": null,
+      "is_common_driver": false
+    },
+    {
+      "序号": 6,
+      "外设名称": "CORTEX",
+      "相关文件": [
+        "SDKContent/Tai-Action.TAE32G58xx_DFP.2.0.0 ReleaseV2.0.0/LL/tae32g58xx_ll_cortex.h"
+      ],
+      "LL函数数量": 8,
+      "LL函数数量_全形式": 8,
+      "LL函数数量明细": {
+        "inline_definition": 8,
+        "function_macro": 0,
+        "declaration": 0
+      },
+      "外设实例": [],
+      "TypeDef": [],
+      "置信度": "高",
+      "识别状态": "自动识别",
+      "所属芯片": "TAE32G58xx",
+      "notes": null,
+      "is_common_driver": false
+    },
+    {
+      "序号": 7,
+      "外设名称": "DAC",
+      "相关文件": [
+        "SDKContent/Tai-Action.TAE32G58xx_DFP.2.0.0 ReleaseV2.0.0/LL/tae32g58xx_ll_dac.h"
+      ],
+      "LL函数数量": 48,
+      "LL函数数量_全形式": 97,
+      "LL函数数量明细": {
+        "inline_definition": 48,
+        "function_macro": 48,
+        "declaration": 1
+      },
+      "外设实例": [
+        "DAC0",
+        "DAC1",
+        "DAC2",
+        "DAC3",
+        "DAC4",
+        "DAC5",
+        "DAC6",
+        "DAC7",
+        "DAC8"
+      ],
+      "TypeDef": [
+        "DAC_TypeDef"
+      ],
+      "置信度": "高",
+      "识别状态": "自动识别",
+      "所属芯片": "TAE32G58xx",
+      "notes": null,
+      "is_common_driver": false
+    },
+    {
+      "序号": 8,
+      "外设名称": "DMA",
+      "相关文件": [
+        "SDKContent/Tai-Action.TAE32G58xx_DFP.2.0.0 ReleaseV2.0.0/LL/tae32g58xx_ll_dma.h"
+      ],
+      "LL函数数量": 52,
+      "LL函数数量_全形式": 59,
+      "LL函数数量明细": {
+        "inline_definition": 52,
+        "function_macro": 7,
+        "declaration": 0
+      },
+      "外设实例": [
+        "DMA"
+      ],
+      "TypeDef": [
+        "DMA_TypeDef"
+      ],
+      "置信度": "高",
+      "识别状态": "自动识别",
+      "所属芯片": "TAE32G58xx",
+      "notes": null,
+      "is_common_driver": false
+    },
+    {
+      "序号": 9,
+      "外设名称": "EFLASH",
+      "相关文件": [
+        "SDKContent/Tai-Action.TAE32G58xx_DFP.2.0.0 ReleaseV2.0.0/LL/tae32g58xx_ll_eflash.h"
+      ],
+      "LL函数数量": 99,
+      "LL函数数量_全形式": 199,
+      "LL函数数量明细": {
+        "inline_definition": 99,
+        "function_macro": 99,
+        "declaration": 1
+      },
+      "外设实例": [
+        "EFLASH"
+      ],
+      "TypeDef": [
+        "EFLASH_TypeDef"
+      ],
+      "置信度": "高",
+      "识别状态": "自动识别",
+      "所属芯片": "TAE32G58xx",
+      "notes": null,
+      "is_common_driver": false
+    },
+    {
+      "序号": 10,
+      "外设名称": "GPIO",
+      "相关文件": [
+        "SDKContent/Tai-Action.TAE32G58xx_DFP.2.0.0 ReleaseV2.0.0/LL/tae32g58xx_ll_gpio.h"
+      ],
+      "LL函数数量": 35,
+      "LL函数数量_全形式": 36,
+      "LL函数数量明细": {
+        "inline_definition": 35,
+        "function_macro": 0,
+        "declaration": 1
+      },
+      "外设实例": [
+        "GPIOA",
+        "GPIOB",
+        "GPIOC",
+        "GPIOD",
+        "GPIOE",
+        "GPIOF"
+      ],
+      "TypeDef": [
+        "GPIO_TypeDef"
+      ],
+      "置信度": "高",
+      "识别状态": "自动识别",
+      "所属芯片": "TAE32G58xx",
+      "notes": null,
+      "is_common_driver": false
+    },
+    {
+      "序号": 11,
+      "外设名称": "GPTMRX",
+      "相关文件": [
+        "SDKContent/Tai-Action.TAE32G58xx_DFP.2.0.0 ReleaseV2.0.0/LL/tae32g58xx_ll_gptmrx.h"
+      ],
+      "LL函数数量": 152,
+      "LL函数数量_全形式": 359,
+      "LL函数数量明细": {
+        "inline_definition": 152,
+        "function_macro": 206,
+        "declaration": 1
+      },
+      "外设实例": [
+        "TMR0",
+        "TMR1",
+        "TMR2"
+      ],
+      "TypeDef": [
+        "GPTMRx_TypeDef"
+      ],
+      "置信度": "高",
+      "识别状态": "自动识别",
+      "所属芯片": "TAE32G58xx",
+      "notes": null,
+      "is_common_driver": false
+    },
+    {
+      "序号": 12,
+      "外设名称": "GPTMRY",
+      "相关文件": [
+        "SDKContent/Tai-Action.TAE32G58xx_DFP.2.0.0 ReleaseV2.0.0/LL/tae32g58xx_ll_gptmry.h"
+      ],
+      "LL函数数量": 165,
+      "LL函数数量_全形式": 352,
+      "LL函数数量明细": {
+        "inline_definition": 165,
+        "function_macro": 186,
+        "declaration": 1
+      },
+      "外设实例": [
+        "TMR3",
+        "TMR4"
+      ],
+      "TypeDef": [
+        "GPTMRy_TypeDef"
+      ],
+      "置信度": "高",
+      "识别状态": "自动识别",
+      "所属芯片": "TAE32G58xx",
+      "notes": null,
+      "is_common_driver": false
+    },
+    {
+      "序号": 13,
+      "外设名称": "HRPWM",
+      "相关文件": [
+        "SDKContent/Tai-Action.TAE32G58xx_DFP.2.0.0 ReleaseV2.0.0/LL/tae32g58xx_ll_hrpwm.h"
+      ],
+      "LL函数数量": 695,
+      "LL函数数量_全形式": 1569,
+      "LL函数数量明细": {
+        "inline_definition": 695,
+        "function_macro": 873,
+        "declaration": 1
+      },
+      "外设实例": [
+        "HRPWM"
+      ],
+      "TypeDef": [
+        "HRPWM_TypeDef"
+      ],
+      "置信度": "高",
+      "识别状态": "自动识别",
+      "所属芯片": "TAE32G58xx",
+      "notes": null,
+      "is_common_driver": false
+    },
+    {
+      "序号": 14,
+      "外设名称": "I2C",
+      "相关文件": [
+        "SDKContent/Tai-Action.TAE32G58xx_DFP.2.0.0 ReleaseV2.0.0/LL/tae32g58xx_ll_i2c.h"
+      ],
+      "LL函数数量": 232,
+      "LL函数数量_全形式": 290,
+      "LL函数数量明细": {
+        "inline_definition": 232,
+        "function_macro": 57,
+        "declaration": 1
+      },
+      "外设实例": [
+        "I2C0",
+        "I2C1",
+        "I2C2"
+      ],
+      "TypeDef": [
+        "I2C_TypeDef"
+      ],
+      "置信度": "高",
+      "识别状态": "自动识别",
+      "所属芯片": "TAE32G58xx",
+      "notes": null,
+      "is_common_driver": false
+    },
+    {
+      "序号": 15,
+      "外设名称": "IIR",
+      "相关文件": [
+        "SDKContent/Tai-Action.TAE32G58xx_DFP.2.0.0 ReleaseV2.0.0/LL/tae32g58xx_ll_iir.h"
+      ],
+      "LL函数数量": 42,
+      "LL函数数量_全形式": 96,
+      "LL函数数量明细": {
+        "inline_definition": 42,
+        "function_macro": 53,
+        "declaration": 1
+      },
+      "外设实例": [
+        "IIR0",
+        "IIR1",
+        "IIR2",
+        "IIR3",
+        "IIR4",
+        "IIR5"
+      ],
+      "TypeDef": [
+        "IIR_Coef_TypeDef",
+        "IIR_TypeDef"
+      ],
+      "置信度": "高",
+      "识别状态": "自动识别",
+      "所属芯片": "TAE32G58xx",
+      "notes": null,
+      "is_common_driver": false
+    },
+    {
+      "序号": 16,
+      "外设名称": "IWDG",
+      "相关文件": [
+        "SDKContent/Tai-Action.TAE32G58xx_DFP.2.0.0 ReleaseV2.0.0/LL/tae32g58xx_ll_iwdg.h"
+      ],
+      "LL函数数量": 19,
+      "LL函数数量_全形式": 20,
+      "LL函数数量明细": {
+        "inline_definition": 19,
+        "function_macro": 0,
+        "declaration": 1
+      },
+      "外设实例": [
+        "IWDG"
+      ],
+      "TypeDef": [
+        "IWDG_TypeDef"
+      ],
+      "置信度": "高",
+      "识别状态": "自动识别",
+      "所属芯片": "TAE32G58xx",
+      "notes": null,
+      "is_common_driver": false
+    },
+    {
+      "序号": 17,
+      "外设名称": "LPTMR",
+      "相关文件": [
+        "SDKContent/Tai-Action.TAE32G58xx_DFP.2.0.0 ReleaseV2.0.0/LL/tae32g58xx_ll_lptmr.h"
+      ],
+      "LL函数数量": 70,
+      "LL函数数量_全形式": 154,
+      "LL函数数量明细": {
+        "inline_definition": 70,
+        "function_macro": 83,
+        "declaration": 1
+      },
+      "外设实例": [
+        "TMR6"
+      ],
+      "TypeDef": [
+        "LPTMR_TypeDef"
+      ],
+      "置信度": "高",
+      "识别状态": "自动识别",
+      "所属芯片": "TAE32G58xx",
+      "notes": "模块名 LPTMR 与实例宏可能为 TMRn",
+      "is_common_driver": false
+    },
+    {
+      "序号": 18,
+      "外设名称": "QEI",
+      "相关文件": [
+        "SDKContent/Tai-Action.TAE32G58xx_DFP.2.0.0 ReleaseV2.0.0/LL/tae32g58xx_ll_qei.h"
+      ],
+      "LL函数数量": 106,
+      "LL函数数量_全形式": 186,
+      "LL函数数量明细": {
+        "inline_definition": 106,
+        "function_macro": 79,
+        "declaration": 1
+      },
+      "外设实例": [
+        "QEI0",
+        "QEI1",
+        "QEI2"
+      ],
+      "TypeDef": [
+        "QEI_TypeDef"
+      ],
+      "置信度": "高",
+      "识别状态": "自动识别",
+      "所属芯片": "TAE32G58xx",
+      "notes": null,
+      "is_common_driver": false
+    },
+    {
+      "序号": 19,
+      "外设名称": "RCU",
+      "相关文件": [
+        "SDKContent/Tai-Action.TAE32G58xx_DFP.2.0.0 ReleaseV2.0.0/LL/tae32g58xx_ll_rcu.h"
+      ],
+      "LL函数数量": 503,
+      "LL函数数量_全形式": 779,
+      "LL函数数量明细": {
+        "inline_definition": 503,
+        "function_macro": 275,
+        "declaration": 1
+      },
+      "外设实例": [
+        "RCU"
+      ],
+      "TypeDef": [
+        "RCU_TypeDef"
+      ],
+      "置信度": "高",
+      "识别状态": "自动识别",
+      "所属芯片": "TAE32G58xx",
+      "notes": null,
+      "is_common_driver": false
+    },
+    {
+      "序号": 20,
+      "外设名称": "SPI",
+      "相关文件": [
+        "SDKContent/Tai-Action.TAE32G58xx_DFP.2.0.0 ReleaseV2.0.0/LL/tae32g58xx_ll_spi.h"
+      ],
+      "LL函数数量": 155,
+      "LL函数数量_全形式": 240,
+      "LL函数数量明细": {
+        "inline_definition": 155,
+        "function_macro": 84,
+        "declaration": 1
+      },
+      "外设实例": [
+        "SPI0",
+        "SPI1"
+      ],
+      "TypeDef": [
+        "SPI_TypeDef"
+      ],
+      "置信度": "高",
+      "识别状态": "自动识别",
+      "所属芯片": "TAE32G58xx",
+      "notes": null,
+      "is_common_driver": false
+    },
+    {
+      "序号": 21,
+      "外设名称": "SYSCTRL",
+      "相关文件": [
+        "SDKContent/Tai-Action.TAE32G58xx_DFP.2.0.0 ReleaseV2.0.0/LL/tae32g58xx_ll_sysctrl.h"
+      ],
+      "LL函数数量": 188,
+      "LL函数数量_全形式": 275,
+      "LL函数数量明细": {
+        "inline_definition": 188,
+        "function_macro": 86,
+        "declaration": 1
+      },
+      "外设实例": [
+        "SYSCTRL"
+      ],
+      "TypeDef": [
+        "SYSCTRL_TypeDef"
+      ],
+      "置信度": "高",
+      "识别状态": "自动识别",
+      "所属芯片": "TAE32G58xx",
+      "notes": null,
+      "is_common_driver": false
+    },
+    {
+      "序号": 22,
+      "外设名称": "UART",
+      "相关文件": [
+        "SDKContent/Tai-Action.TAE32G58xx_DFP.2.0.0 ReleaseV2.0.0/LL/tae32g58xx_ll_uart.h"
+      ],
+      "LL函数数量": 137,
+      "LL函数数量_全形式": 217,
+      "LL函数数量明细": {
+        "inline_definition": 137,
+        "function_macro": 79,
+        "declaration": 1
+      },
+      "外设实例": [
+        "UART0",
+        "UART1",
+        "UART2",
+        "UART3",
+        "UART4"
+      ],
+      "TypeDef": [
+        "UART_TypeDef"
+      ],
+      "置信度": "高",
+      "识别状态": "自动识别",
+      "所属芯片": "TAE32G58xx",
+      "notes": null,
+      "is_common_driver": false
+    },
+    {
+      "序号": 23,
+      "外设名称": "WWDG",
+      "相关文件": [
+        "SDKContent/Tai-Action.TAE32G58xx_DFP.2.0.0 ReleaseV2.0.0/LL/tae32g58xx_ll_wwdg.h"
+      ],
+      "LL函数数量": 14,
+      "LL函数数量_全形式": 15,
+      "LL函数数量明细": {
+        "inline_definition": 14,
+        "function_macro": 0,
+        "declaration": 1
+      },
+      "外设实例": [
+        "WWDG"
+      ],
+      "TypeDef": [
+        "WWDG_TypeDef"
+      ],
+      "置信度": "高",
+      "识别状态": "自动识别",
+      "所属芯片": "TAE32G58xx",
+      "notes": null,
+      "is_common_driver": false
+    }
+  ]
+}

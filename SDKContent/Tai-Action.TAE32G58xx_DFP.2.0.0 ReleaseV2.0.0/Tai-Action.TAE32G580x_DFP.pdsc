@@ -1,0 +1,804 @@
+<?xml version="1.0" encoding="utf-8"?>
+
+<package schemaVersion="1.4" xmlns:xs="http://www.w3.org/2001/XMLSchema-instance" xs:noNamespaceSchemaLocation="PACK.xsd">
+  <vendor>Tai-Action</vendor>
+  <name>TAE32G580x_DFP</name>
+  <description>Device Family Pack For Tai-Action TAE32 Series</description>
+  <url>https://www.keil.com/pack/</url>
+  <supportContact>http://www.tai-action.com</supportContact>
+  <supportContact>https://www.tai-micro.com</supportContact>
+  <!-- optional license file -->
+  <!--
+  <license>
+  </license>
+  -->
+
+  <releases>
+    <release version="2.0.0" date="2026-11-11">
+		SDKV2.0.0 Alpha Version  
+	</release>
+  </releases>
+
+  <keywords>
+    <!-- keywords for indexing -->
+    <keyword>Tai-Action</keyword>
+    <keyword>TAE</keyword>
+    <keyword>TAE32</keyword>
+    <keyword>TAE32G580x</keyword>
+    <keyword>Device Support</keyword>
+    <keyword>Device Family Package Tai-Action</keyword>
+  </keywords>
+
+  <taxonomy>
+    <description Cclass="TAE Device">TAE Device System and Startup</description>
+    <description Cclass="TAE Drivers">TAE LL Module Drivers</description>
+    <description Cclass="TAE Middlewares">TAE Middlewares Drivers</description>
+    <description Cclass="TAE Utilities">TAE Utilities Drivers</description>
+  </taxonomy>
+
+  <!-- devices section (mandatory for Device Family Packs) -->
+  <devices>
+    <family Dfamily="TAE32 Series" Dvendor="Tai-Action:166">
+      <processor Dcore="Cortex-M4" DcoreVersion="r0p1" Dfpu="1" Dmpu="0" Dendian="Little-endian"/>
+      <debug svd="SVD/TAE32G58xx.svd"/>
+      <description>
+        The TAE32 Series device family contains an ARM Cortex-M4 processor, running up to 200 MHz with a versatile set of on-chip peripherals.
+      </description>
+      <!-- ************************  Subfamily 'TAE32G580x'  **************************** -->
+      <subFamily DsubFamily="TAE32G580x">
+        <processor  Dclock="200000000"/>
+        <!-- *************************  Device 'TAE32G580x'  ***************************** -->
+        <device Dname="TAE32G580x">
+          <!-- Memory Map -->
+          <memory     id="IROM1"                      start="0x08000000"  size="0x40000"    startup="1"   default="1"/>
+          <!--memory     id="IROM2"                      start="0x18000000"  size="0x6000"    startup="0"   default="0"/-->
+          <memory     id="IRAM1"                      start="0x20000000"  size="0x10000"    uninit ="0"   default="1"/>
+          <memory     id="IRAM2"                      start="0x20010000"  size="0x10000"    uninit ="0"   default="0"/>
+          <!-- Debug port -->
+          <debugconfig default="swd" clock="5000000">
+            <swj>1</swj>
+          </debugconfig>
+          <!-- Flash Download Algorithm -->
+          <algorithm name="Flash/TAE32G58xx_128kB.FLM" start="0x08000000" size="0x20000" RAMstart="0x20000000" RAMsize="0x8000" default="0"/>
+          <algorithm name="Flash/TAE32G58xx_256kB.FLM" start="0x08000000" size="0x40000" RAMstart="0x20000000" RAMsize="0x8000" default="1"/>
+        </device>
+      </subFamily>
+    </family>
+  </devices>
+
+
+  <!-- conditions section (optional for all Software Packs)-->
+  <conditions>
+    <condition id="TAE32 CMSIS-CORE">
+      <!-- conditions selecting Devices -->
+      <description>Tai-Action TAE32 Series devices and CMSIS-CORE</description>
+      <!--require Cclass="CMSIS" Cgroup="CORE"/-->
+      <require Dvendor="Tai-Action:166" Dname="TAE32*"/>
+    </condition>
+    <condition id="Startup ARM">
+      <description>Startup assembler file for ARMCC</description>
+      <require Tcompiler="ARMCC"/>
+    </condition>
+    <condition id="Startup GCC">
+      <description>Startup assembler file for GCC</description>
+      <require Tcompiler="GCC"/>
+    </condition>
+    <condition id="Startup IAR">
+      <description>Startup assembler file for IAR</description>
+      <require Tcompiler="IAR"/>
+    </condition>
+  </conditions>
+
+
+  <!-- component section (optional for all Software Packs)-->
+  <components>
+    <!-- TAE32G580x Device Startup Config-->
+    <component Cclass="Device" Cgroup="Startup" Cversion="2.0.0" Condition="TAE32 CMSIS-CORE">
+      <description>Empty Startup for TAE32G580x</description>
+      <files>
+      </files>
+    </component> 
+
+    <!-- TAE32G580x Startup Config-->
+    <component Cclass="TAE Device" Cgroup="TAE32G580x" Csub="Startup" Cversion="2.0.0" condition="TAE32 CMSIS-CORE">
+      <description>System and Startup for TAE32G580x</description>
+      <files>
+        <!-- include folder -->
+        <file category="include" name="SDK/Drivers/TAE32G58xx_Device/Inc/"/>
+
+        <!-- startup file -->
+        <file category="source"  name="SDK/Drivers/TAE32G58xx_Device/Src/startup_tae32g58xx.c" condition="Startup ARM" version="2.0.0"/>
+        <file category="source"  name="SDK/Drivers/TAE32G58xx_Device/Src/startup_tae32g58xx.c" condition="Startup GCC" version="2.0.0"/>
+        <file category="source"  name="SDK/Drivers/TAE32G58xx_Device/Src/startup_tae32g58xx.c" condition="Startup IAR" version="2.0.0"/>
+
+        <!--  header file -->
+        <file category="header"  name="SDK/Drivers/TAE32G58xx_Device/Inc/tae32g58xx.h" version="2.0.0"/>
+
+        <!-- system file -->
+        <file category="source"  name="SDK/Drivers/TAE32G58xx_Device/Src/system_tae32g58xx.c"  version="2.0.0"/>
+      </files>
+    </component>
+
+
+    <!-- TAE32G580x Driver Config-->
+
+    <!-- LL Components -->
+    <component Cclass="TAE Drivers" Cgroup="TAE32G580x" Csub="LL" Cversion="2.0.0" condition="TAE32 CMSIS-CORE">
+      <description>TAE32G580x LL common module driver</description>
+      <files>
+        <file category="include" name="SDK/Drivers/TAE32G58xx_Driver/LL/"/>
+        <file category="header" name="SDK/Drivers/TAE32G58xx_Driver/LL/tae32g58xx_ll.h" version="2.0.0"/>
+        <file category="header" name="SDK/Drivers/TAE32G58xx_Driver/LL/tae32g58xx_ll_def.h" version="2.0.0"/>
+      </files>
+    </component>
+
+    <component Cclass="TAE Drivers" Cgroup="TAE32G580x" Csub="LL_ADC" Cversion="2.0.0" condition="TAE32 CMSIS-CORE">
+      <description>TAE32G580x ADC LL module driver</description>
+      <files>
+        <file category="include" name="SDK/Drivers/TAE32G58xx_Driver/LL/"/>
+        <file category="header" name="SDK/Drivers/TAE32G58xx_Driver/LL/tae32g58xx_ll.h" version="2.0.0"/>
+        <file category="header" name="SDK/Drivers/TAE32G58xx_Driver/LL/tae32g58xx_ll_def.h" version="2.0.0"/>
+        <file category="header" name="SDK/Drivers/TAE32G58xx_Driver/LL/tae32g58xx_ll_adc.h" version="2.0.0"/>
+      </files>
+    </component>
+
+    <component Cclass="TAE Drivers" Cgroup="TAE32G580x" Csub="LL_ADTMR" Cversion="2.0.0" condition="TAE32 CMSIS-CORE">
+      <description>TAE32G580x ADTMR LL module driver</description>
+      <files>
+        <file category="include" name="SDK/Drivers/TAE32G58xx_Driver/LL/"/>
+        <file category="header" name="SDK/Drivers/TAE32G58xx_Driver/LL/tae32g58xx_ll.h" version="2.0.0"/>
+        <file category="header" name="SDK/Drivers/TAE32G58xx_Driver/LL/tae32g58xx_ll_def.h" version="2.0.0"/>
+        <file category="header" name="SDK/Drivers/TAE32G58xx_Driver/LL/tae32g58xx_ll_adtmr.h" version="2.0.0"/>
+      </files>
+    </component>
+
+    <component Cclass="TAE Drivers" Cgroup="TAE32G580x" Csub="LL_BSTMR" Cversion="2.0.0" condition="TAE32 CMSIS-CORE">
+      <description>TAE32G580x BSTMR LL module driver</description>
+      <files>
+        <file category="include" name="SDK/Drivers/TAE32G58xx_Driver/LL/"/>
+        <file category="header" name="SDK/Drivers/TAE32G58xx_Driver/LL/tae32g58xx_ll.h" version="2.0.0"/>
+        <file category="header" name="SDK/Drivers/TAE32G58xx_Driver/LL/tae32g58xx_ll_def.h" version="2.0.0"/>
+        <file category="header" name="SDK/Drivers/TAE32G58xx_Driver/LL/tae32g58xx_ll_bstmr.h" version="2.0.0"/>
+      </files>
+    </component>
+
+    <component Cclass="TAE Drivers" Cgroup="TAE32G580x" Csub="LL_CAN" Cversion="2.0.0" condition="TAE32 CMSIS-CORE">
+      <description>TAE32G580x CAN LL module driver</description>
+      <files>
+        <file category="include" name="SDK/Drivers/TAE32G58xx_Driver/LL/"/>
+        <file category="header" name="SDK/Drivers/TAE32G58xx_Driver/LL/tae32g58xx_ll.h" version="2.0.0"/>
+        <file category="header" name="SDK/Drivers/TAE32G58xx_Driver/LL/tae32g58xx_ll_def.h" version="2.0.0"/>
+        <file category="header" name="SDK/Drivers/TAE32G58xx_Driver/LL/tae32g58xx_ll_can.h" version="2.0.0"/>
+      </files>
+    </component>
+
+    <component Cclass="TAE Drivers" Cgroup="TAE32G580x" Csub="LL_CMP" Cversion="2.0.0" condition="TAE32 CMSIS-CORE">
+      <description>TAE32G580x CMP LL module driver</description>
+      <files>
+        <file category="include" name="SDK/Drivers/TAE32G58xx_Driver/LL/"/>
+        <file category="header" name="SDK/Drivers/TAE32G58xx_Driver/LL/tae32g58xx_ll.h" version="2.0.0"/>
+        <file category="header" name="SDK/Drivers/TAE32G58xx_Driver/LL/tae32g58xx_ll_def.h" version="2.0.0"/>
+        <file category="header" name="SDK/Drivers/TAE32G58xx_Driver/LL/tae32g58xx_ll_cmp.h" version="2.0.0"/>
+      </files>
+    </component>
+
+    <component Cclass="TAE Drivers" Cgroup="TAE32G580x" Csub="LL_CORTEX" Cversion="2.0.0" condition="TAE32 CMSIS-CORE">
+      <description>TAE32G580x CORTEX LL module driver</description>
+      <files>
+        <file category="include" name="SDK/Drivers/TAE32G58xx_Driver/LL/"/>
+        <file category="header" name="SDK/Drivers/TAE32G58xx_Driver/LL/tae32g58xx_ll.h" version="2.0.0"/>
+        <file category="header" name="SDK/Drivers/TAE32G58xx_Driver/LL/tae32g58xx_ll_def.h" version="2.0.0"/>
+        <file category="header" name="SDK/Drivers/TAE32G58xx_Driver/LL/tae32g58xx_ll_cortex.h" version="2.0.0"/>
+      </files>
+    </component>
+
+    <component Cclass="TAE Drivers" Cgroup="TAE32G580x" Csub="LL_DAC" Cversion="2.0.0" condition="TAE32 CMSIS-CORE">
+      <description>TAE32G580x DAC LL module driver</description>
+      <files>
+        <file category="include" name="SDK/Drivers/TAE32G58xx_Driver/LL/"/>
+        <file category="header" name="SDK/Drivers/TAE32G58xx_Driver/LL/tae32g58xx_ll.h" version="2.0.0"/>
+        <file category="header" name="SDK/Drivers/TAE32G58xx_Driver/LL/tae32g58xx_ll_def.h" version="2.0.0"/>
+        <file category="header" name="SDK/Drivers/TAE32G58xx_Driver/LL/tae32g58xx_ll_dac.h" version="2.0.0"/>
+      </files>
+    </component>
+
+    <component Cclass="TAE Drivers" Cgroup="TAE32G580x" Csub="LL_DMA" Cversion="2.0.0" condition="TAE32 CMSIS-CORE">
+      <description>TAE32G580x DMA LL module driver</description>
+      <files>
+        <file category="include" name="SDK/Drivers/TAE32G58xx_Driver/LL/"/>
+        <file category="header" name="SDK/Drivers/TAE32G58xx_Driver/LL/tae32g58xx_ll.h" version="2.0.0"/>
+        <file category="header" name="SDK/Drivers/TAE32G58xx_Driver/LL/tae32g58xx_ll_def.h" version="2.0.0"/>
+        <file category="header" name="SDK/Drivers/TAE32G58xx_Driver/LL/tae32g58xx_ll_dma.h" version="2.0.0"/>
+      </files>
+    </component>
+
+    <component Cclass="TAE Drivers" Cgroup="TAE32G580x" Csub="LL_EFLASH" Cversion="2.0.0" condition="TAE32 CMSIS-CORE">
+      <description>TAE32G580x EFLASH LL module driver</description>
+      <files>
+        <file category="include" name="SDK/Drivers/TAE32G58xx_Driver/LL/"/>
+        <file category="header" name="SDK/Drivers/TAE32G58xx_Driver/LL/tae32g58xx_ll.h" version="2.0.0"/>
+        <file category="header" name="SDK/Drivers/TAE32G58xx_Driver/LL/tae32g58xx_ll_def.h" version="2.0.0"/>
+        <file category="header" name="SDK/Drivers/TAE32G58xx_Driver/LL/tae32g58xx_ll_eflash.h" version="2.0.0"/>
+      </files>
+    </component>
+
+    <component Cclass="TAE Drivers" Cgroup="TAE32G580x" Csub="LL_GPIO" Cversion="2.0.0" condition="TAE32 CMSIS-CORE">
+      <description>TAE32G580x GPIO LL module driver</description>
+      <files>
+        <file category="include" name="SDK/Drivers/TAE32G58xx_Driver/LL/"/>
+        <file category="header" name="SDK/Drivers/TAE32G58xx_Driver/LL/tae32g58xx_ll.h" version="2.0.0"/>
+        <file category="header" name="SDK/Drivers/TAE32G58xx_Driver/LL/tae32g58xx_ll_def.h" version="2.0.0"/>
+        <file category="header" name="SDK/Drivers/TAE32G58xx_Driver/LL/tae32g58xx_ll_gpio.h" version="2.0.0"/>
+      </files>
+    </component>
+
+    <component Cclass="TAE Drivers" Cgroup="TAE32G580x" Csub="LL_GPTMRX" Cversion="2.0.0" condition="TAE32 CMSIS-CORE">
+      <description>TAE32G580x GPTMRX LL module driver</description>
+      <files>
+        <file category="include" name="SDK/Drivers/TAE32G58xx_Driver/LL/"/>
+        <file category="header" name="SDK/Drivers/TAE32G58xx_Driver/LL/tae32g58xx_ll.h" version="2.0.0"/>
+        <file category="header" name="SDK/Drivers/TAE32G58xx_Driver/LL/tae32g58xx_ll_def.h" version="2.0.0"/>
+        <file category="header" name="SDK/Drivers/TAE32G58xx_Driver/LL/tae32g58xx_ll_gptmrx.h" version="2.0.0"/>
+      </files>
+    </component>
+
+    <component Cclass="TAE Drivers" Cgroup="TAE32G580x" Csub="LL_GPTMRY" Cversion="2.0.0" condition="TAE32 CMSIS-CORE">
+      <description>TAE32G580x GPTMRY LL module driver</description>
+      <files>
+        <file category="include" name="SDK/Drivers/TAE32G58xx_Driver/LL/"/>
+        <file category="header" name="SDK/Drivers/TAE32G58xx_Driver/LL/tae32g58xx_ll.h" version="2.0.0"/>
+        <file category="header" name="SDK/Drivers/TAE32G58xx_Driver/LL/tae32g58xx_ll_def.h" version="2.0.0"/>
+        <file category="header" name="SDK/Drivers/TAE32G58xx_Driver/LL/tae32g58xx_ll_gptmry.h" version="2.0.0"/>
+      </files>
+    </component>
+
+    <component Cclass="TAE Drivers" Cgroup="TAE32G580x" Csub="LL_HRPWM" Cversion="2.0.0" condition="TAE32 CMSIS-CORE">
+      <description>TAE32G580x HRPWM LL module driver</description>
+      <files>
+        <file category="include" name="SDK/Drivers/TAE32G58xx_Driver/LL/"/>
+        <file category="header" name="SDK/Drivers/TAE32G58xx_Driver/LL/tae32g58xx_ll.h" version="2.0.0"/>
+        <file category="header" name="SDK/Drivers/TAE32G58xx_Driver/LL/tae32g58xx_ll_def.h" version="2.0.0"/>
+        <file category="header" name="SDK/Drivers/TAE32G58xx_Driver/LL/tae32g58xx_ll_hrpwm.h" version="2.0.0"/>
+      </files>
+    </component>
+
+    <component Cclass="TAE Drivers" Cgroup="TAE32G580x" Csub="LL_I2C" Cversion="2.0.0" condition="TAE32 CMSIS-CORE">
+      <description>TAE32G580x I2C LL module driver</description>
+      <files>
+        <file category="include" name="SDK/Drivers/TAE32G58xx_Driver/LL/"/>
+        <file category="header" name="SDK/Drivers/TAE32G58xx_Driver/LL/tae32g58xx_ll.h" version="2.0.0"/>
+        <file category="header" name="SDK/Drivers/TAE32G58xx_Driver/LL/tae32g58xx_ll_def.h" version="2.0.0"/>
+        <file category="header" name="SDK/Drivers/TAE32G58xx_Driver/LL/tae32g58xx_ll_i2c.h" version="2.0.0"/>
+      </files>
+    </component>
+
+    <component Cclass="TAE Drivers" Cgroup="TAE32G580x" Csub="LL_IIR" Cversion="2.0.0" condition="TAE32 CMSIS-CORE">
+      <description>TAE32G580x IIR LL module driver</description>
+      <files>
+        <file category="include" name="SDK/Drivers/TAE32G58xx_Driver/LL/"/>
+        <file category="header" name="SDK/Drivers/TAE32G58xx_Driver/LL/tae32g58xx_ll.h" version="2.0.0"/>
+        <file category="header" name="SDK/Drivers/TAE32G58xx_Driver/LL/tae32g58xx_ll_def.h" version="2.0.0"/>
+        <file category="header" name="SDK/Drivers/TAE32G58xx_Driver/LL/tae32g58xx_ll_iir.h" version="2.0.0"/>
+      </files>
+    </component>
+
+    <component Cclass="TAE Drivers" Cgroup="TAE32G580x" Csub="LL_IWDG" Cversion="2.0.0" condition="TAE32 CMSIS-CORE">
+      <description>TAE32G580x IWDG LL module driver</description>
+      <files>
+        <file category="include" name="SDK/Drivers/TAE32G58xx_Driver/LL/"/>
+        <file category="header" name="SDK/Drivers/TAE32G58xx_Driver/LL/tae32g58xx_ll.h" version="2.0.0"/>
+        <file category="header" name="SDK/Drivers/TAE32G58xx_Driver/LL/tae32g58xx_ll_def.h" version="2.0.0"/>
+        <file category="header" name="SDK/Drivers/TAE32G58xx_Driver/LL/tae32g58xx_ll_iwdg.h" version="2.0.0"/>
+      </files>
+    </component>
+
+    <component Cclass="TAE Drivers" Cgroup="TAE32G580x" Csub="LL_LPTMR" Cversion="2.0.0" condition="TAE32 CMSIS-CORE">
+      <description>TAE32G580x LPTMR LL module driver</description>
+      <files>
+        <file category="include" name="SDK/Drivers/TAE32G58xx_Driver/LL/"/>
+        <file category="header" name="SDK/Drivers/TAE32G58xx_Driver/LL/tae32g58xx_ll.h" version="2.0.0"/>
+        <file category="header" name="SDK/Drivers/TAE32G58xx_Driver/LL/tae32g58xx_ll_def.h" version="2.0.0"/>
+        <file category="header" name="SDK/Drivers/TAE32G58xx_Driver/LL/tae32g58xx_ll_lptmr.h" version="2.0.0"/>
+      </files>
+    </component>
+
+    <component Cclass="TAE Drivers" Cgroup="TAE32G580x" Csub="LL_QEI" Cversion="2.0.0" condition="TAE32 CMSIS-CORE">
+      <description>TAE32G580x QEI LL module driver</description>
+      <files>
+        <file category="include" name="SDK/Drivers/TAE32G58xx_Driver/LL/"/>
+        <file category="header" name="SDK/Drivers/TAE32G58xx_Driver/LL/tae32g58xx_ll.h" version="2.0.0"/>
+        <file category="header" name="SDK/Drivers/TAE32G58xx_Driver/LL/tae32g58xx_ll_def.h" version="2.0.0"/>
+        <file category="header" name="SDK/Drivers/TAE32G58xx_Driver/LL/tae32g58xx_ll_qei.h" version="2.0.0"/>
+      </files>
+    </component>
+
+    <component Cclass="TAE Drivers" Cgroup="TAE32G580x" Csub="LL_RCU" Cversion="2.0.0" condition="TAE32 CMSIS-CORE">
+      <description>TAE32G580x RCU LL module driver</description>
+      <files>
+        <file category="include" name="SDK/Drivers/TAE32G58xx_Driver/LL/"/>
+        <file category="header" name="SDK/Drivers/TAE32G58xx_Driver/LL/tae32g58xx_ll.h" version="2.0.0"/>
+        <file category="header" name="SDK/Drivers/TAE32G58xx_Driver/LL/tae32g58xx_ll_def.h" version="2.0.0"/>
+        <file category="header" name="SDK/Drivers/TAE32G58xx_Driver/LL/tae32g58xx_ll_rcu.h" version="2.0.0"/>
+      </files>
+    </component>
+
+    <component Cclass="TAE Drivers" Cgroup="TAE32G580x" Csub="LL_SPI" Cversion="2.0.0" condition="TAE32 CMSIS-CORE">
+      <description>TAE32G580x SPI LL module driver</description>
+      <files>
+        <file category="include" name="SDK/Drivers/TAE32G58xx_Driver/LL/"/>
+        <file category="header" name="SDK/Drivers/TAE32G58xx_Driver/LL/tae32g58xx_ll.h" version="2.0.0"/>
+        <file category="header" name="SDK/Drivers/TAE32G58xx_Driver/LL/tae32g58xx_ll_def.h" version="2.0.0"/>
+        <file category="header" name="SDK/Drivers/TAE32G58xx_Driver/LL/tae32g58xx_ll_spi.h" version="2.0.0"/>
+      </files>
+    </component>
+
+    <component Cclass="TAE Drivers" Cgroup="TAE32G580x" Csub="LL_SYSCTRL" Cversion="2.0.0" condition="TAE32 CMSIS-CORE">
+      <description>TAE32G580x SYSCTRL LL module driver</description>
+      <files>
+        <file category="include" name="SDK/Drivers/TAE32G58xx_Driver/LL/"/>
+        <file category="header" name="SDK/Drivers/TAE32G58xx_Driver/LL/tae32g58xx_ll.h" version="2.0.0"/>
+        <file category="header" name="SDK/Drivers/TAE32G58xx_Driver/LL/tae32g58xx_ll_def.h" version="2.0.0"/>
+        <file category="header" name="SDK/Drivers/TAE32G58xx_Driver/LL/tae32g58xx_ll_sysctrl.h" version="2.0.0"/>
+      </files>
+    </component>
+
+    <component Cclass="TAE Drivers" Cgroup="TAE32G580x" Csub="LL_UART" Cversion="2.0.0" condition="TAE32 CMSIS-CORE">
+      <description>TAE32G580x UART LL module driver</description>
+      <files>
+        <file category="include" name="SDK/Drivers/TAE32G58xx_Driver/LL/"/>
+        <file category="header" name="SDK/Drivers/TAE32G58xx_Driver/LL/tae32g58xx_ll.h" version="2.0.0"/>
+        <file category="header" name="SDK/Drivers/TAE32G58xx_Driver/LL/tae32g58xx_ll_def.h" version="2.0.0"/>
+        <file category="header" name="SDK/Drivers/TAE32G58xx_Driver/LL/tae32g58xx_ll_uart.h" version="2.0.0"/>
+      </files>
+    </component>
+
+    <component Cclass="TAE Drivers" Cgroup="TAE32G580x" Csub="LL_WWDG" Cversion="2.0.0" condition="TAE32 CMSIS-CORE">
+      <description>TAE32G580x WWDG LL module driver</description>
+      <files>
+        <file category="include" name="SDK/Drivers/TAE32G58xx_Driver/LL/"/>
+        <file category="header" name="SDK/Drivers/TAE32G58xx_Driver/LL/tae32g58xx_ll.h" version="2.0.0"/>
+        <file category="header" name="SDK/Drivers/TAE32G58xx_Driver/LL/tae32g58xx_ll_def.h" version="2.0.0"/>
+        <file category="header" name="SDK/Drivers/TAE32G58xx_Driver/LL/tae32g58xx_ll_wwdg.h" version="2.0.0"/>
+      </files>
+    </component>
+
+
+    <!-- HAL Components -->
+    <component Cclass="TAE Drivers" Cgroup="TAE32G580x" Csub="HAL" Cversion="2.0.0" condition="TAE32 CMSIS-CORE">
+      <description>TAE32G580x HAL common module driver</description>
+      <files>
+        <file category="include" name="SDK/Drivers/TAE32G58xx_Driver/HAL/"/>
+        <file category="header"  name="SDK/Drivers/TAE32G58xx_Driver/HAL/tae32g58xx_hal.h" version="2.0.0"/>
+        <file category="header"  name="SDK/Drivers/TAE32G58xx_Driver/HAL/tae32g58xx_hal_def.h" version="2.0.0"/>
+        <file category="source"  name="SDK/Drivers/TAE32G58xx_Driver/HAL/tae32g58xx_hal.c" version="2.0.0"/>
+        <file category="include" name="SDK/Drivers/TAE32G58xx_Driver/LL/"/>
+        <file category="header"  name="SDK/Drivers/TAE32G58xx_Driver/LL/tae32g58xx_ll.h" version="2.0.0"/>
+        <file category="header"  name="SDK/Drivers/TAE32G58xx_Driver/LL/tae32g58xx_ll_def.h" version="2.0.0"/>
+      </files>
+    </component>
+
+    <component Cclass="TAE Drivers" Cgroup="TAE32G580x" Csub="HAL_ADC" Cversion="2.0.0" condition="TAE32 CMSIS-CORE">
+      <description>TAE32G580x ADC HAL module driver</description>
+      <files>
+        <file category="include" name="SDK/Drivers/TAE32G58xx_Driver/HAL/"/>
+        <file category="header"  name="SDK/Drivers/TAE32G58xx_Driver/HAL/tae32g58xx_hal.h" version="2.0.0"/>
+        <file category="header"  name="SDK/Drivers/TAE32G58xx_Driver/HAL/tae32g58xx_hal_def.h" version="2.0.0"/>
+        <file category="header"  name="SDK/Drivers/TAE32G58xx_Driver/HAL/tae32g58xx_hal_adc.h" version="2.0.0"/>
+        <file category="source"  name="SDK/Drivers/TAE32G58xx_Driver/HAL/tae32g58xx_hal_adc.c" version="2.0.0"/>
+        <file category="include" name="SDK/Drivers/TAE32G58xx_Driver/LL/"/>
+        <file category="header"  name="SDK/Drivers/TAE32G58xx_Driver/LL/tae32g58xx_ll.h" version="2.0.0"/>
+        <file category="header"  name="SDK/Drivers/TAE32G58xx_Driver/LL/tae32g58xx_ll_def.h" version="2.0.0"/>
+        <file category="header"  name="SDK/Drivers/TAE32G58xx_Driver/LL/tae32g58xx_ll_adc.h" version="2.0.0"/>
+      </files>
+    </component>
+
+    <component Cclass="TAE Drivers" Cgroup="TAE32G580x" Csub="HAL_ADTMR" Cversion="2.0.0" condition="TAE32 CMSIS-CORE">
+      <description>TAE32G580x ADTMR HAL module driver</description>
+      <files>
+        <file category="include" name="SDK/Drivers/TAE32G58xx_Driver/HAL/"/>
+        <file category="header"  name="SDK/Drivers/TAE32G58xx_Driver/HAL/tae32g58xx_hal.h" version="2.0.0"/>
+        <file category="header"  name="SDK/Drivers/TAE32G58xx_Driver/HAL/tae32g58xx_hal_def.h" version="2.0.0"/>
+        <file category="header"  name="SDK/Drivers/TAE32G58xx_Driver/HAL/tae32g58xx_hal_adtmr.h" version="2.0.0"/>
+        <file category="source"  name="SDK/Drivers/TAE32G58xx_Driver/HAL/tae32g58xx_hal_adtmr.c" version="2.0.0"/>
+        <file category="include" name="SDK/Drivers/TAE32G58xx_Driver/LL/"/>
+        <file category="header"  name="SDK/Drivers/TAE32G58xx_Driver/LL/tae32g58xx_ll.h" version="2.0.0"/>
+        <file category="header"  name="SDK/Drivers/TAE32G58xx_Driver/LL/tae32g58xx_ll_def.h" version="2.0.0"/>
+        <file category="header"  name="SDK/Drivers/TAE32G58xx_Driver/LL/tae32g58xx_ll_adtmr.h" version="2.0.0"/>
+      </files>
+    </component>
+
+    <component Cclass="TAE Drivers" Cgroup="TAE32G580x" Csub="HAL_BSTMR" Cversion="2.0.0" condition="TAE32 CMSIS-CORE">
+      <description>TAE32G580x BSTMR HAL module driver</description>
+      <files>
+        <file category="include" name="SDK/Drivers/TAE32G58xx_Driver/HAL/"/>
+        <file category="header"  name="SDK/Drivers/TAE32G58xx_Driver/HAL/tae32g58xx_hal.h" version="2.0.0"/>
+        <file category="header"  name="SDK/Drivers/TAE32G58xx_Driver/HAL/tae32g58xx_hal_def.h" version="2.0.0"/>
+        <file category="header"  name="SDK/Drivers/TAE32G58xx_Driver/HAL/tae32g58xx_hal_bstmr.h" version="2.0.0"/>
+        <file category="source"  name="SDK/Drivers/TAE32G58xx_Driver/HAL/tae32g58xx_hal_bstmr.c" version="2.0.0"/>
+        <file category="include" name="SDK/Drivers/TAE32G58xx_Driver/LL/"/>
+        <file category="header"  name="SDK/Drivers/TAE32G58xx_Driver/LL/tae32g58xx_ll.h" version="2.0.0"/>
+        <file category="header"  name="SDK/Drivers/TAE32G58xx_Driver/LL/tae32g58xx_ll_def.h" version="2.0.0"/>
+        <file category="header"  name="SDK/Drivers/TAE32G58xx_Driver/LL/tae32g58xx_ll_bstmr.h" version="2.0.0"/>
+      </files>
+    </component>
+
+    <component Cclass="TAE Drivers" Cgroup="TAE32G580x" Csub="HAL_CAN" Cversion="2.0.0" condition="TAE32 CMSIS-CORE">
+      <description>TAE32G580x CAN HAL module driver</description>
+      <files>
+        <file category="include" name="SDK/Drivers/TAE32G58xx_Driver/HAL/"/>
+        <file category="header"  name="SDK/Drivers/TAE32G58xx_Driver/HAL/tae32g58xx_hal.h" version="2.0.0"/>
+        <file category="header"  name="SDK/Drivers/TAE32G58xx_Driver/HAL/tae32g58xx_hal_def.h" version="2.0.0"/>
+        <file category="header"  name="SDK/Drivers/TAE32G58xx_Driver/HAL/tae32g58xx_hal_can.h" version="2.0.0"/>
+        <file category="source"  name="SDK/Drivers/TAE32G58xx_Driver/HAL/tae32g58xx_hal_can.c" version="2.0.0"/>
+        <file category="include" name="SDK/Drivers/TAE32G58xx_Driver/LL/"/>
+        <file category="header"  name="SDK/Drivers/TAE32G58xx_Driver/LL/tae32g58xx_ll.h" version="2.0.0"/>
+        <file category="header"  name="SDK/Drivers/TAE32G58xx_Driver/LL/tae32g58xx_ll_def.h" version="2.0.0"/>
+        <file category="header"  name="SDK/Drivers/TAE32G58xx_Driver/LL/tae32g58xx_ll_can.h" version="2.0.0"/>
+      </files>
+    </component>
+
+    <component Cclass="TAE Drivers" Cgroup="TAE32G580x" Csub="HAL_CMP" Cversion="2.0.0" condition="TAE32 CMSIS-CORE">
+      <description>TAE32G580x CMP HAL module driver</description>
+      <files>
+        <file category="include" name="SDK/Drivers/TAE32G58xx_Driver/HAL/"/>
+        <file category="header"  name="SDK/Drivers/TAE32G58xx_Driver/HAL/tae32g58xx_hal.h" version="2.0.0"/>
+        <file category="header"  name="SDK/Drivers/TAE32G58xx_Driver/HAL/tae32g58xx_hal_def.h" version="2.0.0"/>
+        <file category="header"  name="SDK/Drivers/TAE32G58xx_Driver/HAL/tae32g58xx_hal_cmp.h" version="2.0.0"/>
+        <file category="source"  name="SDK/Drivers/TAE32G58xx_Driver/HAL/tae32g58xx_hal_cmp.c" version="2.0.0"/>
+        <file category="include" name="SDK/Drivers/TAE32G58xx_Driver/LL/"/>
+        <file category="header"  name="SDK/Drivers/TAE32G58xx_Driver/LL/tae32g58xx_ll.h" version="2.0.0"/>
+        <file category="header"  name="SDK/Drivers/TAE32G58xx_Driver/LL/tae32g58xx_ll_def.h" version="2.0.0"/>
+        <file category="header"  name="SDK/Drivers/TAE32G58xx_Driver/LL/tae32g58xx_ll_cmp.h" version="2.0.0"/>
+      </files>
+    </component>
+
+    <component Cclass="TAE Drivers" Cgroup="TAE32G580x" Csub="HAL_CORTEX" Cversion="2.0.0" condition="TAE32 CMSIS-CORE">
+      <description>TAE32G580x CORTEX HAL module driver</description>
+      <files>
+        <file category="include" name="SDK/Drivers/TAE32G58xx_Driver/HAL/"/>
+        <file category="header"  name="SDK/Drivers/TAE32G58xx_Driver/HAL/tae32g58xx_hal.h" version="2.0.0"/>
+        <file category="header"  name="SDK/Drivers/TAE32G58xx_Driver/HAL/tae32g58xx_hal_def.h" version="2.0.0"/>
+        <file category="header"  name="SDK/Drivers/TAE32G58xx_Driver/HAL/tae32g58xx_hal_cortex.h" version="2.0.0"/>
+        <file category="source"  name="SDK/Drivers/TAE32G58xx_Driver/HAL/tae32g58xx_hal_cortex.c" version="2.0.0"/>
+        <file category="include" name="SDK/Drivers/TAE32G58xx_Driver/LL/"/>
+        <file category="header"  name="SDK/Drivers/TAE32G58xx_Driver/LL/tae32g58xx_ll.h" version="2.0.0"/>
+        <file category="header"  name="SDK/Drivers/TAE32G58xx_Driver/LL/tae32g58xx_ll_def.h" version="2.0.0"/>
+        <file category="header"  name="SDK/Drivers/TAE32G58xx_Driver/LL/tae32g58xx_ll_cortex.h" version="2.0.0"/>
+      </files>
+    </component>
+
+    <component Cclass="TAE Drivers" Cgroup="TAE32G580x" Csub="HAL_DAC" Cversion="2.0.0" condition="TAE32 CMSIS-CORE">
+      <description>TAE32G580x DAC HAL module driver</description>
+      <files>
+        <file category="include" name="SDK/Drivers/TAE32G58xx_Driver/HAL/"/>
+        <file category="header"  name="SDK/Drivers/TAE32G58xx_Driver/HAL/tae32g58xx_hal.h" version="2.0.0"/>
+        <file category="header"  name="SDK/Drivers/TAE32G58xx_Driver/HAL/tae32g58xx_hal_def.h" version="2.0.0"/>
+        <file category="header"  name="SDK/Drivers/TAE32G58xx_Driver/HAL/tae32g58xx_hal_dac.h" version="2.0.0"/>
+        <file category="source"  name="SDK/Drivers/TAE32G58xx_Driver/HAL/tae32g58xx_hal_dac.c" version="2.0.0"/>
+        <file category="include" name="SDK/Drivers/TAE32G58xx_Driver/LL/"/>
+        <file category="header"  name="SDK/Drivers/TAE32G58xx_Driver/LL/tae32g58xx_ll.h" version="2.0.0"/>
+        <file category="header"  name="SDK/Drivers/TAE32G58xx_Driver/LL/tae32g58xx_ll_def.h" version="2.0.0"/>
+        <file category="header"  name="SDK/Drivers/TAE32G58xx_Driver/LL/tae32g58xx_ll_dac.h" version="2.0.0"/>
+      </files>
+    </component>
+
+    <component Cclass="TAE Drivers" Cgroup="TAE32G580x" Csub="HAL_DMA" Cversion="2.0.0" condition="TAE32 CMSIS-CORE">
+      <description>TAE32G580x DMA HAL module driver</description>
+      <files>
+        <file category="include" name="SDK/Drivers/TAE32G58xx_Driver/HAL/"/>
+        <file category="header"  name="SDK/Drivers/TAE32G58xx_Driver/HAL/tae32g58xx_hal.h" version="2.0.0"/>
+        <file category="header"  name="SDK/Drivers/TAE32G58xx_Driver/HAL/tae32g58xx_hal_def.h" version="2.0.0"/>
+        <file category="header"  name="SDK/Drivers/TAE32G58xx_Driver/HAL/tae32g58xx_hal_dma.h" version="2.0.0"/>
+        <file category="source"  name="SDK/Drivers/TAE32G58xx_Driver/HAL/tae32g58xx_hal_dma.c" version="2.0.0"/>
+        <file category="include" name="SDK/Drivers/TAE32G58xx_Driver/LL/"/>
+        <file category="header"  name="SDK/Drivers/TAE32G58xx_Driver/LL/tae32g58xx_ll.h" version="2.0.0"/>
+        <file category="header"  name="SDK/Drivers/TAE32G58xx_Driver/LL/tae32g58xx_ll_def.h" version="2.0.0"/>
+        <file category="header"  name="SDK/Drivers/TAE32G58xx_Driver/LL/tae32g58xx_ll_dma.h" version="2.0.0"/>
+      </files>
+    </component>
+
+    <component Cclass="TAE Drivers" Cgroup="TAE32G580x" Csub="HAL_EFLASH" Cversion="2.0.0" condition="TAE32 CMSIS-CORE">
+      <description>TAE32G580x EFLASH HAL module driver</description>
+      <files>
+        <file category="include" name="SDK/Drivers/TAE32G58xx_Driver/HAL/"/>
+        <file category="header"  name="SDK/Drivers/TAE32G58xx_Driver/HAL/tae32g58xx_hal.h" version="2.0.0"/>
+        <file category="header"  name="SDK/Drivers/TAE32G58xx_Driver/HAL/tae32g58xx_hal_def.h" version="2.0.0"/>
+        <file category="header"  name="SDK/Drivers/TAE32G58xx_Driver/HAL/tae32g58xx_hal_eflash.h" version="2.0.0"/>
+        <file category="source"  name="SDK/Drivers/TAE32G58xx_Driver/HAL/tae32g58xx_hal_eflash.c" version="2.0.0"/>
+        <file category="include" name="SDK/Drivers/TAE32G58xx_Driver/LL/"/>
+        <file category="header"  name="SDK/Drivers/TAE32G58xx_Driver/LL/tae32g58xx_ll.h" version="2.0.0"/>
+        <file category="header"  name="SDK/Drivers/TAE32G58xx_Driver/LL/tae32g58xx_ll_def.h" version="2.0.0"/>
+        <file category="header"  name="SDK/Drivers/TAE32G58xx_Driver/LL/tae32g58xx_ll_eflash.h" version="2.0.0"/>
+      </files>
+    </component>
+
+    <component Cclass="TAE Drivers" Cgroup="TAE32G580x" Csub="HAL_GPIO" Cversion="2.0.0" condition="TAE32 CMSIS-CORE">
+      <description>TAE32G580x GPIO HAL module driver</description>
+      <files>
+        <file category="include" name="SDK/Drivers/TAE32G58xx_Driver/HAL/"/>
+        <file category="header"  name="SDK/Drivers/TAE32G58xx_Driver/HAL/tae32g58xx_hal.h" version="2.0.0"/>
+        <file category="header"  name="SDK/Drivers/TAE32G58xx_Driver/HAL/tae32g58xx_hal_def.h" version="2.0.0"/>
+        <file category="header"  name="SDK/Drivers/TAE32G58xx_Driver/HAL/tae32g58xx_hal_gpio.h" version="2.0.0"/>
+        <file category="source"  name="SDK/Drivers/TAE32G58xx_Driver/HAL/tae32g58xx_hal_gpio.c" version="2.0.0"/>
+        <file category="include" name="SDK/Drivers/TAE32G58xx_Driver/LL/"/>
+        <file category="header"  name="SDK/Drivers/TAE32G58xx_Driver/LL/tae32g58xx_ll.h" version="2.0.0"/>
+        <file category="header"  name="SDK/Drivers/TAE32G58xx_Driver/LL/tae32g58xx_ll_def.h" version="2.0.0"/>
+        <file category="header"  name="SDK/Drivers/TAE32G58xx_Driver/LL/tae32g58xx_ll_gpio.h" version="2.0.0"/>
+      </files>
+    </component>
+
+    <component Cclass="TAE Drivers" Cgroup="TAE32G580x" Csub="HAL_GPTMRX" Cversion="2.0.0" condition="TAE32 CMSIS-CORE">
+      <description>TAE32G580x GPTMRX HAL module driver</description>
+      <files>
+        <file category="include" name="SDK/Drivers/TAE32G58xx_Driver/HAL/"/>
+        <file category="header"  name="SDK/Drivers/TAE32G58xx_Driver/HAL/tae32g58xx_hal.h" version="2.0.0"/>
+        <file category="header"  name="SDK/Drivers/TAE32G58xx_Driver/HAL/tae32g58xx_hal_def.h" version="2.0.0"/>
+        <file category="header"  name="SDK/Drivers/TAE32G58xx_Driver/HAL/tae32g58xx_hal_gptmrx.h" version="2.0.0"/>
+        <file category="source"  name="SDK/Drivers/TAE32G58xx_Driver/HAL/tae32g58xx_hal_gptmrx.c" version="2.0.0"/>
+        <file category="include" name="SDK/Drivers/TAE32G58xx_Driver/LL/"/>
+        <file category="header"  name="SDK/Drivers/TAE32G58xx_Driver/LL/tae32g58xx_ll.h" version="2.0.0"/>
+        <file category="header"  name="SDK/Drivers/TAE32G58xx_Driver/LL/tae32g58xx_ll_def.h" version="2.0.0"/>
+        <file category="header"  name="SDK/Drivers/TAE32G58xx_Driver/LL/tae32g58xx_ll_gptmrx.h" version="2.0.0"/>
+      </files>
+    </component>
+
+    <component Cclass="TAE Drivers" Cgroup="TAE32G580x" Csub="HAL_GPTMRY" Cversion="2.0.0" condition="TAE32 CMSIS-CORE">
+      <description>TAE32G580x GPTMRY HAL module driver</description>
+      <files>
+        <file category="include" name="SDK/Drivers/TAE32G58xx_Driver/HAL/"/>
+        <file category="header"  name="SDK/Drivers/TAE32G58xx_Driver/HAL/tae32g58xx_hal.h" version="2.0.0"/>
+        <file category="header"  name="SDK/Drivers/TAE32G58xx_Driver/HAL/tae32g58xx_hal_def.h" version="2.0.0"/>
+        <file category="header"  name="SDK/Drivers/TAE32G58xx_Driver/HAL/tae32g58xx_hal_gptmry.h" version="2.0.0"/>
+        <file category="source"  name="SDK/Drivers/TAE32G58xx_Driver/HAL/tae32g58xx_hal_gptmry.c" version="2.0.0"/>
+        <file category="include" name="SDK/Drivers/TAE32G58xx_Driver/LL/"/>
+        <file category="header"  name="SDK/Drivers/TAE32G58xx_Driver/LL/tae32g58xx_ll.h" version="2.0.0"/>
+        <file category="header"  name="SDK/Drivers/TAE32G58xx_Driver/LL/tae32g58xx_ll_def.h" version="2.0.0"/>
+        <file category="header"  name="SDK/Drivers/TAE32G58xx_Driver/LL/tae32g58xx_ll_gptmry.h" version="2.0.0"/>
+      </files>
+    </component>
+
+    <component Cclass="TAE Drivers" Cgroup="TAE32G580x" Csub="HAL_HRPWM" Cversion="2.0.0" condition="TAE32 CMSIS-CORE">
+      <description>TAE32G580x HRPWM HAL module driver</description>
+      <files>
+        <file category="include" name="SDK/Drivers/TAE32G58xx_Driver/HAL/"/>
+        <file category="header"  name="SDK/Drivers/TAE32G58xx_Driver/HAL/tae32g58xx_hal.h" version="2.0.0"/>
+        <file category="header"  name="SDK/Drivers/TAE32G58xx_Driver/HAL/tae32g58xx_hal_def.h" version="2.0.0"/>
+        <file category="header"  name="SDK/Drivers/TAE32G58xx_Driver/HAL/tae32g58xx_hal_hrpwm.h" version="2.0.0"/>
+        <file category="source"  name="SDK/Drivers/TAE32G58xx_Driver/HAL/tae32g58xx_hal_hrpwm.c" version="2.0.0"/>
+        <file category="include" name="SDK/Drivers/TAE32G58xx_Driver/LL/"/>
+        <file category="header"  name="SDK/Drivers/TAE32G58xx_Driver/LL/tae32g58xx_ll.h" version="2.0.0"/>
+        <file category="header"  name="SDK/Drivers/TAE32G58xx_Driver/LL/tae32g58xx_ll_def.h" version="2.0.0"/>
+        <file category="header"  name="SDK/Drivers/TAE32G58xx_Driver/LL/tae32g58xx_ll_hrpwm.h" version="2.0.0"/>
+      </files>
+    </component>
+
+    <component Cclass="TAE Drivers" Cgroup="TAE32G580x" Csub="HAL_I2C" Cversion="2.0.0" condition="TAE32 CMSIS-CORE">
+      <description>TAE32G580x I2C HAL module driver</description>
+      <files>
+        <file category="include" name="SDK/Drivers/TAE32G58xx_Driver/HAL/"/>
+        <file category="header"  name="SDK/Drivers/TAE32G58xx_Driver/HAL/tae32g58xx_hal.h" version="2.0.0"/>
+        <file category="header"  name="SDK/Drivers/TAE32G58xx_Driver/HAL/tae32g58xx_hal_def.h" version="2.0.0"/>
+        <file category="header"  name="SDK/Drivers/TAE32G58xx_Driver/HAL/tae32g58xx_hal_i2c.h" version="2.0.0"/>
+        <file category="source"  name="SDK/Drivers/TAE32G58xx_Driver/HAL/tae32g58xx_hal_i2c.c" version="2.0.0"/>
+        <file category="include" name="SDK/Drivers/TAE32G58xx_Driver/LL/"/>
+        <file category="header"  name="SDK/Drivers/TAE32G58xx_Driver/LL/tae32g58xx_ll.h" version="2.0.0"/>
+        <file category="header"  name="SDK/Drivers/TAE32G58xx_Driver/LL/tae32g58xx_ll_def.h" version="2.0.0"/>
+        <file category="header"  name="SDK/Drivers/TAE32G58xx_Driver/LL/tae32g58xx_ll_i2c.h" version="2.0.0"/>
+      </files>
+    </component>
+
+    <component Cclass="TAE Drivers" Cgroup="TAE32G580x" Csub="HAL_IIR" Cversion="2.0.0" condition="TAE32 CMSIS-CORE">
+      <description>TAE32G580x IIR HAL module driver</description>
+      <files>
+        <file category="include" name="SDK/Drivers/TAE32G58xx_Driver/HAL/"/>
+        <file category="header"  name="SDK/Drivers/TAE32G58xx_Driver/HAL/tae32g58xx_hal.h" version="2.0.0"/>
+        <file category="header"  name="SDK/Drivers/TAE32G58xx_Driver/HAL/tae32g58xx_hal_def.h" version="2.0.0"/>
+        <file category="header"  name="SDK/Drivers/TAE32G58xx_Driver/HAL/tae32g58xx_hal_iir.h" version="2.0.0"/>
+        <file category="source"  name="SDK/Drivers/TAE32G58xx_Driver/HAL/tae32g58xx_hal_iir.c" version="2.0.0"/>
+        <file category="include" name="SDK/Drivers/TAE32G58xx_Driver/LL/"/>
+        <file category="header"  name="SDK/Drivers/TAE32G58xx_Driver/LL/tae32g58xx_ll.h" version="2.0.0"/>
+        <file category="header"  name="SDK/Drivers/TAE32G58xx_Driver/LL/tae32g58xx_ll_def.h" version="2.0.0"/>
+        <file category="header"  name="SDK/Drivers/TAE32G58xx_Driver/LL/tae32g58xx_ll_iir.h" version="2.0.0"/>
+      </files>
+    </component>
+
+    <component Cclass="TAE Drivers" Cgroup="TAE32G580x" Csub="HAL_IWDG" Cversion="2.0.0" condition="TAE32 CMSIS-CORE">
+      <description>TAE32G580x IWDG HAL module driver</description>
+      <files>
+        <file category="include" name="SDK/Drivers/TAE32G58xx_Driver/HAL/"/>
+        <file category="header"  name="SDK/Drivers/TAE32G58xx_Driver/HAL/tae32g58xx_hal.h" version="2.0.0"/>
+        <file category="header"  name="SDK/Drivers/TAE32G58xx_Driver/HAL/tae32g58xx_hal_def.h" version="2.0.0"/>
+        <file category="header"  name="SDK/Drivers/TAE32G58xx_Driver/HAL/tae32g58xx_hal_iwdg.h" version="2.0.0"/>
+        <file category="source"  name="SDK/Drivers/TAE32G58xx_Driver/HAL/tae32g58xx_hal_iwdg.c" version="2.0.0"/>
+        <file category="include" name="SDK/Drivers/TAE32G58xx_Driver/LL/"/>
+        <file category="header"  name="SDK/Drivers/TAE32G58xx_Driver/LL/tae32g58xx_ll.h" version="2.0.0"/>
+        <file category="header"  name="SDK/Drivers/TAE32G58xx_Driver/LL/tae32g58xx_ll_def.h" version="2.0.0"/>
+        <file category="header"  name="SDK/Drivers/TAE32G58xx_Driver/LL/tae32g58xx_ll_iwdg.h" version="2.0.0"/>
+      </files>
+    </component>
+
+    <component Cclass="TAE Drivers" Cgroup="TAE32G580x" Csub="HAL_LPTMR" Cversion="2.0.0" condition="TAE32 CMSIS-CORE">
+      <description>TAE32G580x LPTMR HAL module driver</description>
+      <files>
+        <file category="include" name="SDK/Drivers/TAE32G58xx_Driver/HAL/"/>
+        <file category="header"  name="SDK/Drivers/TAE32G58xx_Driver/HAL/tae32g58xx_hal.h" version="2.0.0"/>
+        <file category="header"  name="SDK/Drivers/TAE32G58xx_Driver/HAL/tae32g58xx_hal_def.h" version="2.0.0"/>
+        <file category="header"  name="SDK/Drivers/TAE32G58xx_Driver/HAL/tae32g58xx_hal_lptmr.h" version="2.0.0"/>
+        <file category="source"  name="SDK/Drivers/TAE32G58xx_Driver/HAL/tae32g58xx_hal_lptmr.c" version="2.0.0"/>
+        <file category="include" name="SDK/Drivers/TAE32G58xx_Driver/LL/"/>
+        <file category="header"  name="SDK/Drivers/TAE32G58xx_Driver/LL/tae32g58xx_ll.h" version="2.0.0"/>
+        <file category="header"  name="SDK/Drivers/TAE32G58xx_Driver/LL/tae32g58xx_ll_def.h" version="2.0.0"/>
+        <file category="header"  name="SDK/Drivers/TAE32G58xx_Driver/LL/tae32g58xx_ll_lptmr.h" version="2.0.0"/>
+      </files>
+    </component>
+
+    <component Cclass="TAE Drivers" Cgroup="TAE32G580x" Csub="HAL_QEI" Cversion="2.0.0" condition="TAE32 CMSIS-CORE">
+      <description>TAE32G580x QEI HAL module driver</description>
+      <files>
+        <file category="include" name="SDK/Drivers/TAE32G58xx_Driver/HAL/"/>
+        <file category="header"  name="SDK/Drivers/TAE32G58xx_Driver/HAL/tae32g58xx_hal.h" version="2.0.0"/>
+        <file category="header"  name="SDK/Drivers/TAE32G58xx_Driver/HAL/tae32g58xx_hal_def.h" version="2.0.0"/>
+        <file category="header"  name="SDK/Drivers/TAE32G58xx_Driver/HAL/tae32g58xx_hal_qei.h" version="2.0.0"/>
+        <file category="source"  name="SDK/Drivers/TAE32G58xx_Driver/HAL/tae32g58xx_hal_qei.c" version="2.0.0"/>
+        <file category="include" name="SDK/Drivers/TAE32G58xx_Driver/LL/"/>
+        <file category="header"  name="SDK/Drivers/TAE32G58xx_Driver/LL/tae32g58xx_ll.h" version="2.0.0"/>
+        <file category="header"  name="SDK/Drivers/TAE32G58xx_Driver/LL/tae32g58xx_ll_def.h" version="2.0.0"/>
+        <file category="header"  name="SDK/Drivers/TAE32G58xx_Driver/LL/tae32g58xx_ll_qei.h" version="2.0.0"/>
+      </files>
+    </component>
+
+    <component Cclass="TAE Drivers" Cgroup="TAE32G580x" Csub="HAL_RCU" Cversion="2.0.0" condition="TAE32 CMSIS-CORE">
+      <description>TAE32G580x RCU HAL module driver</description>
+      <files>
+        <file category="include" name="SDK/Drivers/TAE32G58xx_Driver/HAL/"/>
+        <file category="header"  name="SDK/Drivers/TAE32G58xx_Driver/HAL/tae32g58xx_hal.h" version="2.0.0"/>
+        <file category="header"  name="SDK/Drivers/TAE32G58xx_Driver/HAL/tae32g58xx_hal_def.h" version="2.0.0"/>
+        <file category="header"  name="SDK/Drivers/TAE32G58xx_Driver/HAL/tae32g58xx_hal_rcu.h" version="2.0.0"/>
+        <file category="source"  name="SDK/Drivers/TAE32G58xx_Driver/HAL/tae32g58xx_hal_rcu.c" version="2.0.0"/>
+        <file category="include" name="SDK/Drivers/TAE32G58xx_Driver/LL/"/>
+        <file category="header"  name="SDK/Drivers/TAE32G58xx_Driver/LL/tae32g58xx_ll.h" version="2.0.0"/>
+        <file category="header"  name="SDK/Drivers/TAE32G58xx_Driver/LL/tae32g58xx_ll_def.h" version="2.0.0"/>
+        <file category="header"  name="SDK/Drivers/TAE32G58xx_Driver/LL/tae32g58xx_ll_rcu.h" version="2.0.0"/>
+      </files>
+    </component>
+
+    <component Cclass="TAE Drivers" Cgroup="TAE32G580x" Csub="HAL_SPI" Cversion="2.0.0" condition="TAE32 CMSIS-CORE">
+      <description>TAE32G580x SPI HAL module driver</description>
+      <files>
+        <file category="include" name="SDK/Drivers/TAE32G58xx_Driver/HAL/"/>
+        <file category="header"  name="SDK/Drivers/TAE32G58xx_Driver/HAL/tae32g58xx_hal.h" version="2.0.0"/>
+        <file category="header"  name="SDK/Drivers/TAE32G58xx_Driver/HAL/tae32g58xx_hal_def.h" version="2.0.0"/>
+        <file category="header"  name="SDK/Drivers/TAE32G58xx_Driver/HAL/tae32g58xx_hal_spi.h" version="2.0.0"/>
+        <file category="source"  name="SDK/Drivers/TAE32G58xx_Driver/HAL/tae32g58xx_hal_spi.c" version="2.0.0"/>
+        <file category="include" name="SDK/Drivers/TAE32G58xx_Driver/LL/"/>
+        <file category="header"  name="SDK/Drivers/TAE32G58xx_Driver/LL/tae32g58xx_ll.h" version="2.0.0"/>
+        <file category="header"  name="SDK/Drivers/TAE32G58xx_Driver/LL/tae32g58xx_ll_def.h" version="2.0.0"/>
+        <file category="header"  name="SDK/Drivers/TAE32G58xx_Driver/LL/tae32g58xx_ll_spi.h" version="2.0.0"/>
+      </files>
+    </component>
+
+    <component Cclass="TAE Drivers" Cgroup="TAE32G580x" Csub="HAL_SYSCTRL" Cversion="2.0.0" condition="TAE32 CMSIS-CORE">
+      <description>TAE32G580x SYSCTRL HAL module driver</description>
+      <files>
+        <file category="include" name="SDK/Drivers/TAE32G58xx_Driver/HAL/"/>
+        <file category="header"  name="SDK/Drivers/TAE32G58xx_Driver/HAL/tae32g58xx_hal.h" version="2.0.0"/>
+        <file category="header"  name="SDK/Drivers/TAE32G58xx_Driver/HAL/tae32g58xx_hal_def.h" version="2.0.0"/>
+        <file category="header"  name="SDK/Drivers/TAE32G58xx_Driver/HAL/tae32g58xx_hal_sysctrl.h" version="2.0.0"/>
+        <file category="source"  name="SDK/Drivers/TAE32G58xx_Driver/HAL/tae32g58xx_hal_sysctrl.c" version="2.0.0"/>
+        <file category="include" name="SDK/Drivers/TAE32G58xx_Driver/LL/"/>
+        <file category="header"  name="SDK/Drivers/TAE32G58xx_Driver/LL/tae32g58xx_ll.h" version="2.0.0"/>
+        <file category="header"  name="SDK/Drivers/TAE32G58xx_Driver/LL/tae32g58xx_ll_def.h" version="2.0.0"/>
+        <file category="header"  name="SDK/Drivers/TAE32G58xx_Driver/LL/tae32g58xx_ll_sysctrl.h" version="2.0.0"/>
+      </files>
+    </component>
+
+    <component Cclass="TAE Drivers" Cgroup="TAE32G580x" Csub="HAL_UART" Cversion="2.0.0" condition="TAE32 CMSIS-CORE">
+      <description>TAE32G580x UART HAL module driver</description>
+      <files>
+        <file category="include" name="SDK/Drivers/TAE32G58xx_Driver/HAL/"/>
+        <file category="header"  name="SDK/Drivers/TAE32G58xx_Driver/HAL/tae32g58xx_hal.h" version="2.0.0"/>
+        <file category="header"  name="SDK/Drivers/TAE32G58xx_Driver/HAL/tae32g58xx_hal_def.h" version="2.0.0"/>
+        <file category="header"  name="SDK/Drivers/TAE32G58xx_Driver/HAL/tae32g58xx_hal_uart.h" version="2.0.0"/>
+        <file category="source"  name="SDK/Drivers/TAE32G58xx_Driver/HAL/tae32g58xx_hal_uart.c" version="2.0.0"/>
+        <file category="include" name="SDK/Drivers/TAE32G58xx_Driver/LL/"/>
+        <file category="header"  name="SDK/Drivers/TAE32G58xx_Driver/LL/tae32g58xx_ll.h" version="2.0.0"/>
+        <file category="header"  name="SDK/Drivers/TAE32G58xx_Driver/LL/tae32g58xx_ll_def.h" version="2.0.0"/>
+        <file category="header"  name="SDK/Drivers/TAE32G58xx_Driver/LL/tae32g58xx_ll_uart.h" version="2.0.0"/>
+      </files>
+    </component>
+
+    <!-- <component Cclass="TAE Drivers" Cgroup="TAE32G580x" Csub="HAL_USB" Cversion="2.0.0" condition="TAE32 CMSIS-CORE">
+      <description>TAE32G580x USB HAL module driver</description>
+      <files>
+        <file category="include" name="SDK/Drivers/TAE32G58xx_Driver/HAL/"/>
+        <file category="header"  name="SDK/Drivers/TAE32G58xx_Driver/HAL/tae32g58xx_hal.h" version="2.0.0"/>
+        <file category="header"  name="SDK/Drivers/TAE32G58xx_Driver/HAL/tae32g58xx_hal_def.h" version="2.0.0"/>
+        <file category="header"  name="SDK/Drivers/TAE32G58xx_Driver/HAL/tae32g58xx_hal_usb.h" version="2.0.0"/>
+        <file category="include" name="SDK/Drivers/TAE32G58xx_Driver/LL/"/>
+        <file category="header"  name="SDK/Drivers/TAE32G58xx_Driver/LL/tae32g58xx_ll.h" version="2.0.0"/>
+        <file category="header"  name="SDK/Drivers/TAE32G58xx_Driver/LL/tae32g58xx_ll_def.h" version="2.0.0"/>
+      </files>
+    </component> -->
+
+    <component Cclass="TAE Drivers" Cgroup="TAE32G580x" Csub="HAL_WWDG" Cversion="2.0.0" condition="TAE32 CMSIS-CORE">
+      <description>TAE32G580x WWDG HAL module driver</description>
+      <files>
+        <file category="include" name="SDK/Drivers/TAE32G58xx_Driver/HAL/"/>
+        <file category="header"  name="SDK/Drivers/TAE32G58xx_Driver/HAL/tae32g58xx_hal.h" version="2.0.0"/>
+        <file category="header"  name="SDK/Drivers/TAE32G58xx_Driver/HAL/tae32g58xx_hal_def.h" version="2.0.0"/>
+        <file category="header"  name="SDK/Drivers/TAE32G58xx_Driver/HAL/tae32g58xx_hal_wwdg.h" version="2.0.0"/>
+        <file category="source"  name="SDK/Drivers/TAE32G58xx_Driver/HAL/tae32g58xx_hal_wwdg.c" version="2.0.0"/>
+        <file category="include" name="SDK/Drivers/TAE32G58xx_Driver/LL/"/>
+        <file category="header"  name="SDK/Drivers/TAE32G58xx_Driver/LL/tae32g58xx_ll.h" version="2.0.0"/>
+        <file category="header"  name="SDK/Drivers/TAE32G58xx_Driver/LL/tae32g58xx_ll_def.h" version="2.0.0"/>
+        <file category="header"  name="SDK/Drivers/TAE32G58xx_Driver/LL/tae32g58xx_ll_wwdg.h" version="2.0.0"/>
+      </files>
+    </component>
+
+    <!-- <component Cclass="TAE Drivers" Cgroup="TAE32G580x" Csub="HAL_XIF" Cversion="2.0.0" condition="TAE32 CMSIS-CORE">
+      <description>TAE32G580x XIF HAL module driver</description>
+      <files>
+        <file category="include" name="SDK/Drivers/TAE32G58xx_Driver/HAL/"/>
+        <file category="header"  name="SDK/Drivers/TAE32G58xx_Driver/HAL/tae32g58xx_hal.h" version="2.0.0"/>
+        <file category="header"  name="SDK/Drivers/TAE32G58xx_Driver/HAL/tae32g58xx_hal_def.h" version="2.0.0"/>
+        <file category="header"  name="SDK/Drivers/TAE32G58xx_Driver/HAL/tae32g58xx_hal_xif.h" version="2.0.0"/>
+        <file category="include" name="SDK/Drivers/TAE32G58xx_Driver/LL/"/>
+        <file category="header"  name="SDK/Drivers/TAE32G58xx_Driver/LL/tae32g58xx_ll.h" version="2.0.0"/>
+        <file category="header"  name="SDK/Drivers/TAE32G58xx_Driver/LL/tae32g58xx_ll_def.h" version="2.0.0"/>
+      </files>
+    </component> -->
+
+
+	<!-- TAE32G580x Middlewares Config-->
+
+
+	<!-- TAE32G580x User Debug Config-->
+    <component Cclass="TAE Utilities" Cgroup="TAE32G580x" Csub="debug" Cversion="2.0.0" condition="TAE32 CMSIS-CORE">
+      <description>TAE32G580x user debug driver</description>
+      <files>
+        <file category="include" name="SDK/Utilities/"/>
+        <file category="include" name="SDK/Drivers/TAE32G58xx_Driver/LL/"/>
+        <file category="header"  name="SDK/Utilities/dbg/user_debug.h" version="2.0.0"/>
+        <file category="source"  name="SDK/Utilities/dbg/user_debug.c" version="2.0.0"/>
+      </files>
+    </component>
+
+  </components>
+
+
+  <!-- boards section (mandatory for Board Support Packs) -->
+  <boards>
+
+  </boards>
+
+
+  <!-- examples section (optional for all Software Packs)-->
+  <examples>
+    <example name="ProjectTemplateHAL" doc="readme.md" folder="SDK/ProjectTemplateHAL">
+      <description>TAE32G580x HAL Template example</description>
+      <board name="TAE32G5800_EVAL_BOARD" vendor="Tai-Action"/>
+      <project>
+        <environment name="uv" load="Project/MDK/ProjectTemplateHAL.uvprojx"/>
+      </project>
+      <attributes>
+        <!--component Cclass="CMSIS"      Cgroup="CORE"/>
+        <component Cclass="TAE Device" Cgroup="TAE32G580x"/-->
+      </attributes>
+    </example>
+
+    <example name="ProjectTemplateLL" doc="readme.md" folder="SDK/ProjectTemplateLL">
+      <description>TAE32G580x LL Template example</description>
+      <board name="TAE32G5800_EVAL_BOARD" vendor="Tai-Action"/>
+      <project>
+        <environment name="uv" load="Project/MDK/ProjectTemplateLL.uvprojx"/>
+      </project>
+      <attributes>
+        <!--component Cclass="CMSIS"      Cgroup="CORE"/>
+        <component Cclass="TAE Device" Cgroup="TAE32G580x"/-->
+      </attributes>
+    </example>
+
+
+  </examples>
+
+</package>

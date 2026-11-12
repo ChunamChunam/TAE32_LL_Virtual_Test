@@ -1,0 +1,22 @@
+<UserControl x:Class="TAE32.LLVirtualTest.App.Views.Pages.ChipManagementPage"
+             xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
+  <DockPanel>
+    <StackPanel DockPanel.Dock="Top" Margin="0,0,0,12">
+      <TextBlock Text="芯片管理" FontSize="22" FontWeight="SemiBold" Foreground="{StaticResource BrushTextPrimary}"/>
+      <TextBlock Text="来源：第一阶段 03_ChipDiscovery.json（人工确认基线）" Foreground="{StaticResource BrushTextMuted}"/>
+      <Button Content="刷新" Command="{Binding RefreshCommand}" Width="90" HorizontalAlignment="Left" Margin="0,8,0,0"/>
+    </StackPanel>
+    <DataGrid ItemsSource="{Binding Items}">
+      <DataGrid.Columns>
+        <DataGridTextColumn Header="芯片型号" Binding="{Binding ModelName}" Width="140"/>
+        <DataGridTextColumn Header="级别" Binding="{Binding Level}" Width="80"/>
+        <DataGridTextColumn Header="识别状态" Binding="{Binding DetectionStatus}" Width="90"/>
+        <DataGridTextColumn Header="置信度" Binding="{Binding Confidence}" Width="70"/>
+        <DataGridTextColumn Header="外设数" Binding="{Binding PeripheralCount}" Width="70"/>
+        <DataGridTextColumn Header="函数数" Binding="{Binding FunctionCount}" Width="80"/>
+        <DataGridTextColumn Header="SDK 路径" Binding="{Binding SdkPath}" Width="2*"/>
+      </DataGrid.Columns>
+    </DataGrid>
+  </DockPanel>
+</UserControl>

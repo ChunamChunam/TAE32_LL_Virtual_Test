@@ -1,0 +1,716 @@
+{
+  "generated_at": "2026-11-12T03:03:34Z",
+  "scan_package": "d:/Code/12_TAE32_LL_Virtual_Test/SDKContent/Tai-Action.TAE32G58xx_DFP.2.0.0 ReleaseV2.0.0",
+  "ll_root": "d:/Code/12_TAE32_LL_Virtual_Test/SDKContent/Tai-Action.TAE32G58xx_DFP.2.0.0 ReleaseV2.0.0/LL",
+  "total_directories": 2,
+  "total_files": 25,
+  "c_file_count": 0,
+  "h_file_count": 25,
+  "other_file_count": 0,
+  "per_directory": {
+    "LL": {
+      "total": 25,
+      "c": 0,
+      "h": 25,
+      "other": 0
+    },
+    "(package_root)": {
+      "total": 0,
+      "c": 0,
+      "h": 0,
+      "other": 0
+    }
+  },
+  "directory_roles": {
+    "(package_root)": {
+      "path": "d:/Code/12_TAE32_LL_Virtual_Test/SDKContent/Tai-Action.TAE32G58xx_DFP.2.0.0 ReleaseV2.0.0",
+      "inferred_role": "SDK/DFP 包根（当前仅含 LL 子目录）",
+      "detection_status": "已确认",
+      "confidence": "高",
+      "notes": "扫描范围内未见 Device/Startup/CMSIS 等其它目录"
+    },
+    "LL": {
+      "path": "d:/Code/12_TAE32_LL_Virtual_Test/SDKContent/Tai-Action.TAE32G58xx_DFP.2.0.0 ReleaseV2.0.0/LL",
+      "inferred_role": "Low-Layer 驱动头文件目录（外设 LL + 公共定义）",
+      "detection_status": "已确认",
+      "confidence": "高",
+      "chip_series_hint": "文件名前缀 tae32g58xx_* 指向 TAE32G58xx",
+      "peripheral_modules_hint": "各 tae32g58xx_ll_<module>.h",
+      "common_driver_hint": "tae32g58xx_ll_def.h, tae32g58xx_ll.h, tae32g58xx_ll_cortex.h",
+      "notes": "扁平结构，无按芯片型号分子目录；无 .c 实现文件"
+    }
+  },
+  "naming_patterns": {
+    "header_pattern": "tae32g58xx_ll_<module>.h",
+    "aggregate_header": "tae32g58xx_ll.h",
+    "common_def": "tae32g58xx_ll_def.h",
+    "observed_module_tokens_from_filename": [
+      "adc",
+      "adtmr",
+      "bstmr",
+      "can",
+      "cmp",
+      "cortex",
+      "dac",
+      "def",
+      "dma",
+      "eflash",
+      "gpio",
+      "gptmrx",
+      "gptmry",
+      "hrpwm",
+      "i2c",
+      "iir",
+      "iwdg",
+      "lptmr",
+      "qei",
+      "rcu",
+      "spi",
+      "sysctrl",
+      "uart",
+      "wwdg"
+    ],
+    "c_files_present": false,
+    "note": "文件名 token 仅作候选，外设名称以源码 @defgroup/@brief/TypeDef/实例宏为准"
+  },
+  "files": [
+    {
+      "path": "d:/Code/12_TAE32_LL_Virtual_Test/SDKContent/Tai-Action.TAE32G58xx_DFP.2.0.0 ReleaseV2.0.0/LL/tae32g58xx_ll.h",
+      "rel_path": "SDKContent/Tai-Action.TAE32G58xx_DFP.2.0.0 ReleaseV2.0.0/LL/tae32g58xx_ll.h",
+      "name": "tae32g58xx_ll.h",
+      "ext": ".h",
+      "size_bytes": 2953,
+      "role": {
+        "role": "aggregate_include",
+        "detection_status": "已确认",
+        "evidence": [
+          {
+            "kind": "filename",
+            "detail": "tae32g58xx_ll.h"
+          }
+        ]
+      }
+    },
+    {
+      "path": "d:/Code/12_TAE32_LL_Virtual_Test/SDKContent/Tai-Action.TAE32G58xx_DFP.2.0.0 ReleaseV2.0.0/LL/tae32g58xx_ll_adc.h",
+      "rel_path": "SDKContent/Tai-Action.TAE32G58xx_DFP.2.0.0 ReleaseV2.0.0/LL/tae32g58xx_ll_adc.h",
+      "name": "tae32g58xx_ll_adc.h",
+      "ext": ".h",
+      "size_bytes": 163894,
+      "role": {
+        "role": "peripheral_ll_header",
+        "detection_status": "已确认",
+        "evidence": [
+          {
+            "kind": "@brief",
+            "detail": "ADC",
+            "line": 5
+          }
+        ]
+      }
+    },
+    {
+      "path": "d:/Code/12_TAE32_LL_Virtual_Test/SDKContent/Tai-Action.TAE32G58xx_DFP.2.0.0 ReleaseV2.0.0/LL/tae32g58xx_ll_adtmr.h",
+      "rel_path": "SDKContent/Tai-Action.TAE32G58xx_DFP.2.0.0 ReleaseV2.0.0/LL/tae32g58xx_ll_adtmr.h",
+      "name": "tae32g58xx_ll_adtmr.h",
+      "ext": ".h",
+      "size_bytes": 137931,
+      "role": {
+        "role": "peripheral_ll_header",
+        "detection_status": "已确认",
+        "evidence": [
+          {
+            "kind": "@brief",
+            "detail": "ADTMR (Advanced Timer)",
+            "line": 5
+          }
+        ]
+      }
+    },
+    {
+      "path": "d:/Code/12_TAE32_LL_Virtual_Test/SDKContent/Tai-Action.TAE32G58xx_DFP.2.0.0 ReleaseV2.0.0/LL/tae32g58xx_ll_bstmr.h",
+      "rel_path": "SDKContent/Tai-Action.TAE32G58xx_DFP.2.0.0 ReleaseV2.0.0/LL/tae32g58xx_ll_bstmr.h",
+      "name": "tae32g58xx_ll_bstmr.h",
+      "ext": ".h",
+      "size_bytes": 26104,
+      "role": {
+        "role": "peripheral_ll_header",
+        "detection_status": "已确认",
+        "evidence": [
+          {
+            "kind": "@brief",
+            "detail": "BSTMR (Basic Timer)",
+            "line": 5
+          }
+        ]
+      }
+    },
+    {
+      "path": "d:/Code/12_TAE32_LL_Virtual_Test/SDKContent/Tai-Action.TAE32G58xx_DFP.2.0.0 ReleaseV2.0.0/LL/tae32g58xx_ll_can.h",
+      "rel_path": "SDKContent/Tai-Action.TAE32G58xx_DFP.2.0.0 ReleaseV2.0.0/LL/tae32g58xx_ll_can.h",
+      "name": "tae32g58xx_ll_can.h",
+      "ext": ".h",
+      "size_bytes": 230473,
+      "role": {
+        "role": "peripheral_ll_header",
+        "detection_status": "已确认",
+        "evidence": [
+          {
+            "kind": "@brief",
+            "detail": "CAN",
+            "line": 5
+          }
+        ]
+      }
+    },
+    {
+      "path": "d:/Code/12_TAE32_LL_Virtual_Test/SDKContent/Tai-Action.TAE32G58xx_DFP.2.0.0 ReleaseV2.0.0/LL/tae32g58xx_ll_cmp.h",
+      "rel_path": "SDKContent/Tai-Action.TAE32G58xx_DFP.2.0.0 ReleaseV2.0.0/LL/tae32g58xx_ll_cmp.h",
+      "name": "tae32g58xx_ll_cmp.h",
+      "ext": ".h",
+      "size_bytes": 25005,
+      "role": {
+        "role": "peripheral_ll_header",
+        "detection_status": "已确认",
+        "evidence": [
+          {
+            "kind": "@brief",
+            "detail": "CMP",
+            "line": 5
+          }
+        ]
+      }
+    },
+    {
+      "path": "d:/Code/12_TAE32_LL_Virtual_Test/SDKContent/Tai-Action.TAE32G58xx_DFP.2.0.0 ReleaseV2.0.0/LL/tae32g58xx_ll_cortex.h",
+      "rel_path": "SDKContent/Tai-Action.TAE32G58xx_DFP.2.0.0 ReleaseV2.0.0/LL/tae32g58xx_ll_cortex.h",
+      "name": "tae32g58xx_ll_cortex.h",
+      "ext": ".h",
+      "size_bytes": 11889,
+      "role": {
+        "role": "cortex_core_support",
+        "detection_status": "自动识别",
+        "evidence": [
+          {
+            "kind": "filename_and_module",
+            "detail": "CORTEX_LL"
+          }
+        ]
+      }
+    },
+    {
+      "path": "d:/Code/12_TAE32_LL_Virtual_Test/SDKContent/Tai-Action.TAE32G58xx_DFP.2.0.0 ReleaseV2.0.0/LL/tae32g58xx_ll_dac.h",
+      "rel_path": "SDKContent/Tai-Action.TAE32G58xx_DFP.2.0.0 ReleaseV2.0.0/LL/tae32g58xx_ll_dac.h",
+      "name": "tae32g58xx_ll_dac.h",
+      "ext": ".h",
+      "size_bytes": 35401,
+      "role": {
+        "role": "peripheral_ll_header",
+        "detection_status": "已确认",
+        "evidence": [
+          {
+            "kind": "@brief",
+            "detail": "DAC",
+            "line": 5
+          }
+        ]
+      }
+    },
+    {
+      "path": "d:/Code/12_TAE32_LL_Virtual_Test/SDKContent/Tai-Action.TAE32G58xx_DFP.2.0.0 ReleaseV2.0.0/LL/tae32g58xx_ll_def.h",
+      "rel_path": "SDKContent/Tai-Action.TAE32G58xx_DFP.2.0.0 ReleaseV2.0.0/LL/tae32g58xx_ll_def.h",
+      "name": "tae32g58xx_ll_def.h",
+      "ext": ".h",
+      "size_bytes": 23884,
+      "role": {
+        "role": "common_definitions",
+        "detection_status": "已确认",
+        "evidence": [
+          {
+            "kind": "filename_and_brief",
+            "detail": "LL common defines"
+          }
+        ]
+      }
+    },
+    {
+      "path": "d:/Code/12_TAE32_LL_Virtual_Test/SDKContent/Tai-Action.TAE32G58xx_DFP.2.0.0 ReleaseV2.0.0/LL/tae32g58xx_ll_dma.h",
+      "rel_path": "SDKContent/Tai-Action.TAE32G58xx_DFP.2.0.0 ReleaseV2.0.0/LL/tae32g58xx_ll_dma.h",
+      "name": "tae32g58xx_ll_dma.h",
+      "ext": ".h",
+      "size_bytes": 40332,
+      "role": {
+        "role": "peripheral_ll_header",
+        "detection_status": "已确认",
+        "evidence": [
+          {
+            "kind": "@brief",
+            "detail": "DMA",
+            "line": 5
+          }
+        ]
+      }
+    },
+    {
+      "path": "d:/Code/12_TAE32_LL_Virtual_Test/SDKContent/Tai-Action.TAE32G58xx_DFP.2.0.0 ReleaseV2.0.0/LL/tae32g58xx_ll_eflash.h",
+      "rel_path": "SDKContent/Tai-Action.TAE32G58xx_DFP.2.0.0 ReleaseV2.0.0/LL/tae32g58xx_ll_eflash.h",
+      "name": "tae32g58xx_ll_eflash.h",
+      "ext": ".h",
+      "size_bytes": 65483,
+      "role": {
+        "role": "peripheral_ll_header",
+        "detection_status": "已确认",
+        "evidence": [
+          {
+            "kind": "@brief",
+            "detail": "EFLASH",
+            "line": 5
+          }
+        ]
+      }
+    },
+    {
+      "path": "d:/Code/12_TAE32_LL_Virtual_Test/SDKContent/Tai-Action.TAE32G58xx_DFP.2.0.0 ReleaseV2.0.0/LL/tae32g58xx_ll_gpio.h",
+      "rel_path": "SDKContent/Tai-Action.TAE32G58xx_DFP.2.0.0 ReleaseV2.0.0/LL/tae32g58xx_ll_gpio.h",
+      "name": "tae32g58xx_ll_gpio.h",
+      "ext": ".h",
+      "size_bytes": 22312,
+      "role": {
+        "role": "peripheral_ll_header",
+        "detection_status": "已确认",
+        "evidence": [
+          {
+            "kind": "@brief",
+            "detail": "GPIO",
+            "line": 5
+          }
+        ]
+      }
+    },
+    {
+      "path": "d:/Code/12_TAE32_LL_Virtual_Test/SDKContent/Tai-Action.TAE32G58xx_DFP.2.0.0 ReleaseV2.0.0/LL/tae32g58xx_ll_gptmrx.h",
+      "rel_path": "SDKContent/Tai-Action.TAE32G58xx_DFP.2.0.0 ReleaseV2.0.0/LL/tae32g58xx_ll_gptmrx.h",
+      "name": "tae32g58xx_ll_gptmrx.h",
+      "ext": ".h",
+      "size_bytes": 104500,
+      "role": {
+        "role": "peripheral_ll_header",
+        "detection_status": "已确认",
+        "evidence": [
+          {
+            "kind": "@brief",
+            "detail": "GPTMRX (General Purpose Timer)",
+            "line": 5
+          }
+        ]
+      }
+    },
+    {
+      "path": "d:/Code/12_TAE32_LL_Virtual_Test/SDKContent/Tai-Action.TAE32G58xx_DFP.2.0.0 ReleaseV2.0.0/LL/tae32g58xx_ll_gptmry.h",
+      "rel_path": "SDKContent/Tai-Action.TAE32G58xx_DFP.2.0.0 ReleaseV2.0.0/LL/tae32g58xx_ll_gptmry.h",
+      "name": "tae32g58xx_ll_gptmry.h",
+      "ext": ".h",
+      "size_bytes": 105844,
+      "role": {
+        "role": "peripheral_ll_header",
+        "detection_status": "已确认",
+        "evidence": [
+          {
+            "kind": "@brief",
+            "detail": "GPTMRY (General Purpose Timer)",
+            "line": 5
+          }
+        ]
+      }
+    },
+    {
+      "path": "d:/Code/12_TAE32_LL_Virtual_Test/SDKContent/Tai-Action.TAE32G58xx_DFP.2.0.0 ReleaseV2.0.0/LL/tae32g58xx_ll_hrpwm.h",
+      "rel_path": "SDKContent/Tai-Action.TAE32G58xx_DFP.2.0.0 ReleaseV2.0.0/LL/tae32g58xx_ll_hrpwm.h",
+      "name": "tae32g58xx_ll_hrpwm.h",
+      "ext": ".h",
+      "size_bytes": 606330,
+      "role": {
+        "role": "peripheral_ll_header",
+        "detection_status": "已确认",
+        "evidence": [
+          {
+            "kind": "@brief",
+            "detail": "HRPWM",
+            "line": 5
+          }
+        ]
+      }
+    },
+    {
+      "path": "d:/Code/12_TAE32_LL_Virtual_Test/SDKContent/Tai-Action.TAE32G58xx_DFP.2.0.0 ReleaseV2.0.0/LL/tae32g58xx_ll_i2c.h",
+      "rel_path": "SDKContent/Tai-Action.TAE32G58xx_DFP.2.0.0 ReleaseV2.0.0/LL/tae32g58xx_ll_i2c.h",
+      "name": "tae32g58xx_ll_i2c.h",
+      "ext": ".h",
+      "size_bytes": 106647,
+      "role": {
+        "role": "peripheral_ll_header",
+        "detection_status": "已确认",
+        "evidence": [
+          {
+            "kind": "@brief",
+            "detail": "I2C",
+            "line": 5
+          }
+        ]
+      }
+    },
+    {
+      "path": "d:/Code/12_TAE32_LL_Virtual_Test/SDKContent/Tai-Action.TAE32G58xx_DFP.2.0.0 ReleaseV2.0.0/LL/tae32g58xx_ll_iir.h",
+      "rel_path": "SDKContent/Tai-Action.TAE32G58xx_DFP.2.0.0 ReleaseV2.0.0/LL/tae32g58xx_ll_iir.h",
+      "name": "tae32g58xx_ll_iir.h",
+      "ext": ".h",
+      "size_bytes": 29806,
+      "role": {
+        "role": "peripheral_ll_header",
+        "detection_status": "已确认",
+        "evidence": [
+          {
+            "kind": "@brief",
+            "detail": "IIR",
+            "line": 5
+          }
+        ]
+      }
+    },
+    {
+      "path": "d:/Code/12_TAE32_LL_Virtual_Test/SDKContent/Tai-Action.TAE32G58xx_DFP.2.0.0 ReleaseV2.0.0/LL/tae32g58xx_ll_iwdg.h",
+      "rel_path": "SDKContent/Tai-Action.TAE32G58xx_DFP.2.0.0 ReleaseV2.0.0/LL/tae32g58xx_ll_iwdg.h",
+      "name": "tae32g58xx_ll_iwdg.h",
+      "ext": ".h",
+      "size_bytes": 12684,
+      "role": {
+        "role": "peripheral_ll_header",
+        "detection_status": "已确认",
+        "evidence": [
+          {
+            "kind": "@brief",
+            "detail": "IWDG",
+            "line": 5
+          }
+        ]
+      }
+    },
+    {
+      "path": "d:/Code/12_TAE32_LL_Virtual_Test/SDKContent/Tai-Action.TAE32G58xx_DFP.2.0.0 ReleaseV2.0.0/LL/tae32g58xx_ll_lptmr.h",
+      "rel_path": "SDKContent/Tai-Action.TAE32G58xx_DFP.2.0.0 ReleaseV2.0.0/LL/tae32g58xx_ll_lptmr.h",
+      "name": "tae32g58xx_ll_lptmr.h",
+      "ext": ".h",
+      "size_bytes": 46459,
+      "role": {
+        "role": "peripheral_ll_header",
+        "detection_status": "已确认",
+        "evidence": [
+          {
+            "kind": "@brief",
+            "detail": "LPTMR (Low Power Timer)",
+            "line": 5
+          }
+        ]
+      }
+    },
+    {
+      "path": "d:/Code/12_TAE32_LL_Virtual_Test/SDKContent/Tai-Action.TAE32G58xx_DFP.2.0.0 ReleaseV2.0.0/LL/tae32g58xx_ll_qei.h",
+      "rel_path": "SDKContent/Tai-Action.TAE32G58xx_DFP.2.0.0 ReleaseV2.0.0/LL/tae32g58xx_ll_qei.h",
+      "name": "tae32g58xx_ll_qei.h",
+      "ext": ".h",
+      "size_bytes": 60917,
+      "role": {
+        "role": "peripheral_ll_header",
+        "detection_status": "已确认",
+        "evidence": [
+          {
+            "kind": "@brief",
+            "detail": "QEI",
+            "line": 5
+          }
+        ]
+      }
+    },
+    {
+      "path": "d:/Code/12_TAE32_LL_Virtual_Test/SDKContent/Tai-Action.TAE32G58xx_DFP.2.0.0 ReleaseV2.0.0/LL/tae32g58xx_ll_rcu.h",
+      "rel_path": "SDKContent/Tai-Action.TAE32G58xx_DFP.2.0.0 ReleaseV2.0.0/LL/tae32g58xx_ll_rcu.h",
+      "name": "tae32g58xx_ll_rcu.h",
+      "ext": ".h",
+      "size_bytes": 223084,
+      "role": {
+        "role": "peripheral_ll_header",
+        "detection_status": "已确认",
+        "evidence": [
+          {
+            "kind": "@brief",
+            "detail": "RCU",
+            "line": 5
+          }
+        ]
+      }
+    },
+    {
+      "path": "d:/Code/12_TAE32_LL_Virtual_Test/SDKContent/Tai-Action.TAE32G58xx_DFP.2.0.0 ReleaseV2.0.0/LL/tae32g58xx_ll_spi.h",
+      "rel_path": "SDKContent/Tai-Action.TAE32G58xx_DFP.2.0.0 ReleaseV2.0.0/LL/tae32g58xx_ll_spi.h",
+      "name": "tae32g58xx_ll_spi.h",
+      "ext": ".h",
+      "size_bytes": 72276,
+      "role": {
+        "role": "peripheral_ll_header",
+        "detection_status": "已确认",
+        "evidence": [
+          {
+            "kind": "@brief",
+            "detail": "SPI",
+            "line": 5
+          }
+        ]
+      }
+    },
+    {
+      "path": "d:/Code/12_TAE32_LL_Virtual_Test/SDKContent/Tai-Action.TAE32G58xx_DFP.2.0.0 ReleaseV2.0.0/LL/tae32g58xx_ll_sysctrl.h",
+      "rel_path": "SDKContent/Tai-Action.TAE32G58xx_DFP.2.0.0 ReleaseV2.0.0/LL/tae32g58xx_ll_sysctrl.h",
+      "name": "tae32g58xx_ll_sysctrl.h",
+      "ext": ".h",
+      "size_bytes": 96491,
+      "role": {
+        "role": "peripheral_ll_header",
+        "detection_status": "已确认",
+        "evidence": [
+          {
+            "kind": "@brief",
+            "detail": "SYSCTRL",
+            "line": 5
+          }
+        ]
+      }
+    },
+    {
+      "path": "d:/Code/12_TAE32_LL_Virtual_Test/SDKContent/Tai-Action.TAE32G58xx_DFP.2.0.0 ReleaseV2.0.0/LL/tae32g58xx_ll_uart.h",
+      "rel_path": "SDKContent/Tai-Action.TAE32G58xx_DFP.2.0.0 ReleaseV2.0.0/LL/tae32g58xx_ll_uart.h",
+      "name": "tae32g58xx_ll_uart.h",
+      "ext": ".h",
+      "size_bytes": 74224,
+      "role": {
+        "role": "peripheral_ll_header",
+        "detection_status": "已确认",
+        "evidence": [
+          {
+            "kind": "@brief",
+            "detail": "UART",
+            "line": 5
+          }
+        ]
+      }
+    },
+    {
+      "path": "d:/Code/12_TAE32_LL_Virtual_Test/SDKContent/Tai-Action.TAE32G58xx_DFP.2.0.0 ReleaseV2.0.0/LL/tae32g58xx_ll_wwdg.h",
+      "rel_path": "SDKContent/Tai-Action.TAE32G58xx_DFP.2.0.0 ReleaseV2.0.0/LL/tae32g58xx_ll_wwdg.h",
+      "name": "tae32g58xx_ll_wwdg.h",
+      "ext": ".h",
+      "size_bytes": 9185,
+      "role": {
+        "role": "peripheral_ll_header",
+        "detection_status": "已确认",
+        "evidence": [
+          {
+            "kind": "@brief",
+            "detail": "WWDG",
+            "line": 5
+          }
+        ]
+      }
+    }
+  ],
+  "include_graph_summary": {
+    "files_with_includes": 25,
+    "missing_include_refs": 4
+  },
+  "include_graph": {
+    "SDKContent/Tai-Action.TAE32G58xx_DFP.2.0.0 ReleaseV2.0.0/LL/tae32g58xx_ll.h": [
+      {
+        "include": "tae32g58xx_ll_conf.h",
+        "line": 69,
+        "status": "missing_from_ll_scan_root"
+      }
+    ],
+    "SDKContent/Tai-Action.TAE32G58xx_DFP.2.0.0 ReleaseV2.0.0/LL/tae32g58xx_ll_adc.h": [
+      {
+        "include": "tae32g58xx_ll_def.h",
+        "line": 30,
+        "status": "present_in_ll"
+      }
+    ],
+    "SDKContent/Tai-Action.TAE32G58xx_DFP.2.0.0 ReleaseV2.0.0/LL/tae32g58xx_ll_adtmr.h": [
+      {
+        "include": "tae32g58xx_ll_def.h",
+        "line": 30,
+        "status": "present_in_ll"
+      }
+    ],
+    "SDKContent/Tai-Action.TAE32G58xx_DFP.2.0.0 ReleaseV2.0.0/LL/tae32g58xx_ll_bstmr.h": [
+      {
+        "include": "tae32g58xx_ll_def.h",
+        "line": 30,
+        "status": "present_in_ll"
+      }
+    ],
+    "SDKContent/Tai-Action.TAE32G58xx_DFP.2.0.0 ReleaseV2.0.0/LL/tae32g58xx_ll_can.h": [
+      {
+        "include": "tae32g58xx_ll_def.h",
+        "line": 30,
+        "status": "present_in_ll"
+      }
+    ],
+    "SDKContent/Tai-Action.TAE32G58xx_DFP.2.0.0 ReleaseV2.0.0/LL/tae32g58xx_ll_cmp.h": [
+      {
+        "include": "tae32g58xx_ll_def.h",
+        "line": 30,
+        "status": "present_in_ll"
+      }
+    ],
+    "SDKContent/Tai-Action.TAE32G58xx_DFP.2.0.0 ReleaseV2.0.0/LL/tae32g58xx_ll_cortex.h": [
+      {
+        "include": "tae32g58xx_ll_def.h",
+        "line": 30,
+        "status": "present_in_ll"
+      }
+    ],
+    "SDKContent/Tai-Action.TAE32G58xx_DFP.2.0.0 ReleaseV2.0.0/LL/tae32g58xx_ll_dac.h": [
+      {
+        "include": "tae32g58xx_ll_def.h",
+        "line": 30,
+        "status": "present_in_ll"
+      }
+    ],
+    "SDKContent/Tai-Action.TAE32G58xx_DFP.2.0.0 ReleaseV2.0.0/LL/tae32g58xx_ll_def.h": [
+      {
+        "include": "stddef.h",
+        "line": 31,
+        "status": "missing_from_ll_scan_root"
+      },
+      {
+        "include": "tae32g58xx.h",
+        "line": 32,
+        "status": "missing_from_ll_scan_root"
+      }
+    ],
+    "SDKContent/Tai-Action.TAE32G58xx_DFP.2.0.0 ReleaseV2.0.0/LL/tae32g58xx_ll_dma.h": [
+      {
+        "include": "tae32g58xx_ll_def.h",
+        "line": 30,
+        "status": "present_in_ll"
+      },
+      {
+        "include": "tae32g58xx.h",
+        "line": 31,
+        "status": "missing_from_ll_scan_root"
+      }
+    ],
+    "SDKContent/Tai-Action.TAE32G58xx_DFP.2.0.0 ReleaseV2.0.0/LL/tae32g58xx_ll_eflash.h": [
+      {
+        "include": "tae32g58xx_ll_def.h",
+        "line": 30,
+        "status": "present_in_ll"
+      }
+    ],
+    "SDKContent/Tai-Action.TAE32G58xx_DFP.2.0.0 ReleaseV2.0.0/LL/tae32g58xx_ll_gpio.h": [
+      {
+        "include": "tae32g58xx_ll_def.h",
+        "line": 28,
+        "status": "present_in_ll"
+      }
+    ],
+    "SDKContent/Tai-Action.TAE32G58xx_DFP.2.0.0 ReleaseV2.0.0/LL/tae32g58xx_ll_gptmrx.h": [
+      {
+        "include": "tae32g58xx_ll_def.h",
+        "line": 30,
+        "status": "present_in_ll"
+      }
+    ],
+    "SDKContent/Tai-Action.TAE32G58xx_DFP.2.0.0 ReleaseV2.0.0/LL/tae32g58xx_ll_gptmry.h": [
+      {
+        "include": "tae32g58xx_ll_def.h",
+        "line": 30,
+        "status": "present_in_ll"
+      }
+    ],
+    "SDKContent/Tai-Action.TAE32G58xx_DFP.2.0.0 ReleaseV2.0.0/LL/tae32g58xx_ll_hrpwm.h": [
+      {
+        "include": "tae32g58xx_ll_def.h",
+        "line": 30,
+        "status": "present_in_ll"
+      }
+    ],
+    "SDKContent/Tai-Action.TAE32G58xx_DFP.2.0.0 ReleaseV2.0.0/LL/tae32g58xx_ll_i2c.h": [
+      {
+        "include": "tae32g58xx_ll_def.h",
+        "line": 30,
+        "status": "present_in_ll"
+      }
+    ],
+    "SDKContent/Tai-Action.TAE32G58xx_DFP.2.0.0 ReleaseV2.0.0/LL/tae32g58xx_ll_iir.h": [
+      {
+        "include": "tae32g58xx_ll_def.h",
+        "line": 30,
+        "status": "present_in_ll"
+      }
+    ],
+    "SDKContent/Tai-Action.TAE32G58xx_DFP.2.0.0 ReleaseV2.0.0/LL/tae32g58xx_ll_iwdg.h": [
+      {
+        "include": "tae32g58xx_ll_def.h",
+        "line": 30,
+        "status": "present_in_ll"
+      }
+    ],
+    "SDKContent/Tai-Action.TAE32G58xx_DFP.2.0.0 ReleaseV2.0.0/LL/tae32g58xx_ll_lptmr.h": [
+      {
+        "include": "tae32g58xx_ll_def.h",
+        "line": 30,
+        "status": "present_in_ll"
+      }
+    ],
+    "SDKContent/Tai-Action.TAE32G58xx_DFP.2.0.0 ReleaseV2.0.0/LL/tae32g58xx_ll_qei.h": [
+      {
+        "include": "tae32g58xx_ll_def.h",
+        "line": 30,
+        "status": "present_in_ll"
+      }
+    ],
+    "SDKContent/Tai-Action.TAE32G58xx_DFP.2.0.0 ReleaseV2.0.0/LL/tae32g58xx_ll_rcu.h": [
+      {
+        "include": "tae32g58xx_ll_def.h",
+        "line": 30,
+        "status": "present_in_ll"
+      }
+    ],
+    "SDKContent/Tai-Action.TAE32G58xx_DFP.2.0.0 ReleaseV2.0.0/LL/tae32g58xx_ll_spi.h": [
+      {
+        "include": "tae32g58xx_ll_def.h",
+        "line": 30,
+        "status": "present_in_ll"
+      }
+    ],
+    "SDKContent/Tai-Action.TAE32G58xx_DFP.2.0.0 ReleaseV2.0.0/LL/tae32g58xx_ll_sysctrl.h": [
+      {
+        "include": "tae32g58xx_ll_def.h",
+        "line": 30,
+        "status": "present_in_ll"
+      }
+    ],
+    "SDKContent/Tai-Action.TAE32G58xx_DFP.2.0.0 ReleaseV2.0.0/LL/tae32g58xx_ll_uart.h": [
+      {
+        "include": "tae32g58xx_ll_def.h",
+        "line": 30,
+        "status": "present_in_ll"
+      }
+    ],
+    "SDKContent/Tai-Action.TAE32G58xx_DFP.2.0.0 ReleaseV2.0.0/LL/tae32g58xx_ll_wwdg.h": [
+      {
+        "include": "tae32g58xx_ll_def.h",
+        "line": 30,
+        "status": "present_in_ll"
+      }
+    ]
+  }
+}

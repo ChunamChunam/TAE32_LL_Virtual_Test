@@ -1,0 +1,23 @@
+using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.DependencyInjection;
+using TAE32.LLVirtualTest.Core.Interfaces;
+using TAE32.LLVirtualTest.Core.Models;
+using TAE32.LLVirtualTest.Infrastructure;
+using TAE32.LLVirtualTest.Infrastructure.Data;
+
+var dbPath = @"d:\Code\12_TAE32_LL_Virtual_Test\data\tae32_ll_virtual_test.db";
+var services = new ServiceCollection();
+services.AddInfrastructure(dbPath);
+var sp = services.BuildServiceProvider();
+var dbFactory = sp.GetRequiredService<IDbContextFactory<AppDbContext>>();
+await using var db = await dbFactory.CreateDbContextAsync();
+var chip = await db.Chips.AsNoTracking().FirstAsync();
+var project = await db.SdkProjects.AsNoTracking().FirstAsync();
+var mcu = sp.GetRequiredService<IVirtualMcuService>();
+var info = await mcu.CreateAsync(new VirtualMcuCreateOptions { ChipId = chip.Id, SdkProjectId = project.Id });
+await mcu.InitializeAsync(info.Id);
+var crs = (await mcu.GetRegistersAsync(info.Id, "ADC", "ADC0")).Where(x => x.MemberName == "CR").ToList();
+Console.WriteLine("CR slots=" + crs.Count);
+await mcu.WriteAsync(info.Id, "ADC0", "CR", 0x6);
+crs = (await mcu.GetRegistersAsync(info.Id, "ADC", "ADC0")).Where(x => x.MemberName == "CR").ToList();
+foreach (var c in crs) Console.WriteLine($"val=0x{c.CurrentValue:X8} struct={c.StructName} fields ADDIS={c.Fields.FirstOrDefault(f=>f.Name=="ADDIS")?.Value}");

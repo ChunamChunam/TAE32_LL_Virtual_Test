@@ -1,0 +1,31 @@
+## Build
+**/bin/
+**/obj/
+**/out/
+*.user
+*.suo
+*.userosscache
+*.sln.docstates
+.vs/
+
+## Local runtime data
+/data/
+*.db
+*.db-shm
+*.db-wal
+
+## Logs / temp
+*.log
+**/TestResults/
+**/CoverageResults/
+
+## OS / IDE
+Thumbs.db
+Desktop.ini
+.idea/
+.vscode/*
+!.vscode/extensions.json
+
+## Tooling caches
+**/packages/
+*.nupkg

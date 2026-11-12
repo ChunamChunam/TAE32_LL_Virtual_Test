@@ -1,0 +1,64 @@
+<UserControl x:Class="TAE32.LLVirtualTest.App.Views.Pages.SdkManagementPage"
+             xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
+  <Grid>
+    <Grid.RowDefinitions>
+      <RowDefinition Height="Auto"/>
+      <RowDefinition Height="*"/>
+    </Grid.RowDefinitions>
+
+    <StackPanel Margin="0,0,0,12">
+      <TextBlock Text="SDK 管理" FontSize="22" FontWeight="SemiBold" Foreground="{StaticResource BrushTextPrimary}"/>
+      <TextBlock Text="选择 SDK 目录 → 自动扫描源码并生成 JSON → 导入数据库。移除项目不会删除原始 SDK 文件。"
+                 Foreground="{StaticResource BrushTextMuted}" Margin="0,4,0,0" TextWrapping="Wrap"/>
+    </StackPanel>
+
+    <Grid Grid.Row="1">
+      <Grid.ColumnDefinitions>
+        <ColumnDefinition Width="1.1*"/>
+        <ColumnDefinition Width="1.2*"/>
+      </Grid.ColumnDefinitions>
+
+      <DataGrid ItemsSource="{Binding Projects}" SelectedItem="{Binding SelectedProject}" Margin="0,0,12,0">
+        <DataGrid.Columns>
+          <DataGridTextColumn Header="名称" Binding="{Binding Name}" Width="*"/>
+          <DataGridTextColumn Header="状态" Binding="{Binding ScanStatus}" Width="90"/>
+          <DataGridTextColumn Header="最近导入" Binding="{Binding LastImportedAtUtc}" Width="140"/>
+        </DataGrid.Columns>
+      </DataGrid>
+
+      <Border Grid.Column="1" Background="{StaticResource BrushBgCard}" BorderBrush="{StaticResource BrushBorder}" BorderThickness="1" CornerRadius="8" Padding="16">
+        <ScrollViewer VerticalScrollBarVisibility="Auto">
+          <StackPanel>
+            <TextBlock Text="项目名称" Foreground="{StaticResource BrushTextMuted}"/>
+            <TextBox Text="{Binding NewName, UpdateSourceTrigger=PropertyChanged}" Margin="0,4,0,10"/>
+
+            <TextBlock Text="SDK 根路径（包目录或 LL 目录）" Foreground="{StaticResource BrushTextMuted}"/>
+            <DockPanel Margin="0,4,0,10">
+              <Button DockPanel.Dock="Right" Content="浏览…" Command="{Binding BrowseSdkCommand}" Margin="8,0,0,0"/>
+              <TextBox Text="{Binding SdkRootPath, UpdateSourceTrigger=PropertyChanged}" TextWrapping="Wrap" AcceptsReturn="True" MinHeight="40"/>
+            </DockPanel>
+
+            <TextBlock Text="扫描 JSON 输出目录" Foreground="{StaticResource BrushTextMuted}"/>
+            <DockPanel Margin="0,4,0,12">
+              <Button DockPanel.Dock="Right" Content="浏览…" Command="{Binding BrowseScanOutputCommand}" Margin="8,0,0,0"/>
+              <TextBox Text="{Binding ScanResultsPath, UpdateSourceTrigger=PropertyChanged}" TextWrapping="Wrap" AcceptsReturn="True" MinHeight="40"/>
+            </DockPanel>
+
+            <WrapPanel>
+              <Button Content="扫描并生成 JSON" Command="{Binding ScanAndImportCommand}" FontWeight="SemiBold"/>
+              <Button Content="仅导入已有 JSON" Command="{Binding ImportCommand}"/>
+              <Button Content="保存路径" Command="{Binding SavePathsCommand}"/>
+              <Button Content="移除项目" Command="{Binding RemoveCommand}" Background="#FF6B3A3A"/>
+              <Button Content="刷新" Command="{Binding RefreshCommand}"/>
+            </WrapPanel>
+
+            <TextBlock Text="{Binding StatusMessage}" Foreground="{StaticResource BrushAccent}" TextWrapping="Wrap" Margin="0,12,0,0"/>
+            <TextBlock Text="说明：扫描会读取真实 .h/.c，生成 03_ChipDiscovery.json / 04_PeripheralDiscovery.json / 05_LLFunctionDiscovery.json，然后写入 SQLite。"
+                       Foreground="{StaticResource BrushTextMuted}" TextWrapping="Wrap" Margin="0,10,0,0"/>
+          </StackPanel>
+        </ScrollViewer>
+      </Border>
+    </Grid>
+  </Grid>
+</UserControl>
