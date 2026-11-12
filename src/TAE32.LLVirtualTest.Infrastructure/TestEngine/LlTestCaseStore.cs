@@ -113,7 +113,8 @@ public sealed class LlTestCaseStore : ILlTestCaseStore
     {
         await using var db = await _dbFactory.CreateDbContextAsync(cancellationToken);
         var q = ApplyCaseFilters(db.LlTestCases.AsNoTracking(), sdkProjectId, peripheralName, searchText)
-            .Where(x => x.Status == nameof(LlTestCaseStatus.Draft));
+            .Where(x => x.Status == nameof(LlTestCaseStatus.Draft)
+                        || x.Status == nameof(LlTestCaseStatus.Unsupported));
         return await q.CountAsync(cancellationToken);
     }
 
@@ -125,7 +126,8 @@ public sealed class LlTestCaseStore : ILlTestCaseStore
     {
         await using var db = await _dbFactory.CreateDbContextAsync(cancellationToken);
         var q = ApplyCaseFilters(db.LlTestCases, sdkProjectId, peripheralName, searchText)
-            .Where(x => x.Status == nameof(LlTestCaseStatus.Draft));
+            .Where(x => x.Status == nameof(LlTestCaseStatus.Draft)
+                        || x.Status == nameof(LlTestCaseStatus.Unsupported));
         var now = DateTime.UtcNow;
         return await q.ExecuteUpdateAsync(
             s => s.SetProperty(c => c.Status, nameof(LlTestCaseStatus.Ready))

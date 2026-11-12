@@ -511,13 +511,9 @@ public sealed class LlTestCaseGenerator
 
     private static void ApplyHostPolicy(LlTestCaseEditModel model, LlFunction fn)
     {
-        var reason = LlNativeEligibility.DescribeSkip(fn.FunctionName, fn.FilePath, model.Parameters);
-        if (reason is null) return;
-
-        model.Status = nameof(LlTestCaseStatus.Unsupported);
-        model.Notes = reason;
-        model.InitialRegisters = [];
-        model.Assertions = DefaultTimeoutAssertions();
+        // Host harness (shim + pointer buffers + CAN wait ack) runs all auto drafts as Draft/Ready.
+        _ = fn;
+        _ = model;
     }
 
     private static LlTestCaseEditModel BaseModel(LlFunction fn) => new()

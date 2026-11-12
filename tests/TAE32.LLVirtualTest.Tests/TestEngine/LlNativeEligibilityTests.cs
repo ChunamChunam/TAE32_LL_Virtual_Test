@@ -11,37 +11,14 @@ namespace TAE32.LLVirtualTest.Tests.TestEngine;
 public class LlNativeEligibilityTests
 {
     [Fact]
-    public void DescribeSkip_Classifies_Pointer_Poll_And_TruncatedAddress()
+    public void DescribeSkip_Always_Allows_Host_Harness()
     {
-        var dir = Path.Combine(Path.GetTempPath(), "tae32_elig_" + Guid.NewGuid().ToString("N"));
-        Directory.CreateDirectory(dir);
-        var path = Path.Combine(dir, "sample.h");
-        try
-        {
-            File.WriteAllText(path, """
-                __STATIC_INLINE void LL_DEMO_Wait(ADC_TypeDef *ADCx) {
-                    while (ADCx->CTRL);
-                }
-                __STATIC_INLINE void LL_DEMO_Set(ADC_TypeDef *ADCx, uint32_t Grp) {
-                    WRITE_REG(LL_ADC_REG_OFFSET(ADCx->GCR0, Grp), 1);
-                }
-                __STATIC_INLINE void LL_DEMO_Plain(ADC_TypeDef *ADCx, uint32_t V) {
-                    ADCx->CR = V;
-                }
-                """);
+        var peri = new LlTestParameterValue { Name = "ADCx", Type = "ADC_TypeDef *", ValueExpression = "ADC0" };
+        var buf = new LlTestParameterValue { Name = "Data", Type = "uint32_t *", ValueExpression = "0" };
 
-            var peri = new LlTestParameterValue { Name = "ADCx", Type = "ADC_TypeDef *", ValueExpression = "ADC0" };
-            var buf = new LlTestParameterValue { Name = "Data", Type = "uint32_t *", ValueExpression = "0" };
-
-            LlNativeEligibility.DescribeSkip("LL_DEMO_Wait", path, new[] { peri }).Should().Contain("while");
-            LlNativeEligibility.DescribeSkip("LL_DEMO_Set", path, new[] { peri }).Should().Contain("32 位");
-            LlNativeEligibility.DescribeSkip("LL_DEMO_Plain", path, new[] { peri }).Should().BeNull();
-            LlNativeEligibility.DescribeSkip("LL_DEMO_Plain", path, new[] { peri, buf }).Should().Contain("指针");
-        }
-        finally
-        {
-            Directory.Delete(dir, true);
-        }
+        LlNativeEligibility.DescribeSkip("LL_DEMO_Wait", "any.h", new[] { peri }).Should().BeNull();
+        LlNativeEligibility.DescribeSkip("LL_DEMO_Set", "any.h", new[] { peri }).Should().BeNull();
+        LlNativeEligibility.DescribeSkip("LL_DEMO_Plain", "any.h", new[] { peri, buf }).Should().BeNull();
     }
 
     [Fact]
@@ -104,8 +81,7 @@ public class LlTestCaseGeneratorPolicyTests
 
         var waitCases = await generator.GenerateAsync(waitId);
         waitCases.Should().ContainSingle();
-        waitCases[0].Status.Should().Be(nameof(LlTestCaseStatus.Unsupported));
-        waitCases[0].Notes.Should().Contain("while");
+        waitCases[0].Status.Should().Be(nameof(LlTestCaseStatus.Draft));
 
         await using (var db = factory.CreateDbContext())
         {

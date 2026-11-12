@@ -26,6 +26,7 @@ public class TestHarnessGeneratorTests
             "GPIOA");
 
         src.Should().Contain("#include \"tae32g58xx_ll_gpio.h\"");
+        src.Should().Contain("#include \"tae32_ll_host_shim.h\"");
         src.Should().Contain("#define __GNUC__ 4");
         src.Should().Contain("#define __STATIC_INLINE static inline");
         src.Should().Contain("tae32_peri_img");
@@ -98,6 +99,43 @@ public class TestHarnessGeneratorTests
         ps.Should().ContainSingle();
         ps[0].Name.Should().Be("WWDGx");
         ps[0].Type.Should().Contain("WWDG_TypeDef");
+    }
+
+    [Fact]
+    public void Generate_Uses_Host_Pointer_Buffer_For_Uint32_Star()
+    {
+        var src = TestHarnessGenerator.Generate(
+            "LL_CAN_SetTxBuffer",
+            "tae32g58xx_ll_can.h",
+            new[]
+            {
+                new LlTestParameterValue { Name = "CANx", Type = "CAN_TypeDef*", ValueExpression = "CAN0" },
+                new LlTestParameterValue { Name = "Buf", Type = "uint32_t*", ValueExpression = "0" }
+            },
+            "void",
+            "CAN0");
+
+        src.Should().Contain("uint32_t host_ptr_m_Buf");
+        src.Should().Contain("host_ptr_m_Buf");
+        src.Should().NotContain("return -2;");
+    }
+
+    [Fact]
+    public void Generate_Can_Wait_Uses_Host_Ack_Without_Infinite_Loop()
+    {
+        var src = TestHarnessGenerator.Generate(
+            "LL_CAN_ETB_WaitBufferRelease",
+            "tae32g58xx_ll_can.h",
+            new[]
+            {
+                new LlTestParameterValue { Name = "CANx", Type = "CAN_TypeDef*", ValueExpression = "CAN0" }
+            },
+            "void",
+            "CAN0");
+
+        src.Should().Contain("CAN0_CTRL_EREL_Msk");
+        src.Should().Contain("break; /* host: buffer release ack");
+        src.Should().NotContain("LL_CAN_ETB_WaitBufferRelease(PERIx)");
     }
 }
 

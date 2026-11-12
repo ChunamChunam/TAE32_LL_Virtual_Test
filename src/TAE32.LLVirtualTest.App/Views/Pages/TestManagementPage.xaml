@@ -164,15 +164,19 @@
                   <ColumnDefinition Width="Auto"/>
                   <ColumnDefinition Width="Auto"/>
                   <ColumnDefinition Width="Auto"/>
+                  <ColumnDefinition Width="Auto"/>
                 </Grid.ColumnDefinitions>
                 <TextBox Grid.Column="0" Text="{Binding HistorySearchText, UpdateSourceTrigger=PropertyChanged}"
                          ToolTip="状态 / 范围类型 / 范围名称" Margin="0,0,8,0"/>
                 <Button Grid.Column="1" Style="{StaticResource GhostButtonStyle}" Content="查询" Margin="0,0,8,0"
                         Command="{Binding SearchHistoryCommand}"/>
-                <Button Grid.Column="2" Content="删除本页" Margin="0,0,8,0" Padding="10,4"
+                <Button Grid.Column="2" Content="删除" Margin="0,0,8,0" Padding="10,4"
+                        Command="{Binding DeleteHistorySelectedCommand}"
+                        ToolTip="删除列表中当前选中的一条批次"/>
+                <Button Grid.Column="3" Content="删除本页" Margin="0,0,8,0" Padding="10,4"
                         Command="{Binding DeleteHistoryPageCommand}"
                         ToolTip="删除当前页批次记录（不删 LlTestRun；Running 跳过）"/>
-                <Button Grid.Column="3" Content="删除全部" Padding="10,4"
+                <Button Grid.Column="4" Content="删除全部" Padding="10,4"
                         Command="{Binding DeleteHistoryAllCommand}"
                         ToolTip="删除当前筛选下全部批次（Running 跳过）"/>
               </Grid>
@@ -504,6 +508,7 @@
                   <ColumnDefinition Width="Auto"/>
                   <ColumnDefinition Width="Auto"/>
                   <ColumnDefinition Width="Auto"/>
+                  <ColumnDefinition Width="Auto"/>
                 </Grid.ColumnDefinitions>
                 <TextBox Grid.Column="0" Text="{Binding ArtifactSearchText, UpdateSourceTrigger=PropertyChanged}"
                          ToolTip="格式 / 标题 / 路径" Margin="0,0,8,0"/>
@@ -511,9 +516,12 @@
                         Command="{Binding SearchArtifactsCommand}"/>
                 <Button Grid.Column="2" Style="{StaticResource GhostButtonStyle}" Content="打开" Margin="0,0,8,0"
                         Command="{Binding OpenArtifactCommand}" ToolTip="打开选中报告"/>
-                <Button Grid.Column="3" Content="删除本页" Margin="0,0,8,0" Padding="10,4"
+                <Button Grid.Column="3" Content="删除" Margin="0,0,8,0" Padding="10,4"
+                        Command="{Binding DeleteArtifactSelectedCommand}"
+                        ToolTip="删除列表中当前选中的一条报告及文件"/>
+                <Button Grid.Column="4" Content="删除本页" Margin="0,0,8,0" Padding="10,4"
                         Command="{Binding DeleteArtifactsPageCommand}"/>
-                <Button Grid.Column="4" Content="删除全部" Padding="10,4"
+                <Button Grid.Column="5" Content="删除全部" Padding="10,4"
                         Command="{Binding DeleteArtifactsAllCommand}"/>
               </Grid>
             </Border>

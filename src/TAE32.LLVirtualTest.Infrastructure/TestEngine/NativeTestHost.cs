@@ -146,7 +146,7 @@ internal sealed class NativeTestHost : IDisposable
             .ToList();
 
         // Larger pad: some LL paths touch adjacent/reserved offsets; AVE was taking down the UI process.
-        const int minSize = 65536;
+        const int minSize = 512 * 1024;
 
         if (withOff.Count == 0)
         {

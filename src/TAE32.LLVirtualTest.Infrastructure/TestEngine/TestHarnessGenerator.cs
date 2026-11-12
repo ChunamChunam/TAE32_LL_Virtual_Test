@@ -48,6 +48,7 @@ public static class TestHarnessGenerator
         sb.AppendLine("} tae32_peri_img;");
         sb.AppendLine();
         sb.AppendLine($"#include \"{Escape(llHeaderFileName)}\"");
+        sb.AppendLine("#include \"tae32_ll_host_shim.h\"");
         sb.AppendLine();
         sb.AppendLine("#if defined(_WIN32)");
         sb.AppendLine("#define TAE32_EXPORT __declspec(dllexport)");
@@ -71,7 +72,7 @@ public static class TestHarnessGenerator
             foreach (var p in step.Parameters)
             {
                 if (IsPeripheralTypeDefPointer(p)) continue;
-                if (IsPointerType(p.Type) && !IsConstCharPointer(p.Type)) continue;
+                if (IsHostPointerBuffer(p)) continue;
                 var fname = Sanitize(prefix + p.Name);
                 if (fieldNames.Add(fname))
                     sb.AppendLine($"  uint32_t {fname};");
@@ -92,6 +93,8 @@ public static class TestHarnessGenerator
             var typedefName = ExtractTypeDefName(periParam.Type);
             sb.AppendLine($"  {typedefName}* PERIx = ({typedefName}*)peri->base;");
         }
+
+        EmitHostPointerBuffers(sb, allSteps);
 
         // Prelude calls (void expected)
         foreach (var (step, prefix) in allSteps.Where(x => x.Prefix != "m_"))
@@ -117,17 +120,24 @@ public static class TestHarnessGenerator
             return sb.ToString();
         }
 
-        var isVoid = string.IsNullOrWhiteSpace(returnType)
-                     || returnType.Contains("void", StringComparison.OrdinalIgnoreCase);
-        if (isVoid)
+        if (TryEmitHostBusyPollAck(sb, functionName))
         {
-            sb.AppendLine($"  {functionName}({string.Join(", ", mainArgs)});");
-            sb.AppendLine("  if (out_ret) *out_ret = 0;");
+            /* body emitted */
         }
         else
         {
-            sb.AppendLine($"  uint32_t __rv = (uint32_t){functionName}({string.Join(", ", mainArgs)});");
-            sb.AppendLine("  if (out_ret) *out_ret = __rv;");
+            var isVoid = string.IsNullOrWhiteSpace(returnType)
+                         || returnType.Contains("void", StringComparison.OrdinalIgnoreCase);
+            if (isVoid)
+            {
+                sb.AppendLine($"  {functionName}({string.Join(", ", mainArgs)});");
+                sb.AppendLine("  if (out_ret) *out_ret = 0;");
+            }
+            else
+            {
+                sb.AppendLine($"  uint32_t __rv = (uint32_t){functionName}({string.Join(", ", mainArgs)});");
+                sb.AppendLine("  if (out_ret) *out_ret = __rv;");
+            }
         }
 
         sb.AppendLine("  return 0;");
@@ -149,8 +159,11 @@ public static class TestHarnessGenerator
                 callArgs.Add("PERIx");
                 continue;
             }
-            if (IsPointerType(p.Type) && !IsConstCharPointer(p.Type))
-                return null;
+            if (IsHostPointerBuffer(p))
+            {
+                callArgs.Add(HostPointerSymbol(prefix, p.Name));
+                continue;
+            }
             callArgs.Add($"(uint32_t)args->{Sanitize(prefix + p.Name)}");
         }
         return callArgs;
@@ -251,6 +264,72 @@ public static class TestHarnessGenerator
 
     public static bool IsPeripheralTypeDefPointer(LlTestParameterValue p)
         => p.Type.Contains("TypeDef", StringComparison.OrdinalIgnoreCase) && p.Type.Contains('*');
+
+    internal static bool IsHostPointerBuffer(LlTestParameterValue p)
+        => IsPointerType(p.Type) && !IsPeripheralTypeDefPointer(p) && !IsConstCharPointer(p.Type);
+
+    private static string HostPointerSymbol(string prefix, string paramName)
+        => "host_ptr_" + Sanitize(prefix + paramName);
+
+    private static void EmitHostPointerBuffers(
+        StringBuilder sb,
+        List<(LlTestCallStep Step, string Prefix)> allSteps)
+    {
+        var emitted = new HashSet<string>(StringComparer.Ordinal);
+        foreach (var (step, prefix) in allSteps)
+        {
+            foreach (var p in step.Parameters)
+            {
+                if (!IsHostPointerBuffer(p)) continue;
+                var sym = HostPointerSymbol(prefix, p.Name);
+                if (!emitted.Add(sym)) continue;
+                if (p.Type.Contains("uint8", StringComparison.OrdinalIgnoreCase))
+                    sb.AppendLine($"  uint8_t {sym}[64] = {{0}};");
+                else
+                    sb.AppendLine($"  uint32_t {sym}[16] = {{0}};");
+            }
+        }
+    }
+
+    /// <summary>SDK functions that spin on hardware-ready bits: host ack without infinite wait.</summary>
+    private static bool TryEmitHostBusyPollAck(StringBuilder sb, string functionName)
+    {
+        switch (functionName)
+        {
+            case "LL_CAN_ETB_WaitBufferRelease":
+                EmitCanWaitAck(sb, "CAN0_CTRL_EREL_Msk", "CAN0_CTRL_EREL_Pos");
+                return true;
+            case "LL_CAN_SRB_WaitBufferRelease":
+                EmitCanWaitAck(sb, "CAN0_CTRL_SREL_Msk", "CAN0_CTRL_SREL_Pos");
+                return true;
+            case "LL_CAN_PRB_WaitBufferRelease":
+                EmitCanWaitAck(sb, "CAN0_CTRL_RREL_Msk", "CAN0_CTRL_RREL_Pos");
+                return true;
+            case "LL_HRPWM_MST_SetCounter":
+                sb.AppendLine("  WRITE_REG(PERIx->Master.MCNTR, HRPWM_MST_MCNTR_CNTWR_Msk | ((uint32_t)args->m_Cnt & HRPWM_MST_MCNTR_MCNT_Val));");
+                sb.AppendLine("  CLEAR_BIT(PERIx->Master.MCNTR, HRPWM_MST_MCNTR_CNTWR_Msk);");
+                sb.AppendLine("  if (out_ret) *out_ret = 0;");
+                return true;
+            case "LL_HRPWM_SLV_SetCounter":
+                sb.AppendLine("  WRITE_REG(PERIx->PWM[((uint32_t)args->m_Pwmx) % LL_HRPWM_PWMx_NUMS].REG.CNTR,");
+                sb.AppendLine("      HRPWM_SLV0_CNTR_CNTWR_Msk | ((uint32_t)args->m_Cnt & HRPWM_SLV0_CNTR_CNT_Val));");
+                sb.AppendLine("  CLEAR_BIT(PERIx->PWM[((uint32_t)args->m_Pwmx) % LL_HRPWM_PWMx_NUMS].REG.CNTR, HRPWM_SLV0_CNTR_CNTWR_Msk);");
+                sb.AppendLine("  if (out_ret) *out_ret = 0;");
+                return true;
+            default:
+                return false;
+        }
+    }
+
+    private static void EmitCanWaitAck(StringBuilder sb, string mask, string pos)
+    {
+        sb.AppendLine($"  SET_BIT(PERIx->CTRL, {mask});");
+        sb.AppendLine($"  while (READ_BIT_SHIFT(PERIx->CTRL, {mask}, {pos})) {{");
+        sb.AppendLine($"    CLEAR_BIT(PERIx->CTRL, {mask});");
+        sb.AppendLine("    break; /* host: buffer release ack (virtual CAN) */");
+        sb.AppendLine("  }");
+        sb.AppendLine("  if (out_ret) *out_ret = 0;");
+    }
 
     private static string ExtractTypeDefName(string type)
     {

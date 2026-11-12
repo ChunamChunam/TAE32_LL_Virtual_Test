@@ -269,7 +269,7 @@ public partial class AutomationTestViewModel : ObservableObject
                 $"生成完成：处理 {ids.Count} 个函数 → 写入 {casesWritten} 条用例（{funcWithCases} 个函数有产出，" +
                 $"{funcEmpty} 个无模板，{funcFailed} 个失败）。{filterNote}。" +
                 "说明：多数函数 1 条 draft；仅当虚拟模型里确有 ISR 才额外生成 clear-check。" +
-                "指针参数、while 轮询、32 位地址截断（REG_OFFSET）会标为 Unsupported，批跑记为 Skipped，且不会被「标 Ready」选中。重复生成会新增行。";
+                "宿主 harness 已支持 REG_OFFSET/指针缓冲/CAN/HRPWM 轮询；「标 Ready」会包含历史 Unsupported。重复生成会新增行。";
         }
         catch (Exception ex)
         {
@@ -628,7 +628,7 @@ public partial class AutomationTestViewModel : ObservableObject
         var pending = await _store.CountFilteredNotReadyAsync(pid, peri, search);
         if (pending == 0)
         {
-            StatusText = "当前筛选内没有 Draft 用例可标为 Ready（Unsupported 不会被标 Ready）";
+            StatusText = "当前筛选内没有 Draft 用例可标为 Ready";
             return;
         }
 

@@ -182,27 +182,6 @@ public sealed class LlTestEngine : ILLTestEngine
                 return await FinishAsync(run, stages, execLog, sw, null, Array.Empty<LlTestAssertionResult>(), Array.Empty<VirtualAccessRecord>());
             }
 
-            var defaultPeriEarly = entity.PeripheralName ?? "PERI";
-            edit.Parameters = TestHarnessGenerator.EnsureParameters(
-                edit.Parameters, edit.FunctionSignature ?? entity.FunctionSignature, defaultPeriEarly).ToList();
-            var hostSkip = LlNativeEligibility.DescribeSkip(entity.FunctionName, entity.SourceFile, edit.Parameters);
-            if (hostSkip is not null
-                || string.Equals(entity.Status, nameof(LlTestCaseStatus.Unsupported), StringComparison.Ordinal))
-            {
-                run.Status = nameof(LlTestRunStatus.Skipped);
-                run.FailureReason = hostSkip
-                    ?? entity.Notes
-                    ?? "用例状态为 Unsupported，未执行原生调用。";
-                stages.Add(new LlTestStageResult
-                {
-                    Stage = LlTestExecutionStage.Compile,
-                    Succeeded = false,
-                    Message = run.FailureReason
-                });
-                L(run.FailureReason);
-                return await FinishAsync(run, stages, execLog, sw, null, Array.Empty<LlTestAssertionResult>(), Array.Empty<VirtualAccessRecord>());
-            }
-
             // Isolated virtual MCU
             var mcuInfo = await _mcu.CreateAsync(new VirtualMcuCreateOptions
             {

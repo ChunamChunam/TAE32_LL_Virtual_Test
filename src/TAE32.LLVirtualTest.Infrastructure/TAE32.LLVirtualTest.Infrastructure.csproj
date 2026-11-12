@@ -29,4 +29,8 @@
     <InternalsVisibleTo Include="TAE32.LLVirtualTest.Tests" />
   </ItemGroup>
 
+  <ItemGroup>
+    <None Include="TestEngine\HostSdk\**\*" CopyToOutputDirectory="PreserveNewest" LinkBase="HostSdk" />
+  </ItemGroup>
+
 </Project>

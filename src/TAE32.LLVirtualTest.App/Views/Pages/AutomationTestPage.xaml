@@ -151,7 +151,7 @@
                 <Button Content="列表全跑" Command="{Binding RunAllListedCommand}" Margin="0,0,4,4"
                         ToolTip="当前左侧外设 + 搜索条件下的全部用例"/>
                 <Button Content="标 Ready" Command="{Binding MarkListedReadyCommand}" Margin="0,0,4,4"
-                        ToolTip="将左侧外设 + 用例搜索条件下的 Draft 用例标为 Ready。Unsupported（宿主不能原生执行）保持不变。"/>
+                        ToolTip="将左侧外设 + 用例搜索条件下的 Draft（及历史 Unsupported）用例标为 Ready。"/>
                 <Button Content="取消" Command="{Binding CancelRunCommand}" Margin="0,0,4,4"/>
                 <Button Content="复制" Command="{Binding DuplicateCaseCommand}" Margin="0,0,4,4"/>
                 <Button Content="删除" Command="{Binding DeleteCaseCommand}" Margin="0,0,4,4"/>

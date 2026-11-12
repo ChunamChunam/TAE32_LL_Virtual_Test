@@ -4,37 +4,17 @@ using TAE32.LLVirtualTest.Core.Models;
 
 namespace TAE32.LLVirtualTest.Infrastructure.TestEngine;
 
-/// <summary>
-/// Decides which auto-generated LL calls the 64-bit host must not execute.
-/// Shared by case generation and the test engine so Draft/Ready leftovers
-/// follow the same rule.
-/// </summary>
+/// <summary>Host execution helpers (fault/skip heuristics). Generation no longer marks Unsupported.</summary>
 internal static class LlNativeEligibility
 {
     private static readonly ConcurrentDictionary<string, (long Ticks, string Text)> HeaderCache = new();
 
+    /// <summary>Reserved for future hard stops only; host harness now supports pointers, REG_OFFSET, CAN wait.</summary>
     public static string? DescribeSkip(
         string functionName,
         string? sourceFile,
         IReadOnlyList<LlTestParameterValue> parameters)
-    {
-        if (HasUnsafePointer(parameters))
-            return "函数签名含宿主无法安全物化的指针参数（非外设 TypeDef*），不执行原生调用。";
-
-        var body = TryReadInlineBody(sourceFile, functionName);
-        if (string.IsNullOrEmpty(body))
-            return null;
-
-        if (Regex.IsMatch(body, @"\bwhile\s*\("))
-            return "函数体内含 while 轮询硬件标志，虚拟环境不会应答，不执行原生调用（避免超时）。";
-
-        if (body.Contains("REG_OFFSET", StringComparison.Ordinal)
-            || body.Contains("(uint32_t)(&", StringComparison.Ordinal)
-            || body.Contains("(uint32_t)((uint32_t)", StringComparison.Ordinal))
-            return "函数用 32 位截断计算寄存器地址（如 REG_OFFSET），在 64 位宿主上会访问非法地址，不执行原生调用。";
-
-        return null;
-    }
+        => null;
 
     public static bool IsHostAddressFault(Exception ex)
     {

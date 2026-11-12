@@ -65,6 +65,10 @@ public sealed class ClangCompilerService : ICompilerService
             if (Directory.Exists(extra) && !includes.Contains(extra, StringComparer.OrdinalIgnoreCase))
                 includes.Add(extra);
 
+        var hostSdk = TestEnginePaths.HostSdkIncludeDirectory();
+        if (Directory.Exists(hostSdk) && !includes.Contains(hostSdk, StringComparer.OrdinalIgnoreCase))
+            includes.Add(hostSdk);
+
         return new CompilerEnvironmentInfo
         {
             ClangFound = clang is not null,

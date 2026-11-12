@@ -278,6 +278,35 @@ public partial class TestManagementViewModel : ObservableObject
     }
 
     [RelayCommand]
+    private async Task DeleteHistorySelectedAsync()
+    {
+        if (SelectedBatch is null)
+        {
+            StatusText = "请先在列表中选中一条批次记录";
+            return;
+        }
+
+        if (string.Equals(SelectedBatch.Status, "Running", StringComparison.OrdinalIgnoreCase))
+        {
+            StatusText = "该批次正在 Running，无法删除（请先取消或等待结束）";
+            return;
+        }
+
+        if (!ConfirmDialog.Show(
+                "删除执行历史",
+                $"确认删除所选批次？\n状态: {SelectedBatch.Status} · 范围: {SelectedBatch.ScopeKind} · 总数: {SelectedBatch.TotalCount}\n不会删除各用例的 LlTestRun 明细。",
+                confirmLabel: "删除",
+                dangerConfirm: true))
+            return;
+
+        var n = await _batches.DeleteManyAsync(new[] { SelectedBatch.Id });
+        StatusText = n > 0 ? "已删除所选批次记录" : "未删除（可能为 Running）";
+        await ReloadHistoryAsync();
+        await ReloadStatsAsync();
+        await ReloadFailuresAsync();
+    }
+
+    [RelayCommand]
     private async Task DeleteHistoryPageAsync()
     {
         if (ActiveProjectId is null)
@@ -612,6 +641,27 @@ public partial class TestManagementViewModel : ObservableObject
     {
         if (ArtifactPageIndex >= ArtifactTotalPages) return;
         ArtifactPageIndex++;
+        await ReloadArtifactsAsync();
+    }
+
+    [RelayCommand]
+    private async Task DeleteArtifactSelectedAsync()
+    {
+        if (SelectedArtifact is null)
+        {
+            StatusText = "请先在列表中选中一条报告";
+            return;
+        }
+
+        if (!ConfirmDialog.Show(
+                "删除报告",
+                $"确认删除所选报告？\n{SelectedArtifact.Title}\n{SelectedArtifact.FilePath}",
+                confirmLabel: "删除",
+                dangerConfirm: true))
+            return;
+
+        var n = await _reports.DeleteManyAsync(new[] { SelectedArtifact.Id });
+        StatusText = n > 0 ? "已删除所选报告" : "删除失败";
         await ReloadArtifactsAsync();
     }
 
