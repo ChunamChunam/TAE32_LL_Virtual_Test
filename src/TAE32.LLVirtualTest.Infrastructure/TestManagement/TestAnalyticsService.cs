@@ -143,7 +143,47 @@ public sealed class TestAnalyticsService : ITestAnalyticsService
     public async Task<IReadOnlyList<FailureAnalysisItem>> GetFailuresAsync(
         Guid sdkProjectId, Guid? batchRunId = null, int take = 100, CancellationToken ct = default)
     {
+        var (items, _) = await GetFailuresPagedAsync(sdkProjectId, batchRunId, null, 0, take, ct);
+        return items;
+    }
+
+    public async Task<(IReadOnlyList<FailureAnalysisItem> Items, int TotalCount)> GetFailuresPagedAsync(
+        Guid sdkProjectId,
+        Guid? batchRunId = null,
+        string? searchText = null,
+        int skip = 0,
+        int take = 50,
+        CancellationToken ct = default)
+    {
         await using var db = await _dbFactory.CreateDbContextAsync(ct);
+        var q = await BuildFailureRunsQueryAsync(db, sdkProjectId, batchRunId, searchText, ct);
+        var total = await q.CountAsync(ct);
+        take = Math.Max(1, take);
+        skip = Math.Max(0, skip);
+        var rows = await q.OrderByDescending(x => x.StartedAtUtc).Skip(skip).Take(take).ToListAsync(ct);
+        return (rows.Select(MapFailureItem).ToList(), total);
+    }
+
+    public async Task<int> DeleteFailureRunsFilteredAsync(
+        Guid sdkProjectId,
+        Guid? batchRunId = null,
+        string? searchText = null,
+        CancellationToken ct = default)
+    {
+        await using var db = await _dbFactory.CreateDbContextAsync(ct);
+        var q = await BuildFailureRunsQueryAsync(db, sdkProjectId, batchRunId, searchText, ct);
+        var ids = await q.Select(x => x.Id).ToListAsync(ct);
+        if (ids.Count == 0) return 0;
+        return await db.LlTestRuns.Where(x => ids.Contains(x.Id)).ExecuteDeleteAsync(ct);
+    }
+
+    private static async Task<IQueryable<Core.Entities.LlTestRun>> BuildFailureRunsQueryAsync(
+        AppDbContext db,
+        Guid sdkProjectId,
+        Guid? batchRunId,
+        string? searchText,
+        CancellationToken ct)
+    {
         IQueryable<Core.Entities.LlTestRun> q = db.LlTestRuns.AsNoTracking()
             .Include(x => x.TestCase)
             .Where(x => x.SdkProjectId == sdkProjectId
@@ -158,36 +198,47 @@ public sealed class TestAnalyticsService : ITestAnalyticsService
             q = q.Where(x => ids.Contains(x.Id));
         }
 
-        var rows = await q.OrderByDescending(x => x.StartedAtUtc).Take(take).ToListAsync(ct);
-        return rows.Select(r =>
+        if (!string.IsNullOrWhiteSpace(searchText))
         {
-            var regs = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-            try
-            {
-                var trace = JsonSerializer.Deserialize<List<VirtualAccessRecord>>(r.AccessTraceJson ?? "[]") ?? new();
-                foreach (var t in trace)
-                    if (!string.IsNullOrWhiteSpace(t.RegisterName))
-                        regs.Add(t.RegisterName);
-            }
-            catch { /* ignore */ }
+            var term = searchText.Trim();
+            q = q.Where(x =>
+                x.Status.Contains(term)
+                || (x.FailureReason != null && x.FailureReason.Contains(term))
+                || (x.TestCase != null
+                    && (x.TestCase.Name.Contains(term) || x.TestCase.FunctionName.Contains(term))));
+        }
 
-            return new FailureAnalysisItem
-            {
-                RunId = r.Id,
-                TestCaseId = r.LlTestCaseId,
-                CaseName = r.TestCase?.Name ?? "",
-                FunctionName = r.TestCase?.FunctionName ?? "",
-                SourceFile = r.TestCase?.SourceFile,
-                Status = r.Status,
-                FailureReason = r.FailureReason,
-                CompileSucceeded = r.CompileSucceeded,
-                CompileLogExcerpt = Truncate(r.CompileLog, 800),
-                AssertionResultsJson = r.AssertionResultsJson,
-                AccessTraceJson = Truncate(r.AccessTraceJson, 1200),
-                RelatedRegisters = regs.Count == 0 ? null : string.Join(", ", regs.Take(20)),
-                StartedAtUtc = r.StartedAtUtc
-            };
-        }).ToList();
+        return q;
+    }
+
+    private static FailureAnalysisItem MapFailureItem(Core.Entities.LlTestRun r)
+    {
+        var regs = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        try
+        {
+            var trace = JsonSerializer.Deserialize<List<VirtualAccessRecord>>(r.AccessTraceJson ?? "[]") ?? new();
+            foreach (var t in trace)
+                if (!string.IsNullOrWhiteSpace(t.RegisterName))
+                    regs.Add(t.RegisterName);
+        }
+        catch { /* ignore */ }
+
+        return new FailureAnalysisItem
+        {
+            RunId = r.Id,
+            TestCaseId = r.LlTestCaseId,
+            CaseName = r.TestCase?.Name ?? "",
+            FunctionName = r.TestCase?.FunctionName ?? "",
+            SourceFile = r.TestCase?.SourceFile,
+            Status = r.Status,
+            FailureReason = r.FailureReason,
+            CompileSucceeded = r.CompileSucceeded,
+            CompileLogExcerpt = Truncate(r.CompileLog, 800),
+            AssertionResultsJson = r.AssertionResultsJson,
+            AccessTraceJson = Truncate(r.AccessTraceJson, 1200),
+            RelatedRegisters = regs.Count == 0 ? null : string.Join(", ", regs.Take(20)),
+            StartedAtUtc = r.StartedAtUtc
+        };
     }
 
     private static string? Truncate(string? s, int max)

@@ -158,12 +158,24 @@
                          Background="#FF243040" Foreground="{StaticResource BrushAccent}" BorderThickness="0"/>
             <Border DockPanel.Dock="Top" Padding="0,0,0,6" Margin="0,0,0,2"
                     BorderBrush="{StaticResource BrushBorder}" BorderThickness="0,0,0,1">
-              <DockPanel LastChildFill="True">
-                <Button DockPanel.Dock="Right" Style="{StaticResource GhostButtonStyle}" Content="查询"
+              <Grid>
+                <Grid.ColumnDefinitions>
+                  <ColumnDefinition Width="*"/>
+                  <ColumnDefinition Width="Auto"/>
+                  <ColumnDefinition Width="Auto"/>
+                  <ColumnDefinition Width="Auto"/>
+                </Grid.ColumnDefinitions>
+                <TextBox Grid.Column="0" Text="{Binding HistorySearchText, UpdateSourceTrigger=PropertyChanged}"
+                         ToolTip="状态 / 范围类型 / 范围名称" Margin="0,0,8,0"/>
+                <Button Grid.Column="1" Style="{StaticResource GhostButtonStyle}" Content="查询" Margin="0,0,8,0"
                         Command="{Binding SearchHistoryCommand}"/>
-                <TextBox Text="{Binding HistorySearchText, UpdateSourceTrigger=PropertyChanged}"
-                         ToolTip="状态 / 范围类型 / 范围名称"/>
-              </DockPanel>
+                <Button Grid.Column="2" Content="删除本页" Margin="0,0,8,0" Padding="10,4"
+                        Command="{Binding DeleteHistoryPageCommand}"
+                        ToolTip="删除当前页批次记录（不删 LlTestRun；Running 跳过）"/>
+                <Button Grid.Column="3" Content="删除全部" Padding="10,4"
+                        Command="{Binding DeleteHistoryAllCommand}"
+                        ToolTip="删除当前筛选下全部批次（Running 跳过）"/>
+              </Grid>
             </Border>
             <Border DockPanel.Dock="Bottom" Style="{StaticResource GridPagerFooterStyle}" Margin="-10,-2,-10,-10"
                     Padding="8,6" CornerRadius="0,0,8,8">
@@ -387,19 +399,73 @@
           </Grid.ColumnDefinitions>
           <Border Background="{StaticResource BrushBgCard}" BorderBrush="{StaticResource BrushBorder}" BorderThickness="1" CornerRadius="8" Padding="10" Margin="0,0,8,0">
             <DockPanel>
-              <DockPanel DockPanel.Dock="Top" Margin="0,0,0,8" LastChildFill="True">
+              <DockPanel DockPanel.Dock="Top" Margin="0,0,0,6" LastChildFill="True">
                 <Button DockPanel.Dock="Right" Content="打开源码" Command="{Binding OpenSourceCommand}"
-                        CommandParameter="{Binding SelectedFailure}" Margin="0" Padding="12,6"
+                        CommandParameter="{Binding SelectedFailureRow.Item}" Margin="0" Padding="12,6"
                         HorizontalAlignment="Right" VerticalAlignment="Center"/>
                 <TextBlock Text="失败 / 错误 / 超时" FontWeight="SemiBold"
                            Foreground="{StaticResource BrushTextPrimary}" VerticalAlignment="Center"
                            HorizontalAlignment="Left"/>
               </DockPanel>
-              <DataGrid ItemsSource="{Binding Failures}" SelectedItem="{Binding SelectedFailure}" AutoGenerateColumns="False" IsReadOnly="True">
+              <Grid DockPanel.Dock="Top" Margin="0,0,0,6">
+                <Grid.ColumnDefinitions>
+                  <ColumnDefinition Width="*"/>
+                  <ColumnDefinition Width="Auto"/>
+                  <ColumnDefinition Width="Auto"/>
+                  <ColumnDefinition Width="Auto"/>
+                  <ColumnDefinition Width="Auto"/>
+                  <ColumnDefinition Width="Auto"/>
+                </Grid.ColumnDefinitions>
+                <TextBox Grid.Column="0" Text="{Binding FailureSearchText, UpdateSourceTrigger=PropertyChanged}"
+                         ToolTip="用例名 / 函数名 / 状态 / 失败原因" Margin="0,0,8,0"/>
+                <Button Grid.Column="1" Style="{StaticResource GhostButtonStyle}" Content="查询" Margin="0,0,8,0"
+                        Command="{Binding SearchFailuresCommand}"/>
+                <CheckBox Grid.Column="2" Content="页全选" IsChecked="{Binding IsAllFailuresOnPageSelected}"
+                          VerticalAlignment="Center" Margin="0,0,8,0"/>
+                <Button Grid.Column="3" Content="删除" Margin="0,0,8,0" Padding="10,4"
+                        Command="{Binding DeleteSelectedFailuresCommand}"
+                        ToolTip="删除勾选的运行记录"/>
+                <Button Grid.Column="4" Content="删除本页" Margin="0,0,8,0" Padding="10,4"
+                        Command="{Binding DeleteFailuresPageCommand}"/>
+                <Button Grid.Column="5" Content="删除全部" Padding="10,4"
+                        Command="{Binding DeleteFailuresAllCommand}"/>
+              </Grid>
+              <Border DockPanel.Dock="Bottom" Style="{StaticResource GridPagerFooterStyle}" Margin="-10,-2,-10,-10"
+                      Padding="8,6" CornerRadius="0,0,8,8">
+                <DockPanel LastChildFill="True">
+                  <StackPanel DockPanel.Dock="Right" Orientation="Horizontal" VerticalAlignment="Center">
+                    <Button Style="{StaticResource GhostButtonStyle}" Content="‹" Padding="8,2"
+                            Command="{Binding FailurePreviousPageCommand}" Margin="0,0,4,0"
+                            IsEnabled="{Binding CanFailurePrev}"/>
+                    <Button Style="{StaticResource GhostButtonStyle}" Content="›" Padding="8,2"
+                            Command="{Binding FailureNextPageCommand}" IsEnabled="{Binding CanFailureNext}"/>
+                  </StackPanel>
+                  <StackPanel DockPanel.Dock="Left" Orientation="Horizontal" VerticalAlignment="Center">
+                    <TextBlock Text="每页" Foreground="{StaticResource BrushTextMuted}" FontSize="11"
+                               VerticalAlignment="Center" Margin="0,0,6,0"/>
+                    <ComboBox Width="56" ItemsSource="{Binding AvailableCasePageSizeOptions}"
+                              SelectedItem="{Binding FailurePageSize}"/>
+                  </StackPanel>
+                  <TextBlock Text="{Binding FailurePageInfo}" Foreground="{StaticResource BrushTextMuted}" FontSize="11"
+                             VerticalAlignment="Center" Margin="10,0,8,0" TextTrimming="CharacterEllipsis"
+                             ToolTip="{Binding FailurePageInfo}"/>
+                </DockPanel>
+              </Border>
+              <DataGrid ItemsSource="{Binding FailureRows}" SelectedItem="{Binding SelectedFailureRow}"
+                        AutoGenerateColumns="False" CanUserAddRows="False" HeadersVisibility="Column">
                 <DataGrid.Columns>
-                  <DataGridTextColumn Header="用例" Binding="{Binding CaseName}" Width="*"/>
-                  <DataGridTextColumn Header="函数" Binding="{Binding FunctionName}" Width="*"/>
-                  <DataGridTextColumn Header="状态" Binding="{Binding Status}" Width="70"/>
+                  <DataGridTemplateColumn Header="选" Width="36">
+                    <DataGridTemplateColumn.CellTemplate>
+                      <DataTemplate>
+                        <CheckBox IsChecked="{Binding IsSelected, Mode=TwoWay}" HorizontalAlignment="Center"/>
+                      </DataTemplate>
+                    </DataGridTemplateColumn.CellTemplate>
+                  </DataGridTemplateColumn>
+                  <DataGridTextColumn Header="用例" Binding="{Binding CaseName}" Width="*" IsReadOnly="True"
+                                      ElementStyle="{StaticResource DataGridEllipsisTextStyle}"/>
+                  <DataGridTextColumn Header="函数" Binding="{Binding FunctionName}" Width="*" IsReadOnly="True"
+                                      ElementStyle="{StaticResource DataGridEllipsisTextStyle}"/>
+                  <DataGridTextColumn Header="状态" Binding="{Binding Status}" Width="70" IsReadOnly="True"/>
                 </DataGrid.Columns>
               </DataGrid>
             </DockPanel>
@@ -436,13 +502,19 @@
                   <ColumnDefinition Width="*"/>
                   <ColumnDefinition Width="Auto"/>
                   <ColumnDefinition Width="Auto"/>
+                  <ColumnDefinition Width="Auto"/>
+                  <ColumnDefinition Width="Auto"/>
                 </Grid.ColumnDefinitions>
                 <TextBox Grid.Column="0" Text="{Binding ArtifactSearchText, UpdateSourceTrigger=PropertyChanged}"
                          ToolTip="格式 / 标题 / 路径" Margin="0,0,8,0"/>
                 <Button Grid.Column="1" Style="{StaticResource GhostButtonStyle}" Content="查询" Margin="0,0,8,0"
                         Command="{Binding SearchArtifactsCommand}"/>
-                <Button Grid.Column="2" Style="{StaticResource GhostButtonStyle}" Content="打开"
+                <Button Grid.Column="2" Style="{StaticResource GhostButtonStyle}" Content="打开" Margin="0,0,8,0"
                         Command="{Binding OpenArtifactCommand}" ToolTip="打开选中报告"/>
+                <Button Grid.Column="3" Content="删除本页" Margin="0,0,8,0" Padding="10,4"
+                        Command="{Binding DeleteArtifactsPageCommand}"/>
+                <Button Grid.Column="4" Content="删除全部" Padding="10,4"
+                        Command="{Binding DeleteArtifactsAllCommand}"/>
               </Grid>
             </Border>
             <Border DockPanel.Dock="Bottom" Style="{StaticResource GridPagerFooterStyle}" Margin="-10,-2,-10,-10"

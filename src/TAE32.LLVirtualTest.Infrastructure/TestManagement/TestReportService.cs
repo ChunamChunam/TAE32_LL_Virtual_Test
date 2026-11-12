@@ -1,4 +1,5 @@
 using System.Globalization;
+using System.IO;
 using System.Reflection;
 using System.Text;
 using System.Text.Json;
@@ -145,6 +146,56 @@ public sealed class TestReportService : ITestReportService
         skip = Math.Max(0, skip);
         var items = await q.OrderByDescending(x => x.CreatedAtUtc).Skip(skip).Take(take).ToListAsync(ct);
         return (items, total);
+    }
+
+    public async Task<int> DeleteManyAsync(IEnumerable<Guid> ids, CancellationToken ct = default)
+    {
+        var idList = ids.Distinct().ToList();
+        if (idList.Count == 0) return 0;
+
+        await using var db = await _dbFactory.CreateDbContextAsync(ct);
+        var rows = await db.TestReportArtifacts.Where(x => idList.Contains(x.Id)).ToListAsync(ct);
+        if (rows.Count == 0) return 0;
+        foreach (var row in rows)
+            TryDeleteFile(row.FilePath);
+        db.TestReportArtifacts.RemoveRange(rows);
+        await db.SaveChangesAsync(ct);
+        return rows.Count;
+    }
+
+    public async Task<int> DeleteFilteredAsync(Guid sdkProjectId, string? searchText = null, CancellationToken ct = default)
+    {
+        await using var db = await _dbFactory.CreateDbContextAsync(ct);
+        var q = db.TestReportArtifacts.Where(x => x.SdkProjectId == sdkProjectId);
+        if (!string.IsNullOrWhiteSpace(searchText))
+        {
+            var term = searchText.Trim();
+            q = q.Where(x =>
+                x.Title.Contains(term) ||
+                x.Format.Contains(term) ||
+                x.FilePath.Contains(term));
+        }
+
+        var rows = await q.ToListAsync(ct);
+        if (rows.Count == 0) return 0;
+        foreach (var row in rows)
+            TryDeleteFile(row.FilePath);
+        db.TestReportArtifacts.RemoveRange(rows);
+        await db.SaveChangesAsync(ct);
+        return rows.Count;
+    }
+
+    private static void TryDeleteFile(string? path)
+    {
+        try
+        {
+            if (!string.IsNullOrWhiteSpace(path) && File.Exists(path))
+                File.Delete(path);
+        }
+        catch
+        {
+            // DB row still removed; orphaned file is acceptable.
+        }
     }
 
     private static string BuildHtml(

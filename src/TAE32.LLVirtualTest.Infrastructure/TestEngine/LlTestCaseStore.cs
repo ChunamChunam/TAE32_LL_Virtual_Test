@@ -1,5 +1,6 @@
 using Microsoft.EntityFrameworkCore;
 using TAE32.LLVirtualTest.Core.Entities;
+using TAE32.LLVirtualTest.Core.Enums;
 using TAE32.LLVirtualTest.Core.Interfaces;
 using TAE32.LLVirtualTest.Core.Models;
 using TAE32.LLVirtualTest.Infrastructure.Data;
@@ -112,7 +113,7 @@ public sealed class LlTestCaseStore : ILlTestCaseStore
     {
         await using var db = await _dbFactory.CreateDbContextAsync(cancellationToken);
         var q = ApplyCaseFilters(db.LlTestCases.AsNoTracking(), sdkProjectId, peripheralName, searchText)
-            .Where(x => x.Status != "Ready");
+            .Where(x => x.Status == nameof(LlTestCaseStatus.Draft));
         return await q.CountAsync(cancellationToken);
     }
 
@@ -124,10 +125,10 @@ public sealed class LlTestCaseStore : ILlTestCaseStore
     {
         await using var db = await _dbFactory.CreateDbContextAsync(cancellationToken);
         var q = ApplyCaseFilters(db.LlTestCases, sdkProjectId, peripheralName, searchText)
-            .Where(x => x.Status != "Ready");
+            .Where(x => x.Status == nameof(LlTestCaseStatus.Draft));
         var now = DateTime.UtcNow;
         return await q.ExecuteUpdateAsync(
-            s => s.SetProperty(c => c.Status, "Ready")
+            s => s.SetProperty(c => c.Status, nameof(LlTestCaseStatus.Ready))
                   .SetProperty(c => c.UpdatedAtUtc, now),
             cancellationToken);
     }

@@ -46,6 +46,17 @@ public interface ITestBatchService
         CancellationToken ct = default);
 
     Task<TestBatchRun?> GetAsync(Guid batchRunId, CancellationToken ct = default);
+
+    /// <summary>Delete batch history rows (not individual LlTestRun records). Skips Running.</summary>
+    Task<int> DeleteManyAsync(IEnumerable<Guid> ids, CancellationToken ct = default);
+
+    /// <summary>Delete all batch rows for project matching the same filters as list/search. Skips Running.</summary>
+    Task<int> DeleteFilteredAsync(
+        Guid sdkProjectId,
+        string? searchText = null,
+        Guid? planId = null,
+        Guid? suiteId = null,
+        CancellationToken ct = default);
 }
 
 public interface ITestAnalyticsService
@@ -56,6 +67,21 @@ public interface ITestAnalyticsService
         Guid sdkProjectId,
         Guid? batchRunId = null,
         int take = 100,
+        CancellationToken ct = default);
+
+    Task<(IReadOnlyList<FailureAnalysisItem> Items, int TotalCount)> GetFailuresPagedAsync(
+        Guid sdkProjectId,
+        Guid? batchRunId = null,
+        string? searchText = null,
+        int skip = 0,
+        int take = 50,
+        CancellationToken ct = default);
+
+    /// <summary>Delete LlTestRun rows (Failed / Error / Timeout) matching the failure-analysis filters.</summary>
+    Task<int> DeleteFailureRunsFilteredAsync(
+        Guid sdkProjectId,
+        Guid? batchRunId = null,
+        string? searchText = null,
         CancellationToken ct = default);
 }
 

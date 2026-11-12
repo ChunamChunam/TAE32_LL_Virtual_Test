@@ -18,4 +18,9 @@ public interface ITestReportService
         int skip = 0,
         int take = 50,
         CancellationToken ct = default);
+
+    Task<int> DeleteManyAsync(IEnumerable<Guid> ids, CancellationToken ct = default);
+
+    /// <summary>Delete artifact metadata and files for all rows matching the list/search filter.</summary>
+    Task<int> DeleteFilteredAsync(Guid sdkProjectId, string? searchText = null, CancellationToken ct = default);
 }

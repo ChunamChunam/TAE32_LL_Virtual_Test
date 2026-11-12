@@ -4,7 +4,9 @@ public enum LlTestCaseStatus
 {
     Draft,
     Ready,
-    Disabled
+    Disabled,
+    /// <summary>Host cannot execute this auto case natively. Not promoted by bulk Ready.</summary>
+    Unsupported
 }
 
 public enum LlTestRunStatus

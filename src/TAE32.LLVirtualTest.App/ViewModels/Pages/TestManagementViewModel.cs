@@ -4,6 +4,7 @@ using System.IO;
 using System.Windows;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
+using TAE32.LLVirtualTest.App.Views.Dialogs;
 using TAE32.LLVirtualTest.Core.Entities;
 using TAE32.LLVirtualTest.Core.Interfaces;
 using TAE32.LLVirtualTest.Core.Models;
@@ -28,7 +29,7 @@ public partial class TestManagementViewModel : ObservableObject
     public ObservableCollection<LlTestCase> AvailableCases { get; } = new();
     public ObservableCollection<Guid> SelectedCaseIds { get; } = new();
     public ObservableCollection<TestBatchRun> History { get; } = new();
-    public ObservableCollection<FailureAnalysisItem> Failures { get; } = new();
+    public ObservableCollection<FailurePickItem> FailureRows { get; } = new();
     public ObservableCollection<TestReportArtifact> Artifacts { get; } = new();
     public ObservableCollection<string> PeripheralFilters { get; } = new();
     public ObservableCollection<int> AvailableCasePageSizeOptions { get; } = new() { 50, 100, 200, 300 };
@@ -42,7 +43,17 @@ public partial class TestManagementViewModel : ObservableObject
     [ObservableProperty] private TestPlan? _selectedPlan;
     [ObservableProperty] private TestSuite? _selectedSuite;
     [ObservableProperty] private TestBatchRun? _selectedBatch;
-    [ObservableProperty] private FailureAnalysisItem? _selectedFailure;
+    [ObservableProperty] private FailurePickItem? _selectedFailureRow;
+    [ObservableProperty] private string _failureSearchText = string.Empty;
+    [ObservableProperty] private int _failurePageIndex = 1;
+    [ObservableProperty] private int _failurePageSize = 50;
+    [ObservableProperty] private int _failureTotalCount;
+    [ObservableProperty] private int _failureTotalPages = 1;
+    [ObservableProperty] private string _failurePageInfo = string.Empty;
+    [ObservableProperty] private bool _canFailurePrev;
+    [ObservableProperty] private bool _canFailureNext;
+    [ObservableProperty] private bool _isAllFailuresOnPageSelected;
+    private bool _suppressFailureAllSelectedSync;
     [ObservableProperty] private string _planName = string.Empty;
     [ObservableProperty] private string _planChip = "TAE32G58xx";
     [ObservableProperty] private string _planPeripheral = "(全部)";
@@ -264,6 +275,86 @@ public partial class TestManagementViewModel : ObservableObject
         if (HistoryPageIndex >= HistoryTotalPages) return;
         HistoryPageIndex++;
         await ReloadHistoryAsync();
+    }
+
+    [RelayCommand]
+    private async Task DeleteHistoryPageAsync()
+    {
+        if (ActiveProjectId is null)
+        {
+            StatusText = "请先选择 SDK 项目";
+            return;
+        }
+
+        if (History.Count == 0)
+        {
+            StatusText = "本页无批次记录";
+            return;
+        }
+
+        var running = History.Count(h =>
+            string.Equals(h.Status, "Running", StringComparison.OrdinalIgnoreCase));
+        var deletable = History.Count - running;
+        if (deletable == 0)
+        {
+            StatusText = "本页均为 Running 批次，未删除（请取消执行或等待完成）";
+            return;
+        }
+
+        var note = running > 0
+            ? $"（本页 {running} 条 Running 将跳过）"
+            : string.Empty;
+        if (!ConfirmDialog.Show(
+                "删除执行历史",
+                $"确认删除本页 {deletable} 条批次记录？{note}\n不会删除各用例的 LlTestRun 明细。",
+                confirmLabel: "删除",
+                dangerConfirm: true))
+            return;
+
+        var n = await _batches.DeleteManyAsync(History.Select(h => h.Id));
+        StatusText = n > 0
+            ? $"已删除本页 {n} 条批次记录{note}"
+            : "未删除任何记录";
+        await ReloadHistoryAsync();
+        if (SelectedBatch is null)
+        {
+            await ReloadStatsAsync();
+            await ReloadFailuresAsync();
+        }
+    }
+
+    [RelayCommand]
+    private async Task DeleteHistoryAllAsync()
+    {
+        if (ActiveProjectId is not Guid pid)
+        {
+            StatusText = "请先选择 SDK 项目";
+            return;
+        }
+
+        if (HistoryTotalCount == 0)
+        {
+            StatusText = "当前筛选下无批次记录";
+            return;
+        }
+
+        var scope = string.IsNullOrWhiteSpace(HistorySearchText)
+            ? "当前项目下全部批次"
+            : $"当前搜索条件下全部 {HistoryTotalCount} 条批次";
+        if (!ConfirmDialog.Show(
+                "删除执行历史",
+                $"确认删除 {scope}？\n不会删除 LlTestRun 明细。Status=Running 的批次将保留。",
+                confirmLabel: "删除全部",
+                dangerConfirm: true))
+            return;
+
+        var search = string.IsNullOrWhiteSpace(HistorySearchText) ? null : HistorySearchText.Trim();
+        var n = await _batches.DeleteFilteredAsync(pid, search);
+        HistoryPageIndex = 1;
+        StatusText = $"已删除 {n} 条批次记录（Running 未删）";
+        await ReloadHistoryAsync();
+        await ReloadStatsAsync();
+        await ReloadFailuresAsync();
     }
 
     [RelayCommand]
@@ -524,6 +615,65 @@ public partial class TestManagementViewModel : ObservableObject
         await ReloadArtifactsAsync();
     }
 
+    [RelayCommand]
+    private async Task DeleteArtifactsPageAsync()
+    {
+        if (ActiveProjectId is null)
+        {
+            StatusText = "请先选择 SDK 项目";
+            return;
+        }
+
+        if (Artifacts.Count == 0)
+        {
+            StatusText = "本页无报告记录";
+            return;
+        }
+
+        if (!ConfirmDialog.Show(
+                "删除报告",
+                $"确认删除本页 {Artifacts.Count} 条报告记录及对应磁盘文件？",
+                confirmLabel: "删除",
+                dangerConfirm: true))
+            return;
+
+        var n = await _reports.DeleteManyAsync(Artifacts.Select(a => a.Id));
+        StatusText = $"已删除本页 {n} 条报告";
+        await ReloadArtifactsAsync();
+    }
+
+    [RelayCommand]
+    private async Task DeleteArtifactsAllAsync()
+    {
+        if (ActiveProjectId is not Guid pid)
+        {
+            StatusText = "请先选择 SDK 项目";
+            return;
+        }
+
+        if (ArtifactTotalCount == 0)
+        {
+            StatusText = "当前筛选下无报告";
+            return;
+        }
+
+        var scope = string.IsNullOrWhiteSpace(ArtifactSearchText)
+            ? "当前项目下全部报告"
+            : $"当前搜索条件下全部 {ArtifactTotalCount} 条报告";
+        if (!ConfirmDialog.Show(
+                "删除报告",
+                $"确认删除 {scope} 及对应磁盘文件？",
+                confirmLabel: "删除全部",
+                dangerConfirm: true))
+            return;
+
+        var search = string.IsNullOrWhiteSpace(ArtifactSearchText) ? null : ArtifactSearchText.Trim();
+        var n = await _reports.DeleteFilteredAsync(pid, search);
+        ArtifactPageIndex = 1;
+        StatusText = $"已删除 {n} 条报告";
+        await ReloadArtifactsAsync();
+    }
+
     partial void OnSelectedPlanChanged(TestPlan? value)
     {
         if (value is null) return;
@@ -542,15 +692,141 @@ public partial class TestManagementViewModel : ObservableObject
         _ = LoadSuiteCaseIdsAsync(value.Id);
     }
 
-    partial void OnSelectedFailureChanged(FailureAnalysisItem? value)
+    partial void OnSelectedFailureRowChanged(FailurePickItem? value)
     {
         if (value is null)
         {
             FailureDetail = string.Empty;
             return;
         }
+        var v = value.Item;
         FailureDetail =
-            $"用例: {value.CaseName}\n函数: {value.FunctionName}\n源码: {value.SourceFile}\n状态: {value.Status}\n原因: {value.FailureReason}\n寄存器: {value.RelatedRegisters}\n\n--- 编译摘录 ---\n{value.CompileLogExcerpt}\n\n--- 断言 ---\n{value.AssertionResultsJson}\n\n--- 轨迹 ---\n{value.AccessTraceJson}";
+            $"用例: {v.CaseName}\n函数: {v.FunctionName}\n源码: {v.SourceFile}\n状态: {v.Status}\n原因: {v.FailureReason}\n寄存器: {v.RelatedRegisters}\n\n--- 编译摘录 ---\n{v.CompileLogExcerpt}\n\n--- 断言 ---\n{v.AssertionResultsJson}\n\n--- 轨迹 ---\n{v.AccessTraceJson}";
+    }
+
+    partial void OnIsAllFailuresOnPageSelectedChanged(bool value)
+    {
+        if (_suppressFailureAllSelectedSync) return;
+        foreach (var row in FailureRows)
+            row.IsSelected = value;
+    }
+
+    [RelayCommand]
+    private async Task SearchFailuresAsync()
+    {
+        FailurePageIndex = 1;
+        await ReloadFailuresAsync();
+    }
+
+    partial void OnFailurePageSizeChanged(int value)
+    {
+        FailurePageIndex = 1;
+        _ = ReloadFailuresAsync();
+    }
+
+    [RelayCommand]
+    private async Task FailurePreviousPageAsync()
+    {
+        if (FailurePageIndex <= 1) return;
+        FailurePageIndex--;
+        await ReloadFailuresAsync();
+    }
+
+    [RelayCommand]
+    private async Task FailureNextPageAsync()
+    {
+        if (FailurePageIndex >= FailureTotalPages) return;
+        FailurePageIndex++;
+        await ReloadFailuresAsync();
+    }
+
+    [RelayCommand]
+    private async Task DeleteSelectedFailuresAsync()
+    {
+        var ids = FailureRows.Where(r => r.IsSelected).Select(r => r.Item.RunId).ToList();
+        if (ids.Count == 0 && SelectedFailureRow is not null)
+            ids.Add(SelectedFailureRow.Item.RunId);
+        if (ids.Count == 0)
+        {
+            StatusText = "请勾选要删除的失败运行记录";
+            return;
+        }
+
+        if (!ConfirmDialog.Show(
+                "删除运行记录",
+                $"确认删除选中的 {ids.Count} 条失败/错误/超时运行记录？（不删除测试用例）",
+                confirmLabel: "删除",
+                dangerConfirm: true))
+            return;
+
+        var n = await _cases.DeleteRunsAsync(ids);
+        StatusText = $"已删除 {n} 条运行记录";
+        await ReloadFailuresAsync();
+        await ReloadStatsAsync();
+    }
+
+    [RelayCommand]
+    private async Task DeleteFailuresPageAsync()
+    {
+        if (ActiveProjectId is null)
+        {
+            StatusText = "请先选择 SDK 项目";
+            return;
+        }
+
+        if (FailureRows.Count == 0)
+        {
+            StatusText = "本页无失败记录";
+            return;
+        }
+
+        if (!ConfirmDialog.Show(
+                "删除运行记录",
+                $"确认删除本页 {FailureRows.Count} 条失败/错误/超时运行记录？",
+                confirmLabel: "删除本页",
+                dangerConfirm: true))
+            return;
+
+        var n = await _cases.DeleteRunsAsync(FailureRows.Select(r => r.Item.RunId));
+        StatusText = $"已删除本页 {n} 条运行记录";
+        await ReloadFailuresAsync();
+        await ReloadStatsAsync();
+    }
+
+    [RelayCommand]
+    private async Task DeleteFailuresAllAsync()
+    {
+        if (ActiveProjectId is not Guid pid)
+        {
+            StatusText = "请先选择 SDK 项目";
+            return;
+        }
+
+        if (FailureTotalCount == 0)
+        {
+            StatusText = "当前筛选下无失败记录";
+            return;
+        }
+
+        var batchNote = SelectedBatch is null
+            ? ""
+            : "（限于当前所选批次）";
+        var scope = string.IsNullOrWhiteSpace(FailureSearchText)
+            ? $"当前条件下全部 {FailureTotalCount} 条失败/错误/超时记录{batchNote}"
+            : $"搜索条件下全部 {FailureTotalCount} 条记录{batchNote}";
+        if (!ConfirmDialog.Show(
+                "删除运行记录",
+                $"确认删除 {scope}？\n不删除测试用例本身。",
+                confirmLabel: "删除全部",
+                dangerConfirm: true))
+            return;
+
+        var search = string.IsNullOrWhiteSpace(FailureSearchText) ? null : FailureSearchText.Trim();
+        var n = await _analytics.DeleteFailureRunsFilteredAsync(pid, SelectedBatch?.Id, search);
+        FailurePageIndex = 1;
+        StatusText = $"已删除 {n} 条运行记录";
+        await ReloadFailuresAsync();
+        await ReloadStatsAsync();
     }
 
     private async Task LoadSuiteCaseIdsAsync(Guid suiteId)
@@ -692,6 +968,7 @@ public partial class TestManagementViewModel : ObservableObject
 
     partial void OnSelectedBatchChanged(TestBatchRun? value)
     {
+        FailurePageIndex = 1;
         _ = ReloadStatsAsync();
         _ = ReloadFailuresAsync();
     }
@@ -717,10 +994,49 @@ public partial class TestManagementViewModel : ObservableObject
 
     private async Task ReloadFailuresAsync()
     {
-        if (ActiveProjectId is not Guid pid) return;
-        Failures.Clear();
-        foreach (var f in await _analytics.GetFailuresAsync(pid, SelectedBatch?.Id))
-            Failures.Add(f);
+        if (ActiveProjectId is not Guid pid)
+        {
+            FailureRows.Clear();
+            FailureTotalCount = 0;
+            FailureTotalPages = 1;
+            FailurePageInfo = "无项目";
+            CanFailurePrev = false;
+            CanFailureNext = false;
+            return;
+        }
+
+        var search = string.IsNullOrWhiteSpace(FailureSearchText) ? null : FailureSearchText.Trim();
+        var skip = Math.Max(0, (FailurePageIndex - 1) * FailurePageSize);
+        var (list, total) = await _analytics.GetFailuresPagedAsync(
+            pid, SelectedBatch?.Id, search, skip, FailurePageSize);
+        FailureTotalCount = total;
+        FailureTotalPages = Math.Max(1, (int)Math.Ceiling(total / (double)Math.Max(1, FailurePageSize)));
+        if (FailurePageIndex > FailureTotalPages) FailurePageIndex = FailureTotalPages;
+        if (FailurePageIndex < 1) FailurePageIndex = 1;
+        var from = total == 0 ? 0 : skip + 1;
+        var to = total == 0 ? 0 : Math.Min(total, skip + list.Count);
+        FailurePageInfo = $"共 {total} 条　第 {FailurePageIndex}/{FailureTotalPages} 页　{from}-{to}";
+        CanFailurePrev = FailurePageIndex > 1;
+        CanFailureNext = FailurePageIndex < FailureTotalPages;
+
+        var selectedRunId = SelectedFailureRow?.Item.RunId;
+        FailureRows.Clear();
+        foreach (var f in list)
+        {
+            var row = new FailurePickItem(f);
+            row.SelectionChanged += _ => RefreshFailureSelectionUi();
+            FailureRows.Add(row);
+        }
+
+        SelectedFailureRow = FailureRows.FirstOrDefault(x => x.Item.RunId == selectedRunId) ?? FailureRows.FirstOrDefault();
+        RefreshFailureSelectionUi();
+    }
+
+    private void RefreshFailureSelectionUi()
+    {
+        _suppressFailureAllSelectedSync = true;
+        IsAllFailuresOnPageSelected = FailureRows.Count > 0 && FailureRows.All(r => r.IsSelected);
+        _suppressFailureAllSelectedSync = false;
     }
 
     private async Task ReloadArtifactsAsync()
@@ -757,4 +1073,28 @@ public partial class TestManagementViewModel : ObservableObject
     }
 
     private static string Pct(double? v) => v is null ? "N/A" : $"{v:F1}%";
+}
+
+public sealed class FailurePickItem : ObservableObject
+{
+    private bool _isSelected;
+
+    public FailurePickItem(FailureAnalysisItem item) => Item = item;
+
+    public FailureAnalysisItem Item { get; }
+    public string CaseName => Item.CaseName;
+    public string FunctionName => Item.FunctionName;
+    public string Status => Item.Status;
+
+    public bool IsSelected
+    {
+        get => _isSelected;
+        set
+        {
+            if (SetProperty(ref _isSelected, value))
+                SelectionChanged?.Invoke(this);
+        }
+    }
+
+    public event Action<FailurePickItem>? SelectionChanged;
 }

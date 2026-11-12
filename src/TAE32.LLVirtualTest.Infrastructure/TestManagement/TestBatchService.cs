@@ -183,6 +183,38 @@ public sealed class TestBatchService : ITestBatchService
         return await db.TestBatchRuns.AsNoTracking().FirstOrDefaultAsync(x => x.Id == batchRunId, ct);
     }
 
+    public async Task<int> DeleteManyAsync(IEnumerable<Guid> ids, CancellationToken ct = default)
+    {
+        var idList = ids.Distinct().ToList();
+        if (idList.Count == 0) return 0;
+
+        await using var db = await _dbFactory.CreateDbContextAsync(ct);
+        var rows = await db.TestBatchRuns
+            .Where(x => idList.Contains(x.Id) && x.Status != "Running")
+            .ToListAsync(ct);
+        if (rows.Count == 0) return 0;
+        db.TestBatchRuns.RemoveRange(rows);
+        await db.SaveChangesAsync(ct);
+        return rows.Count;
+    }
+
+    public async Task<int> DeleteFilteredAsync(
+        Guid sdkProjectId,
+        string? searchText = null,
+        Guid? planId = null,
+        Guid? suiteId = null,
+        CancellationToken ct = default)
+    {
+        await using var db = await _dbFactory.CreateDbContextAsync(ct);
+        var q = ApplyHistoryFilters(db.TestBatchRuns, sdkProjectId, planId, suiteId, searchText)
+            .Where(x => x.Status != "Running");
+        var rows = await q.ToListAsync(ct);
+        if (rows.Count == 0) return 0;
+        db.TestBatchRuns.RemoveRange(rows);
+        await db.SaveChangesAsync(ct);
+        return rows.Count;
+    }
+
     private async Task<List<Guid>> ResolveCaseIdsAsync(TestBatchRunRequest request, CancellationToken ct)
     {
         if (request.ExplicitCaseIds is { Count: > 0 })

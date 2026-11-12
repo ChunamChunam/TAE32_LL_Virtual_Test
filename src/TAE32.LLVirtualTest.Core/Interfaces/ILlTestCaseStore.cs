@@ -32,7 +32,7 @@ public interface ILlTestCaseStore
     /// <summary>Insert many new auto-generated cases in one transaction (models must have Id = null).</summary>
     Task<int> InsertManyAsync(IReadOnlyList<LlTestCaseEditModel> models, CancellationToken cancellationToken = default);
 
-    /// <summary>Bulk set Status=Ready for cases matching the same filters as the case list (non-Ready only).</summary>
+    /// <summary>Bulk set Status=Ready for Draft cases matching the case-list filters. Unsupported is left unchanged.</summary>
     Task<int> MarkFilteredReadyAsync(
         Guid sdkProjectId,
         string? peripheralName = null,
