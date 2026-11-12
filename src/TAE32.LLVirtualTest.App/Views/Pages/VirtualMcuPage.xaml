@@ -5,206 +5,219 @@
     <Grid.RowDefinitions>
       <RowDefinition Height="Auto"/>
       <RowDefinition Height="*"/>
-      <RowDefinition Height="1.1*"/>
     </Grid.RowDefinitions>
 
-    <StackPanel Margin="0,0,0,10">
-      <DockPanel>
-        <TextBlock Text="虚拟 MCU" FontSize="22" FontWeight="SemiBold" Foreground="{StaticResource BrushTextPrimary}"/>
-        <StackPanel DockPanel.Dock="Right" Orientation="Horizontal">
-          <ComboBox Width="160" DisplayMemberPath="ModelName"
-                    ItemsSource="{Binding ChipFilters}" SelectedItem="{Binding SelectedChip}" Margin="0,0,8,0"
-                    ToolTip="芯片型号"/>
-          <ComboBox Width="220" DisplayMemberPath="DisplayName"
-                    ItemsSource="{Binding McuInstances}" SelectedItem="{Binding SelectedMcu}" Margin="0,0,8,0"
-                    ToolTip="虚拟 MCU 实例（相互隔离）"/>
-          <Button Content="创建并初始化" Command="{Binding CreateAndInitCommand}" Margin="0,0,6,0"/>
-          <Button Content="复位" Command="{Binding ResetMcuCommand}" Margin="0,0,6,0"/>
-          <Button Content="快照" Command="{Binding TakeSnapshotCommand}" Margin="0,0,6,0"/>
-          <Button Content="恢复" Command="{Binding RestoreSnapshotCommand}" Margin="0,0,6,0"/>
-          <Button Content="销毁" Command="{Binding DestroyMcuCommand}"/>
-        </StackPanel>
-      </DockPanel>
-      <TextBlock Margin="0,6,0,0" Foreground="{StaticResource BrushAccent}" Text="{Binding StatusText}" TextWrapping="Wrap"/>
-      <TextBlock Margin="0,4,0,0" Foreground="{StaticResource BrushTextMuted}" Text="{Binding LimitationSummary}" TextWrapping="Wrap"/>
-    </StackPanel>
+    <Border Grid.Row="0" Style="{StaticResource AppCardBorderStyle}" Margin="0,0,0,10">
+      <StackPanel>
+        <DockPanel>
+          <TextBlock Text="虚拟 MCU" FontSize="20" FontWeight="SemiBold" Foreground="{StaticResource BrushTextPrimary}"/>
+        </DockPanel>
+        <TextBlock Margin="0,6,0,0" Foreground="{StaticResource BrushAccent}" Text="{Binding StatusText}" TextWrapping="Wrap"/>
+        <TextBlock Margin="0,4,0,0" Foreground="{StaticResource BrushTextMuted}" Text="{Binding LimitationSummary}" TextWrapping="Wrap"/>
 
-    <Grid Grid.Row="1" Margin="0,0,0,10">
+        <WrapPanel Margin="0,12,0,0">
+          <StackPanel Orientation="Horizontal" VerticalAlignment="Center" Margin="0,0,12,6">
+            <TextBlock VerticalAlignment="Center" Foreground="{StaticResource BrushTextMuted}" Text="芯片" Margin="0,0,8,0"/>
+            <ComboBox Width="148" DisplayMemberPath="ModelName"
+                      ItemsSource="{Binding ChipFilters}" SelectedItem="{Binding SelectedChip}"/>
+          </StackPanel>
+          <StackPanel Orientation="Horizontal" VerticalAlignment="Center" Margin="0,0,16,6">
+            <TextBlock VerticalAlignment="Center" Foreground="{StaticResource BrushTextMuted}" Text="MCU 实例" Margin="0,0,8,0"/>
+            <ComboBox Width="200" DisplayMemberPath="DisplayName"
+                      ItemsSource="{Binding McuInstances}" SelectedItem="{Binding SelectedMcu}"/>
+          </StackPanel>
+          <Button Content="创建并初始化" Command="{Binding CreateAndInitCommand}" Margin="0,0,6,6" Padding="10,5"/>
+          <Button Content="复位" Command="{Binding ResetMcuCommand}" Margin="0,0,6,6" Padding="10,5"/>
+          <Button Content="快照" Command="{Binding TakeSnapshotCommand}" Margin="0,0,6,6" Padding="10,5"/>
+          <ComboBox Width="168" Margin="0,0,6,6" ItemsSource="{Binding Snapshots}"
+                    SelectedItem="{Binding SelectedSnapshot}" DisplayMemberPath="Label"
+                    ToolTip="选择快照后点「恢复」" VerticalAlignment="Center"/>
+          <Button Content="恢复" Command="{Binding RestoreSnapshotCommand}" Margin="0,0,6,6" Padding="10,5"/>
+          <Button Content="销毁" Command="{Binding DestroyMcuCommand}" Margin="0,0,6,6" Padding="10,5"
+                  Background="#FF6B3A3A"/>
+        </WrapPanel>
+      </StackPanel>
+    </Border>
+
+    <Grid Grid.Row="1">
       <Grid.ColumnDefinitions>
-        <ColumnDefinition Width="220"/>
+        <ColumnDefinition Width="232" MinWidth="200"/>
+        <ColumnDefinition Width="8"/>
         <ColumnDefinition Width="*"/>
-        <ColumnDefinition Width="280"/>
       </Grid.ColumnDefinitions>
 
-      <Border Grid.Column="0" Background="{StaticResource BrushBgCard}" BorderBrush="{StaticResource BrushBorder}"
-              BorderThickness="1" CornerRadius="8" Padding="8" Margin="0,0,10,0">
+      <Border Grid.Column="0" Style="{StaticResource AppCardBorderStyle}">
         <DockPanel>
           <TextBlock DockPanel.Dock="Top" Text="外设实例" FontWeight="SemiBold" Margin="0,0,0,8"
                      Foreground="{StaticResource BrushTextPrimary}"/>
-          <TreeView ItemsSource="{Binding PeripheralTree}"
-                    SelectedItemChanged="OnTreeSelected">
+          <TreeView ItemsSource="{Binding PeripheralTree}" SelectedItemChanged="OnTreeSelected">
             <TreeView.ItemTemplate>
               <HierarchicalDataTemplate ItemsSource="{Binding Children}">
-                <TextBlock Text="{Binding Title}"/>
+                <TextBlock Text="{Binding Title}" Foreground="{StaticResource BrushTextPrimary}"/>
               </HierarchicalDataTemplate>
             </TreeView.ItemTemplate>
           </TreeView>
         </DockPanel>
       </Border>
 
-      <Grid Grid.Column="1" Margin="0,0,10,0">
-        <Grid.RowDefinitions>
-          <RowDefinition Height="Auto"/>
-          <RowDefinition Height="*"/>
-          <RowDefinition Height="Auto"/>
-          <RowDefinition Height="Auto"/>
-        </Grid.RowDefinitions>
+      <GridSplitter Grid.Column="1" Width="8" Background="Transparent"/>
 
-        <DockPanel Margin="0,0,0,8">
-          <Button DockPanel.Dock="Right" Content="查询" Command="{Binding SearchRegistersCommand}" Margin="8,0,0,0"/>
-          <TextBox Text="{Binding RegisterSearchText, UpdateSourceTrigger=PropertyChanged}"
-                   ToolTip="搜索寄存器名 / 结构体 / 实例 / 地址 / 当前值"/>
-        </DockPanel>
+      <TabControl Grid.Column="2" Style="{StaticResource AppTabControlStyle}" ItemContainerStyle="{StaticResource AppTabItemStyle}">
+        <TabItem Header="寄存器">
+          <Grid Margin="0,8,0,0">
+            <Grid.RowDefinitions>
+              <RowDefinition Height="*"/>
+              <RowDefinition Height="Auto"/>
+            </Grid.RowDefinitions>
 
-        <DataGrid Grid.Row="1" ItemsSource="{Binding Registers}" SelectedItem="{Binding SelectedRegister}"
-                  AutoGenerateColumns="False" IsReadOnly="True" Margin="0,0,0,8">
-          <DataGrid.Columns>
-            <DataGridTextColumn Header="寄存器" Binding="{Binding DisplayName}" Width="140"/>
-            <DataGridTextColumn Header="地址" Binding="{Binding AddressText}" Width="110"/>
-            <DataGridTextColumn Header="当前值" Binding="{Binding CurrentValueText}" Width="110"/>
-            <DataGridTextColumn Header="复位值" Binding="{Binding ResetValueText}" Width="110"/>
-            <DataGridTextColumn Header="宽度" Binding="{Binding WidthBits}" Width="50"/>
-            <DataGridTextColumn Header="访问" Binding="{Binding AccessAttribute}" Width="70"/>
-            <DataGridTextColumn Header="行为" Binding="{Binding Behavior}" Width="100"/>
-            <DataGridTextColumn Header="可写掩码" Binding="{Binding WritableMaskText}" Width="110"/>
-            <DataGridTextColumn Header="限制" Binding="{Binding Limitation}" Width="*"/>
-          </DataGrid.Columns>
-        </DataGrid>
+            <Border Grid.Row="0" Style="{StaticResource AppCardBorderStyle}" Padding="0" Margin="0,0,0,8">
+              <DockPanel>
+                <Border DockPanel.Dock="Top" Padding="10,8,10,4"
+                        BorderBrush="{StaticResource BrushBorder}" BorderThickness="0,0,0,1">
+                  <DockPanel LastChildFill="True">
+                    <Button DockPanel.Dock="Right" Style="{StaticResource GhostButtonStyle}" Content="查询"
+                            Command="{Binding SearchRegistersCommand}"/>
+                    <TextBox Text="{Binding RegisterSearchText, UpdateSourceTrigger=PropertyChanged}"
+                             ToolTip="寄存器名 / 结构体 / 实例 / 地址 / 当前值"/>
+                  </DockPanel>
+                </Border>
+                <Border DockPanel.Dock="Bottom" Style="{StaticResource GridPagerFooterStyle}">
+                  <DockPanel>
+                    <TextBlock DockPanel.Dock="Left" Text="每页" Foreground="{StaticResource BrushTextMuted}"
+                               VerticalAlignment="Center" Margin="0,0,8,0"/>
+                    <ComboBox DockPanel.Dock="Left" Width="64" ItemsSource="{Binding PageSizeOptions}"
+                              SelectedItem="{Binding RegisterPageSize}" VerticalAlignment="Center"/>
+                    <StackPanel DockPanel.Dock="Right" Orientation="Horizontal">
+                      <Button Style="{StaticResource GhostButtonStyle}" Content="‹"
+                              Command="{Binding PreviousRegisterPageCommand}" Margin="0,0,4,0"/>
+                      <Button Style="{StaticResource GhostButtonStyle}" Content="›"
+                              Command="{Binding NextRegisterPageCommand}"/>
+                    </StackPanel>
+                    <TextBlock Text="{Binding RegisterPageInfoText}" VerticalAlignment="Center" Margin="12,0,0,0"
+                               Foreground="{StaticResource BrushTextMuted}"/>
+                  </DockPanel>
+                </Border>
+                <DataGrid ItemsSource="{Binding Registers}" SelectedItem="{Binding SelectedRegister}"
+                          AutoGenerateColumns="False" IsReadOnly="True">
+                  <DataGrid.Columns>
+                    <DataGridTextColumn Header="寄存器" Binding="{Binding DisplayName}" Width="128"/>
+                    <DataGridTextColumn Header="地址" Binding="{Binding AddressText}" Width="96"/>
+                    <DataGridTextColumn Header="当前" Binding="{Binding CurrentValueText}" Width="96"/>
+                    <DataGridTextColumn Header="复位" Binding="{Binding ResetValueText}" Width="96"/>
+                    <DataGridTextColumn Header="宽" Binding="{Binding WidthBits}" Width="40"/>
+                    <DataGridTextColumn Header="访问" Binding="{Binding AccessAttribute}" Width="56"/>
+                    <DataGridTextColumn Header="行为" Binding="{Binding Behavior}" Width="80"/>
+                    <DataGridTextColumn Header="掩码" Binding="{Binding WritableMaskText}" Width="88"/>
+                    <DataGridTextColumn Header="限制" Binding="{Binding Limitation}" Width="*"
+                                        ElementStyle="{StaticResource DataGridEllipsisTextStyle}"/>
+                  </DataGrid.Columns>
+                </DataGrid>
+              </DockPanel>
+            </Border>
 
-        <Border Grid.Row="2" Background="{StaticResource BrushBgCard}" BorderBrush="{StaticResource BrushBorder}"
-                BorderThickness="1" CornerRadius="6" Padding="10,6" Margin="0,0,0,8">
-          <DockPanel>
-            <StackPanel DockPanel.Dock="Left" Orientation="Horizontal" VerticalAlignment="Center">
-              <TextBlock Text="每页" Foreground="{StaticResource BrushTextMuted}" VerticalAlignment="Center" Margin="0,0,8,0"/>
-              <ComboBox Width="72" ItemsSource="{Binding PageSizeOptions}" SelectedItem="{Binding RegisterPageSize}" VerticalAlignment="Center"/>
-              <TextBlock Text="条" Foreground="{StaticResource BrushTextMuted}" VerticalAlignment="Center" Margin="8,0,0,0"/>
-            </StackPanel>
-            <StackPanel Orientation="Horizontal" HorizontalAlignment="Right" VerticalAlignment="Center">
-              <Button Content="首页" Command="{Binding FirstRegisterPageCommand}" Margin="0,0,6,0"/>
-              <Button Content="上一页" Command="{Binding PreviousRegisterPageCommand}" Margin="0,0,6,0"/>
-              <TextBlock Text="{Binding RegisterPageInfoText}" Foreground="{StaticResource BrushTextPrimary}"
-                         VerticalAlignment="Center" Margin="8,0" MinWidth="220"/>
-              <Button Content="下一页" Command="{Binding NextRegisterPageCommand}" Margin="0,0,6,0"/>
-              <Button Content="末页" Command="{Binding LastRegisterPageCommand}"/>
-            </StackPanel>
-          </DockPanel>
-        </Border>
+            <Expander Grid.Row="1" Header="寄存器读写与位域" IsExpanded="True">
+              <Border Style="{StaticResource AppCardBorderStyle}" Margin="0,8,0,0">
+                <StackPanel>
+                  <TextBlock FontSize="11" Foreground="{StaticResource BrushTextMuted}" TextWrapping="Wrap"
+                             Text="改写入值后点「写」。有位域时按可写掩码裁剪；完整 32 位写入需无掩码限制或使用「写位域」。"/>
+                  <WrapPanel Margin="0,10,0,0">
+                    <TextBlock VerticalAlignment="Center" Foreground="{StaticResource BrushTextMuted}" Text="写入值" Margin="0,0,6,4"/>
+                    <TextBox Text="{Binding WriteValueText, UpdateSourceTrigger=PropertyChanged}" Width="140"
+                             FontFamily="Consolas" Margin="0,0,12,4" ToolTip="0x1、0xFF…"/>
+                    <TextBlock VerticalAlignment="Center" Foreground="{StaticResource BrushTextMuted}" Text="位域" Margin="0,0,6,4"/>
+                    <TextBox Text="{Binding BitFieldName, UpdateSourceTrigger=PropertyChanged}" Width="88" Margin="0,0,4,4"/>
+                    <TextBox Text="{Binding BitFieldValueText, UpdateSourceTrigger=PropertyChanged}" Width="80"
+                             FontFamily="Consolas" Margin="0,0,12,4"/>
+                  </WrapPanel>
+                  <WrapPanel Margin="0,6,0,0">
+                    <Button Content="读" Command="{Binding ReadRegisterCommand}" Margin="0,0,4,4"/>
+                    <Button Content="写" Command="{Binding WriteRegisterCommand}" Margin="0,0,4,4"/>
+                    <Button Content="置位" Command="{Binding SetBitsCommand}" Margin="0,0,4,4"/>
+                    <Button Content="清位" Command="{Binding ClearBitsCommand}" Margin="0,0,4,4"/>
+                    <Button Content="写位域" Command="{Binding WriteBitFieldCommand}" Margin="0,0,4,4"/>
+                    <Button Content="复位" Command="{Binding ResetRegisterCommand}" Margin="0,0,4,4"/>
+                  </WrapPanel>
+                </StackPanel>
+              </Border>
+            </Expander>
+          </Grid>
+        </TabItem>
 
-        <Border Grid.Row="3" Background="{StaticResource BrushBgCard}" BorderBrush="{StaticResource BrushBorder}"
-                BorderThickness="1" CornerRadius="6" Padding="10,10" MinHeight="56">
-          <StackPanel>
-            <TextBlock Margin="0,0,0,8" Foreground="{StaticResource BrushTextMuted}" TextWrapping="Wrap"
-                       Text="用法：改写入值后点「写」。有位域的寄存器按「可写掩码」裁剪（未定义位保留保护），例如写 0x11111111 可能变成 0x00001111。完整 32 位写入需该寄存器无可写掩码限制，或改用「写位域」。"/>
-            <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
-              <TextBlock Text="写入值" VerticalAlignment="Center" Margin="0,0,8,0"
-                         Foreground="{StaticResource BrushTextMuted}"/>
-              <TextBox Text="{Binding WriteValueText, UpdateSourceTrigger=PropertyChanged}"
-                       Width="160" Height="30" MinHeight="30"
-                       VerticalContentAlignment="Center" FontFamily="Consolas"
-                       ToolTip="例：0x1、0xFF、255。改完后必须点「写」"/>
-              <TextBlock Text="位域" VerticalAlignment="Center" Margin="16,0,8,0"
-                         Foreground="{StaticResource BrushTextMuted}"/>
-              <TextBox Text="{Binding BitFieldName, UpdateSourceTrigger=PropertyChanged}"
-                       Width="100" Height="30" MinHeight="30" VerticalContentAlignment="Center" Margin="0,0,8,0"
-                       ToolTip="例：ADEN"/>
-              <TextBox Text="{Binding BitFieldValueText, UpdateSourceTrigger=PropertyChanged}"
-                       Width="90" Height="30" MinHeight="30" VerticalContentAlignment="Center" FontFamily="Consolas"
-                       ToolTip="位域数值，例：1"/>
-            </StackPanel>
-            <StackPanel Orientation="Horizontal" Margin="0,8,0,0">
-              <Button Content="读" Command="{Binding ReadRegisterCommand}" Margin="0,0,6,0"/>
-              <Button Content="写" Command="{Binding WriteRegisterCommand}" Margin="0,0,6,0"/>
-              <Button Content="置位" Command="{Binding SetBitsCommand}" Margin="0,0,6,0"/>
-              <Button Content="清位" Command="{Binding ClearBitsCommand}" Margin="0,0,6,0"/>
-              <Button Content="写位域" Command="{Binding WriteBitFieldCommand}" Margin="0,0,6,0"/>
-              <Button Content="复位寄存器" Command="{Binding ResetRegisterCommand}" Margin="0"/>
-            </StackPanel>
-          </StackPanel>
-        </Border>
-      </Grid>
+        <TabItem Header="位域 / 外设">
+          <Grid Margin="0,8,0,0">
+            <Grid.RowDefinitions>
+              <RowDefinition Height="*"/>
+              <RowDefinition Height="8"/>
+              <RowDefinition Height="*" MinHeight="120"/>
+            </Grid.RowDefinitions>
+            <Border Grid.Row="0" Style="{StaticResource AppCardBorderStyle}" Padding="0">
+              <DockPanel>
+                <TextBlock DockPanel.Dock="Top" Margin="10,8" FontWeight="SemiBold" Text="当前寄存器位域"
+                           Foreground="{StaticResource BrushTextPrimary}"/>
+                <DataGrid ItemsSource="{Binding BitFields}" AutoGenerateColumns="False" IsReadOnly="True">
+                  <DataGrid.Columns>
+                    <DataGridTextColumn Header="名称" Binding="{Binding Name}" Width="*"/>
+                    <DataGridTextColumn Header="Pos" Binding="{Binding BitPosition}" Width="44"/>
+                    <DataGridTextColumn Header="宽" Binding="{Binding BitWidth}" Width="44"/>
+                    <DataGridTextColumn Header="值" Binding="{Binding Value}" Width="64"/>
+                  </DataGrid.Columns>
+                </DataGrid>
+              </DockPanel>
+            </Border>
+            <GridSplitter Grid.Row="1" Height="8" Background="Transparent"/>
+            <Border Grid.Row="2" Style="{StaticResource AppCardBorderStyle}">
+              <DockPanel>
+                <TextBlock DockPanel.Dock="Top" FontWeight="SemiBold" Margin="0,0,0,8"
+                           Text="外设模拟状态" Foreground="{StaticResource BrushTextPrimary}"/>
+                <ListBox ItemsSource="{Binding PeripheralStates}">
+                  <ListBox.ItemTemplate>
+                    <DataTemplate>
+                      <StackPanel Margin="0,0,0,6">
+                        <TextBlock FontWeight="SemiBold" Text="{Binding InstanceName}"/>
+                        <TextBlock FontSize="11" Foreground="{StaticResource BrushTextMuted}" Text="{Binding SimulatorKind}"/>
+                        <TextBlock FontSize="11" TextWrapping="Wrap" Text="{Binding StatusSummary}"/>
+                      </StackPanel>
+                    </DataTemplate>
+                  </ListBox.ItemTemplate>
+                </ListBox>
+              </DockPanel>
+            </Border>
+          </Grid>
+        </TabItem>
 
-      <Border Grid.Column="2" Background="{StaticResource BrushBgCard}" BorderBrush="{StaticResource BrushBorder}"
-              BorderThickness="1" CornerRadius="8" Padding="10">
-        <DockPanel>
-          <TextBlock DockPanel.Dock="Top" Text="位域 / 外设状态" FontWeight="SemiBold" Margin="0,0,0,8"
-                     Foreground="{StaticResource BrushTextPrimary}"/>
-          <TabControl>
-            <TabItem Header="位域">
-              <DataGrid ItemsSource="{Binding BitFields}" AutoGenerateColumns="False" IsReadOnly="True">
+        <TabItem Header="访问追踪">
+          <Border Margin="0,8,0,0" Style="{StaticResource AppCardBorderStyle}" Padding="0">
+            <DockPanel>
+              <DockPanel DockPanel.Dock="Top" Margin="10,8">
+                <StackPanel DockPanel.Dock="Right" Orientation="Horizontal">
+                  <TextBox Width="120" Margin="0,0,6,0" ToolTip="寄存器过滤"
+                           Text="{Binding TraceFilterRegister, UpdateSourceTrigger=PropertyChanged}"/>
+                  <TextBox Width="100" Margin="0,0,6,0" ToolTip="LL 函数过滤"
+                           Text="{Binding TraceFilterFunction, UpdateSourceTrigger=PropertyChanged}"/>
+                  <Button Style="{StaticResource GhostButtonStyle}" Content="刷新" Command="{Binding RefreshTraceCommand}" Margin="0,0,6,0"/>
+                  <Button Style="{StaticResource GhostButtonStyle}" Content="清空" Command="{Binding ClearTraceCommand}"/>
+                </StackPanel>
+                <TextBlock VerticalAlignment="Center" FontWeight="SemiBold" Text="访问追踪"
+                           Foreground="{StaticResource BrushTextPrimary}"/>
+              </DockPanel>
+              <DataGrid ItemsSource="{Binding TraceItems}" AutoGenerateColumns="False" IsReadOnly="True">
                 <DataGrid.Columns>
-                  <DataGridTextColumn Header="名称" Binding="{Binding Name}" Width="*"/>
-                  <DataGridTextColumn Header="Pos" Binding="{Binding BitPosition}" Width="40"/>
-                  <DataGridTextColumn Header="宽" Binding="{Binding BitWidth}" Width="40"/>
-                  <DataGridTextColumn Header="值" Binding="{Binding Value}" Width="60"/>
+                  <DataGridTextColumn Header="#" Binding="{Binding Sequence}" Width="40"/>
+                  <DataGridTextColumn Header="类型" Binding="{Binding AccessKind}" Width="64"/>
+                  <DataGridTextColumn Header="寄存器" Binding="{Binding RegisterName}" Width="120"/>
+                  <DataGridTextColumn Header="地址" Binding="{Binding Address}" Width="80"/>
+                  <DataGridTextColumn Header="前" Binding="{Binding ValueBefore}" Width="80"/>
+                  <DataGridTextColumn Header="后" Binding="{Binding ValueAfter}" Width="80"/>
+                  <DataGridTextColumn Header="函数" Binding="{Binding LlFunctionName}" Width="88"/>
+                  <DataGridTextColumn Header="结果" Binding="{Binding Result}" Width="72"/>
+                  <DataGridTextColumn Header="说明" Binding="{Binding Message}" Width="*"
+                                      ElementStyle="{StaticResource DataGridEllipsisTextStyle}"/>
                 </DataGrid.Columns>
               </DataGrid>
-            </TabItem>
-            <TabItem Header="外设">
-              <ListBox ItemsSource="{Binding PeripheralStates}">
-                <ListBox.ItemTemplate>
-                  <DataTemplate>
-                    <StackPanel Margin="0,0,0,8">
-                      <TextBlock FontWeight="SemiBold" Foreground="{StaticResource BrushTextPrimary}"
-                                 Text="{Binding InstanceName}"/>
-                      <TextBlock Foreground="{StaticResource BrushTextMuted}" Text="{Binding SimulatorKind}"/>
-                      <TextBlock TextWrapping="Wrap" Text="{Binding StatusSummary}"/>
-                    </StackPanel>
-                  </DataTemplate>
-                </ListBox.ItemTemplate>
-              </ListBox>
-            </TabItem>
-            <TabItem Header="快照">
-              <DockPanel>
-                <ComboBox DockPanel.Dock="Top" ItemsSource="{Binding Snapshots}" SelectedItem="{Binding SelectedSnapshot}"
-                          DisplayMemberPath="Label" Margin="0,0,0,8"/>
-                <TextBlock TextWrapping="Wrap" Foreground="{StaticResource BrushTextMuted}"
-                           Text="选择快照后点顶部「恢复」。界面读写均经虚拟环境服务，不改数据库定义。"/>
-              </DockPanel>
-            </TabItem>
-          </TabControl>
-        </DockPanel>
-      </Border>
+            </DockPanel>
+          </Border>
+        </TabItem>
+      </TabControl>
     </Grid>
-
-    <Border Grid.Row="2" Background="{StaticResource BrushBgCard}" BorderBrush="{StaticResource BrushBorder}"
-            BorderThickness="1" CornerRadius="8" Padding="10">
-      <DockPanel>
-        <DockPanel DockPanel.Dock="Top" Margin="0,0,0,8">
-          <TextBlock Text="访问追踪" FontWeight="SemiBold" Foreground="{StaticResource BrushTextPrimary}" VerticalAlignment="Center"/>
-          <StackPanel DockPanel.Dock="Right" Orientation="Horizontal">
-            <TextBox Width="140" Margin="0,0,6,0" ToolTip="按寄存器过滤"
-                     Text="{Binding TraceFilterRegister, UpdateSourceTrigger=PropertyChanged}"/>
-            <TextBox Width="120" Margin="0,0,6,0" ToolTip="按 LL 函数过滤"
-                     Text="{Binding TraceFilterFunction, UpdateSourceTrigger=PropertyChanged}"/>
-            <Button Content="刷新追踪" Command="{Binding RefreshTraceCommand}" Margin="0,0,6,0"/>
-            <Button Content="清空" Command="{Binding ClearTraceCommand}"/>
-          </StackPanel>
-        </DockPanel>
-        <DataGrid ItemsSource="{Binding TraceItems}" AutoGenerateColumns="False" IsReadOnly="True">
-          <DataGrid.Columns>
-            <DataGridTextColumn Header="#" Binding="{Binding Sequence}" Width="50"/>
-            <DataGridTextColumn Header="类型" Binding="{Binding AccessKind}" Width="80"/>
-            <DataGridTextColumn Header="寄存器" Binding="{Binding RegisterName}" Width="140"/>
-            <DataGridTextColumn Header="地址" Binding="{Binding Address}" Width="90"/>
-            <DataGridTextColumn Header="前" Binding="{Binding ValueBefore}" Width="90"/>
-            <DataGridTextColumn Header="后" Binding="{Binding ValueAfter}" Width="90"/>
-            <DataGridTextColumn Header="LL函数" Binding="{Binding LlFunctionName}" Width="100"/>
-            <DataGridTextColumn Header="源" Binding="{Binding SourceFile}" Width="120"/>
-            <DataGridTextColumn Header="结果" Binding="{Binding Result}" Width="120"/>
-            <DataGridTextColumn Header="说明" Binding="{Binding Message}" Width="*"/>
-          </DataGrid.Columns>
-        </DataGrid>
-      </DockPanel>
-    </Border>
   </Grid>
 </UserControl>

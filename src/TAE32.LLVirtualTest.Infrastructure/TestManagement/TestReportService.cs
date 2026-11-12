@@ -122,6 +122,31 @@ public sealed class TestReportService : ITestReportService
             .ToListAsync(ct);
     }
 
+    public async Task<(IReadOnlyList<TestReportArtifact> Items, int TotalCount)> ListArtifactsPagedAsync(
+        Guid sdkProjectId,
+        string? searchText = null,
+        int skip = 0,
+        int take = 50,
+        CancellationToken ct = default)
+    {
+        await using var db = await _dbFactory.CreateDbContextAsync(ct);
+        var q = db.TestReportArtifacts.AsNoTracking().Where(x => x.SdkProjectId == sdkProjectId);
+        if (!string.IsNullOrWhiteSpace(searchText))
+        {
+            var term = searchText.Trim();
+            q = q.Where(x =>
+                x.Title.Contains(term) ||
+                x.Format.Contains(term) ||
+                x.FilePath.Contains(term));
+        }
+
+        var total = await q.CountAsync(ct);
+        take = Math.Max(1, take);
+        skip = Math.Max(0, skip);
+        var items = await q.OrderByDescending(x => x.CreatedAtUtc).Skip(skip).Take(take).ToListAsync(ct);
+        return (items, total);
+    }
+
     private static string BuildHtml(
         string title,
         string disclaimer,

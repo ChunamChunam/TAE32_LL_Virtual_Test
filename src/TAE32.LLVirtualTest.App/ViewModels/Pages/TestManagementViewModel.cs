@@ -18,6 +18,7 @@ public partial class TestManagementViewModel : ObservableObject
     private readonly ITestAnalyticsService _analytics;
     private readonly ITestReportService _reports;
     private readonly ILlTestCaseStore _cases;
+    private readonly ILLTestEngine _engine;
     private readonly ISdkProjectService _projects;
     private readonly IAppDataService _data;
     private CancellationTokenSource? _batchCts;
@@ -30,6 +31,7 @@ public partial class TestManagementViewModel : ObservableObject
     public ObservableCollection<FailureAnalysisItem> Failures { get; } = new();
     public ObservableCollection<TestReportArtifact> Artifacts { get; } = new();
     public ObservableCollection<string> PeripheralFilters { get; } = new();
+    public ObservableCollection<int> AvailableCasePageSizeOptions { get; } = new() { 50, 100, 200, 300 };
     public ObservableCollection<string> SectionTabs { get; } = new()
     {
         "测试计划", "测试套件", "执行历史", "统计覆盖率", "失败分析", "报告管理"
@@ -47,14 +49,59 @@ public partial class TestManagementViewModel : ObservableObject
     [ObservableProperty] private string _planTestType = "VirtualMcu";
     [ObservableProperty] private string _suiteName = string.Empty;
     [ObservableProperty] private string _suitePeripheral = "(全部)";
-    [ObservableProperty] private string _statsText = string.Empty;
-    [ObservableProperty] private string _coverageText = string.Empty;
+    [ObservableProperty] private TestStatistics _statistics = new();
+    [ObservableProperty] private CoverageStats _coverage = new();
+    [ObservableProperty] private string _coverageNotes = string.Empty;
+    [ObservableProperty] private string _statsScopeHint = "全项目";
+    [ObservableProperty] private string _functionCoverageText = "N/A";
+    [ObservableProperty] private string _peripheralCoverageText = "N/A";
+    [ObservableProperty] private string _registerCoverageText = "N/A";
+    [ObservableProperty] private string _bitFieldCoverageText = "N/A";
+    [ObservableProperty] private string _caseCoverageText = "N/A";
     [ObservableProperty] private string _failureDetail = string.Empty;
     [ObservableProperty] private string _statusText = "就绪（虚拟环境测试管理，非真实硬件）";
     [ObservableProperty] private string _progressText = string.Empty;
     [ObservableProperty] private double _progressPercent;
     [ObservableProperty] private bool _isBusy;
+    [ObservableProperty] private string _busyOverlayText = string.Empty;
     [ObservableProperty] private string _selectedReportFormat = "Html";
+    [ObservableProperty] private string _availableCaseSearchText = string.Empty;
+    [ObservableProperty] private int _availableCasePageIndex = 1;
+    [ObservableProperty] private int _availableCasePageSize = 100;
+    [ObservableProperty] private int _availableCaseTotalCount;
+    [ObservableProperty] private int _availableCaseTotalPages = 1;
+    [ObservableProperty] private string _availableCasePageInfo = string.Empty;
+    [ObservableProperty] private bool _canAvailableCasePrev;
+    [ObservableProperty] private bool _canAvailableCaseNext;
+    [ObservableProperty] private string _historySearchText = string.Empty;
+    [ObservableProperty] private int _historyPageIndex = 1;
+    [ObservableProperty] private int _historyPageSize = 50;
+    [ObservableProperty] private int _historyTotalCount;
+    [ObservableProperty] private int _historyTotalPages = 1;
+    [ObservableProperty] private string _historyPageInfo = string.Empty;
+    [ObservableProperty] private bool _canHistoryPrev;
+    [ObservableProperty] private bool _canHistoryNext;
+    [ObservableProperty] private string _artifactSearchText = string.Empty;
+    [ObservableProperty] private int _artifactPageIndex = 1;
+    [ObservableProperty] private int _artifactPageSize = 50;
+    [ObservableProperty] private int _artifactTotalCount;
+    [ObservableProperty] private int _artifactTotalPages = 1;
+    [ObservableProperty] private string _artifactPageInfo = string.Empty;
+    [ObservableProperty] private bool _canArtifactPrev;
+    [ObservableProperty] private bool _canArtifactNext;
+    [ObservableProperty] private TestReportArtifact? _selectedArtifact;
+
+    public bool CanExecuteWhileIdle => !IsBusy;
+
+    partial void OnIsBusyChanged(bool value)
+    {
+        RunPlanCommand.NotifyCanExecuteChanged();
+        RunSuiteCommand.NotifyCanExecuteChanged();
+        RunPeripheralCommand.NotifyCanExecuteChanged();
+        SavePlanCommand.NotifyCanExecuteChanged();
+        ExportReportCommand.NotifyCanExecuteChanged();
+        RefreshCommand.NotifyCanExecuteChanged();
+    }
 
     public TestManagementViewModel(
         ITestPlanStore plans,
@@ -63,6 +110,7 @@ public partial class TestManagementViewModel : ObservableObject
         ITestAnalyticsService analytics,
         ITestReportService reports,
         ILlTestCaseStore cases,
+        ILLTestEngine engine,
         ISdkProjectService projects,
         IAppDataService data)
     {
@@ -72,11 +120,12 @@ public partial class TestManagementViewModel : ObservableObject
         _analytics = analytics;
         _reports = reports;
         _cases = cases;
+        _engine = engine;
         _projects = projects;
         _data = data;
     }
 
-    [RelayCommand]
+    [RelayCommand(CanExecute = nameof(CanExecuteWhileIdle))]
     public async Task RefreshAsync()
     {
         var projects = await _projects.GetAllAsync();
@@ -105,26 +154,8 @@ public partial class TestManagementViewModel : ObservableObject
         StatusText = "测试管理已刷新（虚拟 MCU 数据）";
     }
 
-    [RelayCommand]
-    private async Task SavePlanAsync()
-    {
-        if (ActiveProjectId is not Guid pid || string.IsNullOrWhiteSpace(PlanName)) return;
-        await _plans.UpsertAsync(new TestPlanEditModel
-        {
-            Id = SelectedPlan?.Id,
-            SdkProjectId = pid,
-            Name = PlanName.Trim(),
-            ChipModelName = PlanChip,
-            PeripheralFilter = string.IsNullOrWhiteSpace(PlanPeripheral) || PlanPeripheral == "(全部)"
-                ? null
-                : PlanPeripheral,
-            TestType = PlanTestType,
-            SdkVersion = (await _projects.GetByIdAsync(pid))?.Version,
-            Status = "Active"
-        });
-        StatusText = "测试计划已保存";
-        await ReloadPlansAsync();
-    }
+    [RelayCommand(CanExecute = nameof(CanExecuteWhileIdle))]
+    private async Task SavePlanAsync() => await SavePlanInnerAsync();
 
     [RelayCommand]
     private async Task DuplicatePlanAsync()
@@ -168,6 +199,71 @@ public partial class TestManagementViewModel : ObservableObject
         if (c is null) return;
         if (SelectedCaseIds.Contains(c.Id)) SelectedCaseIds.Remove(c.Id);
         else SelectedCaseIds.Add(c.Id);
+        StatusText = $"套件已选 {SelectedCaseIds.Count} 个用例";
+    }
+
+    [RelayCommand]
+    private async Task SearchAvailableCasesAsync()
+    {
+        AvailableCasePageIndex = 1;
+        await ReloadCasesAsync();
+    }
+
+    partial void OnSuitePeripheralChanged(string value)
+    {
+        AvailableCasePageIndex = 1;
+        _ = ReloadCasesAsync();
+    }
+
+    partial void OnAvailableCasePageSizeChanged(int value)
+    {
+        AvailableCasePageIndex = 1;
+        _ = ReloadCasesAsync();
+    }
+
+    [RelayCommand]
+    private async Task AvailableCasePreviousPageAsync()
+    {
+        if (AvailableCasePageIndex <= 1) return;
+        AvailableCasePageIndex--;
+        await ReloadCasesAsync();
+    }
+
+    [RelayCommand]
+    private async Task AvailableCaseNextPageAsync()
+    {
+        if (AvailableCasePageIndex >= AvailableCaseTotalPages) return;
+        AvailableCasePageIndex++;
+        await ReloadCasesAsync();
+    }
+
+    [RelayCommand]
+    private async Task SearchHistoryAsync()
+    {
+        HistoryPageIndex = 1;
+        await ReloadHistoryAsync();
+    }
+
+    partial void OnHistoryPageSizeChanged(int value)
+    {
+        HistoryPageIndex = 1;
+        _ = ReloadHistoryAsync();
+    }
+
+    [RelayCommand]
+    private async Task HistoryPreviousPageAsync()
+    {
+        if (HistoryPageIndex <= 1) return;
+        HistoryPageIndex--;
+        await ReloadHistoryAsync();
+    }
+
+    [RelayCommand]
+    private async Task HistoryNextPageAsync()
+    {
+        if (HistoryPageIndex >= HistoryTotalPages) return;
+        HistoryPageIndex++;
+        await ReloadHistoryAsync();
     }
 
     [RelayCommand]
@@ -184,36 +280,138 @@ public partial class TestManagementViewModel : ObservableObject
         });
     }
 
-    [RelayCommand]
+    [RelayCommand(CanExecute = nameof(CanExecuteWhileIdle))]
     private async Task RunPlanAsync()
     {
-        if (ActiveProjectId is not Guid pid || SelectedPlan is null) return;
-        await RunBatchInternalAsync(new TestBatchRunRequest
+        if (ActiveProjectId is not Guid pid) return;
+        if (string.IsNullOrWhiteSpace(PlanName) && SelectedPlan is null)
         {
+            StatusText = "请先填写并保存测试计划";
+            return;
+        }
+
+        IsBusy = true;
+        BusyOverlayText = "正在保存测试计划…";
+        try
+        {
+            await SavePlanInnerAsync();
+            var plan = SelectedPlan ?? Plans.FirstOrDefault(p => p.Name == PlanName.Trim());
+            if (plan is null)
+            {
+                StatusText = "请先保存测试计划";
+                return;
+            }
+
+            var periFilter = NormalizePeripheralFilter(plan.PeripheralFilter ?? PlanPeripheral);
+            var targets = IsAllPeripherals(periFilter)
+                ? PeripheralFilters.Where(p => !IsAllPeripherals(p) && !string.IsNullOrWhiteSpace(p)).ToList()
+                : new List<string> { periFilter! };
+
+            var generatedCount = 0;
+            var i = 0;
+            foreach (var peri in targets)
+            {
+                i++;
+                BusyOverlayText = IsAllPeripherals(periFilter)
+                    ? $"正在生成用例：{peri}（{i}/{targets.Count}）…"
+                    : $"正在生成用例：{peri}…";
+                StatusText = BusyOverlayText;
+                await Task.Yield();
+
+                var generated = await _engine.GenerateCasesForPeripheralAsync(pid, peri, maxFunctions: 40);
+                foreach (var g in generated)
+                {
+                    await _cases.UpsertAsync(g);
+                    generatedCount++;
+                }
+            }
+
+            BusyOverlayText = $"已生成 {generatedCount} 条用例，正在批量执行（不限制条数）…";
+            StatusText = BusyOverlayText;
+            await ReloadCasesAsync();
+
+            await RunBatchInternalAsync(new TestBatchRunRequest
+            {
+                SdkProjectId = pid,
+                TestPlanId = plan.Id,
+                ScopeKind = "Plan",
+                ScopeValue = IsAllPeripherals(periFilter) ? "(全部)" : periFilter
+            }, manageBusyFlag: false);
+        }
+        catch (Exception ex)
+        {
+            StatusText = "按计划执行失败：" + ex.Message;
+        }
+        finally
+        {
+            IsBusy = false;
+            BusyOverlayText = string.Empty;
+        }
+    }
+
+    private async Task SavePlanInnerAsync()
+    {
+        if (ActiveProjectId is not Guid pid || string.IsNullOrWhiteSpace(PlanName)) return;
+        await _plans.UpsertAsync(new TestPlanEditModel
+        {
+            Id = SelectedPlan?.Id,
             SdkProjectId = pid,
-            TestPlanId = SelectedPlan.Id,
-            ScopeKind = "Plan",
-            ScopeValue = SelectedPlan.Name
+            Name = PlanName.Trim(),
+            ChipModelName = PlanChip,
+            PeripheralFilter = NormalizePeripheralFilter(PlanPeripheral) is var p && !IsAllPeripherals(p) ? p : null,
+            TestType = PlanTestType,
+            SdkVersion = (await _projects.GetByIdAsync(pid))?.Version,
+            Status = "Active"
         });
+        StatusText = "测试计划已保存";
+        await ReloadPlansAsync();
     }
 
     [RelayCommand]
     private async Task RunPeripheralAsync()
     {
-        if (ActiveProjectId is not Guid pid
-            || string.IsNullOrWhiteSpace(SuitePeripheral)
-            || SuitePeripheral == "(全部)")
+        if (ActiveProjectId is not Guid pid) return;
+
+        // Suite peripheral: concrete = that module; "(全部)" = every peripheral.
+        var periFilter = NormalizePeripheralFilter(SuitePeripheral);
+        var targets = IsAllPeripherals(periFilter)
+            ? PeripheralFilters.Where(p => !IsAllPeripherals(p) && !string.IsNullOrWhiteSpace(p)).ToList()
+            : new List<string> { periFilter! };
+
+        if (targets.Count == 0)
         {
-            StatusText = "请选择具体外设后再按外设执行";
+            StatusText = "没有可执行的外设";
             return;
         }
+
+        if (IsAllPeripherals(periFilter))
+        {
+            // Run all cases in project (all peripherals).
+            await RunBatchInternalAsync(new TestBatchRunRequest
+            {
+                SdkProjectId = pid,
+                ScopeKind = "Plan",
+                ScopeValue = "(全部)",
+                TestPlanId = SelectedPlan?.Id
+            });
+            return;
+        }
+
         await RunBatchInternalAsync(new TestBatchRunRequest
         {
             SdkProjectId = pid,
             ScopeKind = "Peripheral",
-            ScopeValue = SuitePeripheral
+            ScopeValue = periFilter
         });
     }
+
+    private static string NormalizePeripheralFilter(string? value)
+        => string.IsNullOrWhiteSpace(value) || value == "全部" || value == "(全部)"
+            ? "(全部)"
+            : value.Trim();
+
+    private static bool IsAllPeripherals(string? value)
+        => string.IsNullOrWhiteSpace(value) || value == "全部" || value == "(全部)";
 
     [RelayCommand]
     private async Task RetryFailedAsync()
@@ -280,12 +478,62 @@ public partial class TestManagementViewModel : ObservableObject
         Process.Start(new ProcessStartInfo { FileName = item.SourceFile, UseShellExecute = true });
     }
 
+    [RelayCommand]
+    private void OpenArtifact(TestReportArtifact? artifact)
+    {
+        artifact ??= SelectedArtifact;
+        if (artifact is null)
+        {
+            StatusText = "请先选择一条报告记录";
+            return;
+        }
+
+        var path = artifact.FilePath;
+        if (string.IsNullOrWhiteSpace(path) || !File.Exists(path))
+        {
+            StatusText = "报告文件不存在或路径无效";
+            return;
+        }
+
+        Process.Start(new ProcessStartInfo { FileName = path, UseShellExecute = true });
+        StatusText = "已打开报告：" + path;
+    }
+
+    [RelayCommand]
+    private async Task SearchArtifactsAsync()
+    {
+        ArtifactPageIndex = 1;
+        await ReloadArtifactsAsync();
+    }
+
+    partial void OnArtifactPageSizeChanged(int value)
+    {
+        ArtifactPageIndex = 1;
+        _ = ReloadArtifactsAsync();
+    }
+
+    [RelayCommand]
+    private async Task ArtifactPreviousPageAsync()
+    {
+        if (ArtifactPageIndex <= 1) return;
+        ArtifactPageIndex--;
+        await ReloadArtifactsAsync();
+    }
+
+    [RelayCommand]
+    private async Task ArtifactNextPageAsync()
+    {
+        if (ArtifactPageIndex >= ArtifactTotalPages) return;
+        ArtifactPageIndex++;
+        await ReloadArtifactsAsync();
+    }
+
     partial void OnSelectedPlanChanged(TestPlan? value)
     {
         if (value is null) return;
         PlanName = value.Name;
         PlanChip = value.ChipModelName ?? "TAE32G58xx";
-        PlanPeripheral = string.IsNullOrWhiteSpace(value.PeripheralFilter) ? "(全部)" : value.PeripheralFilter;
+        PlanPeripheral = NormalizePeripheralFilter(value.PeripheralFilter);
         PlanTestType = value.TestType ?? "VirtualMcu";
         _ = ReloadSuitesAsync();
     }
@@ -316,17 +564,23 @@ public partial class TestManagementViewModel : ObservableObject
             SelectedCaseIds.Add(id);
     }
 
-    private async Task RunBatchInternalAsync(TestBatchRunRequest request)
+    private async Task RunBatchInternalAsync(TestBatchRunRequest request, bool manageBusyFlag = true)
     {
-        IsBusy = true;
+        if (manageBusyFlag)
+        {
+            IsBusy = true;
+            BusyOverlayText = "正在批量执行（虚拟 MCU）…";
+        }
+
         _batchCts = new CancellationTokenSource();
         var progress = new Progress<TestBatchProgress>(p =>
         {
-            Application.Current.Dispatcher.Invoke(() =>
+            Application.Current.Dispatcher.BeginInvoke(() =>
             {
                 ProgressPercent = p.Percent;
                 ProgressText = $"{p.Completed}/{p.Total} {p.CurrentCaseName}";
                 StatusText = p.Message;
+                BusyOverlayText = $"执行中 {p.Completed}/{p.Total}：{p.CurrentCaseName}";
             });
         });
         try
@@ -348,7 +602,11 @@ public partial class TestManagementViewModel : ObservableObject
         }
         finally
         {
-            IsBusy = false;
+            if (manageBusyFlag)
+            {
+                IsBusy = false;
+                BusyOverlayText = string.Empty;
+            }
             _batchCts = null;
         }
     }
@@ -373,34 +631,92 @@ public partial class TestManagementViewModel : ObservableObject
 
     private async Task ReloadCasesAsync()
     {
-        if (ActiveProjectId is not Guid pid) return;
+        if (ActiveProjectId is not Guid pid)
+        {
+            AvailableCases.Clear();
+            AvailableCaseTotalCount = 0;
+            AvailableCaseTotalPages = 1;
+            AvailableCasePageInfo = "无项目";
+            CanAvailableCasePrev = false;
+            CanAvailableCaseNext = false;
+            return;
+        }
+
+        var peri = string.IsNullOrWhiteSpace(SuitePeripheral) || SuitePeripheral == "(全部)" ? null : SuitePeripheral;
+        var search = string.IsNullOrWhiteSpace(AvailableCaseSearchText) ? null : AvailableCaseSearchText.Trim();
+        var skip = Math.Max(0, (AvailableCasePageIndex - 1) * AvailableCasePageSize);
+        var (list, total) = await _cases.ListPagedAsync(pid, peri, search, skip, AvailableCasePageSize);
+        AvailableCaseTotalCount = total;
+        AvailableCaseTotalPages = Math.Max(1, (int)Math.Ceiling(total / (double)Math.Max(1, AvailableCasePageSize)));
+        if (AvailableCasePageIndex > AvailableCaseTotalPages) AvailableCasePageIndex = AvailableCaseTotalPages;
+        if (AvailableCasePageIndex < 1) AvailableCasePageIndex = 1;
+        var from = total == 0 ? 0 : skip + 1;
+        var to = total == 0 ? 0 : Math.Min(total, skip + list.Count);
+        AvailableCasePageInfo = $"共 {total} 条　第 {AvailableCasePageIndex}/{AvailableCaseTotalPages} 页　{from}-{to}";
+        CanAvailableCasePrev = AvailableCasePageIndex > 1;
+        CanAvailableCaseNext = AvailableCasePageIndex < AvailableCaseTotalPages;
+
         AvailableCases.Clear();
-        foreach (var c in await _cases.ListAsync(pid))
+        foreach (var c in list)
             AvailableCases.Add(c);
     }
 
     private async Task ReloadHistoryAsync()
     {
-        if (ActiveProjectId is not Guid pid) return;
+        if (ActiveProjectId is not Guid pid)
+        {
+            History.Clear();
+            HistoryTotalCount = 0;
+            HistoryTotalPages = 1;
+            HistoryPageInfo = "无项目";
+            CanHistoryPrev = false;
+            CanHistoryNext = false;
+            return;
+        }
+
+        var search = string.IsNullOrWhiteSpace(HistorySearchText) ? null : HistorySearchText.Trim();
+        var skip = Math.Max(0, (HistoryPageIndex - 1) * HistoryPageSize);
+        var (list, total) = await _batches.ListHistoryPagedAsync(pid, search, skip: skip, take: HistoryPageSize);
+        HistoryTotalCount = total;
+        HistoryTotalPages = Math.Max(1, (int)Math.Ceiling(total / (double)Math.Max(1, HistoryPageSize)));
+        if (HistoryPageIndex > HistoryTotalPages) HistoryPageIndex = HistoryTotalPages;
+        if (HistoryPageIndex < 1) HistoryPageIndex = 1;
+        var from = total == 0 ? 0 : skip + 1;
+        var to = total == 0 ? 0 : Math.Min(total, skip + list.Count);
+        HistoryPageInfo = $"共 {total} 条　第 {HistoryPageIndex}/{HistoryTotalPages} 页　{from}-{to}";
+        CanHistoryPrev = HistoryPageIndex > 1;
+        CanHistoryNext = HistoryPageIndex < HistoryTotalPages;
+
+        var selectedId = SelectedBatch?.Id;
         History.Clear();
-        foreach (var h in await _batches.ListHistoryAsync(pid))
+        foreach (var h in list)
             History.Add(h);
-        SelectedBatch ??= History.FirstOrDefault();
+        SelectedBatch = History.FirstOrDefault(x => x.Id == selectedId) ?? History.FirstOrDefault();
+    }
+
+    partial void OnSelectedBatchChanged(TestBatchRun? value)
+    {
+        _ = ReloadStatsAsync();
+        _ = ReloadFailuresAsync();
     }
 
     private async Task ReloadStatsAsync()
     {
         if (ActiveProjectId is not Guid pid) return;
         var s = await _analytics.GetStatisticsAsync(pid, SelectedBatch?.Id);
-        StatsText =
-            $"用例总数 {s.CaseTotal}\n已执行 {s.ExecutedRuns}\n通过 {s.Passed} / 失败 {s.Failed} / 错误 {s.Error} / 跳过 {s.Skipped} / 超时 {s.Timeout}\n通过率 {s.PassRate:F1}%\n编译失败率 {s.CompileFailRate:F1}%\n平均耗时 {s.AverageDurationMs:F0} ms";
+        Statistics = s;
+        StatsScopeHint = SelectedBatch is null
+            ? "全项目累计"
+            : $"所选批次 · {SelectedBatch.Status} · {SelectedBatch.ScopeKind}";
+
         var c = await _analytics.GetCoverageAsync(pid);
-        CoverageText =
-            $"LL 函数覆盖率: {Pct(c.FunctionCoveragePercent)} ({c.FunctionsCoveredByCases}/{c.FunctionsTotal})\n" +
-            $"外设覆盖率: {Pct(c.PeripheralCoveragePercent)} ({c.PeripheralsCoveredByCases}/{c.PeripheralsTotal})\n" +
-            $"寄存器访问覆盖率: {Pct(c.RegisterAccessCoveragePercent)} ({c.RegistersTouchedInRuns}/{c.RegistersReferencedInParse})\n" +
-            $"位域断言覆盖率: {Pct(c.BitFieldCoveragePercent)} ({c.BitFieldsAsserted}/{c.BitFieldsTotal})\n" +
-            $"用例覆盖率: {Pct(c.CaseCoveragePercent)} ({c.CasesExecutedAtLeastOnce}/{c.CasesTotal})\n\n{c.Notes}";
+        Coverage = c;
+        CoverageNotes = c.Notes ?? string.Empty;
+        FunctionCoverageText = Pct(c.FunctionCoveragePercent);
+        PeripheralCoverageText = Pct(c.PeripheralCoveragePercent);
+        RegisterCoverageText = Pct(c.RegisterAccessCoveragePercent);
+        BitFieldCoverageText = Pct(c.BitFieldCoveragePercent);
+        CaseCoverageText = Pct(c.CaseCoveragePercent);
     }
 
     private async Task ReloadFailuresAsync()
@@ -413,10 +729,35 @@ public partial class TestManagementViewModel : ObservableObject
 
     private async Task ReloadArtifactsAsync()
     {
-        if (ActiveProjectId is not Guid pid) return;
+        if (ActiveProjectId is not Guid pid)
+        {
+            Artifacts.Clear();
+            ArtifactTotalCount = 0;
+            ArtifactTotalPages = 1;
+            ArtifactPageInfo = "无项目";
+            CanArtifactPrev = false;
+            CanArtifactNext = false;
+            return;
+        }
+
+        var search = string.IsNullOrWhiteSpace(ArtifactSearchText) ? null : ArtifactSearchText.Trim();
+        var skip = Math.Max(0, (ArtifactPageIndex - 1) * ArtifactPageSize);
+        var (list, total) = await _reports.ListArtifactsPagedAsync(pid, search, skip, ArtifactPageSize);
+        ArtifactTotalCount = total;
+        ArtifactTotalPages = Math.Max(1, (int)Math.Ceiling(total / (double)Math.Max(1, ArtifactPageSize)));
+        if (ArtifactPageIndex > ArtifactTotalPages) ArtifactPageIndex = ArtifactTotalPages;
+        if (ArtifactPageIndex < 1) ArtifactPageIndex = 1;
+        var from = total == 0 ? 0 : skip + 1;
+        var to = total == 0 ? 0 : Math.Min(total, skip + list.Count);
+        ArtifactPageInfo = $"共 {total} 条　第 {ArtifactPageIndex}/{ArtifactTotalPages} 页　{from}-{to}";
+        CanArtifactPrev = ArtifactPageIndex > 1;
+        CanArtifactNext = ArtifactPageIndex < ArtifactTotalPages;
+
+        var selectedId = SelectedArtifact?.Id;
         Artifacts.Clear();
-        foreach (var a in await _reports.ListArtifactsAsync(pid))
+        foreach (var a in list)
             Artifacts.Add(a);
+        SelectedArtifact = Artifacts.FirstOrDefault(x => x.Id == selectedId) ?? Artifacts.FirstOrDefault();
     }
 
     private static string Pct(double? v) => v is null ? "N/A" : $"{v:F1}%";

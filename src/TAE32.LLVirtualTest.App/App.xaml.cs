@@ -52,15 +52,17 @@ public partial class App : Application
         });
         services.AddInfrastructure(AppPaths.DatabasePath, AppPaths.LogDirectory);
         services.AddSdkServices();
+        services.AddSingleton<UiScaleService>();
         services.AddSingleton<NavigationService>();
         services.AddSingleton<DashboardViewModel>();
         services.AddSingleton<SdkManagementViewModel>();
         services.AddTransient<ChipManagementViewModel>();
         services.AddTransient<PeripheralManagementViewModel>();
         services.AddTransient<LlFunctionLibraryViewModel>();
+        services.AddTransient<FunctionCallGraphViewModel>();
         services.AddTransient<RegisterManagementViewModel>();
         services.AddTransient<VirtualMcuViewModel>();
-        services.AddTransient<AutomationTestViewModel>();
+        services.AddSingleton<AutomationTestViewModel>();
         services.AddTransient<TestManagementViewModel>();
         services.AddSingleton<SettingsViewModel>();
         services.AddSingleton<StartupScanImportService>();

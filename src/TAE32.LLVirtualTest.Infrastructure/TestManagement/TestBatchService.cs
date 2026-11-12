@@ -137,6 +137,46 @@ public sealed class TestBatchService : ITestBatchService
         return await q.OrderByDescending(x => x.StartedAtUtc).Take(take).ToListAsync(ct);
     }
 
+    public async Task<(IReadOnlyList<TestBatchRun> Items, int TotalCount)> ListHistoryPagedAsync(
+        Guid sdkProjectId,
+        string? searchText = null,
+        Guid? planId = null,
+        Guid? suiteId = null,
+        int skip = 0,
+        int take = 50,
+        CancellationToken ct = default)
+    {
+        await using var db = await _dbFactory.CreateDbContextAsync(ct);
+        var q = ApplyHistoryFilters(db.TestBatchRuns.AsNoTracking(), sdkProjectId, planId, suiteId, searchText);
+        var total = await q.CountAsync(ct);
+        take = Math.Max(1, take);
+        skip = Math.Max(0, skip);
+        var items = await q.OrderByDescending(x => x.StartedAtUtc).Skip(skip).Take(take).ToListAsync(ct);
+        return (items, total);
+    }
+
+    private static IQueryable<TestBatchRun> ApplyHistoryFilters(
+        IQueryable<TestBatchRun> q,
+        Guid sdkProjectId,
+        Guid? planId,
+        Guid? suiteId,
+        string? searchText)
+    {
+        q = q.Where(x => x.SdkProjectId == sdkProjectId);
+        if (planId is Guid p) q = q.Where(x => x.TestPlanId == p);
+        if (suiteId is Guid s) q = q.Where(x => x.TestSuiteId == s);
+        if (!string.IsNullOrWhiteSpace(searchText))
+        {
+            var term = searchText.Trim();
+            q = q.Where(x =>
+                x.Status.Contains(term) ||
+                x.ScopeKind.Contains(term) ||
+                (x.ScopeValue != null && x.ScopeValue.Contains(term)));
+        }
+
+        return q;
+    }
+
     public async Task<TestBatchRun?> GetAsync(Guid batchRunId, CancellationToken ct = default)
     {
         await using var db = await _dbFactory.CreateDbContextAsync(ct);
@@ -181,17 +221,34 @@ public sealed class TestBatchService : ITestBatchService
             {
                 var plan = await db.TestPlans.AsNoTracking().FirstOrDefaultAsync(x => x.Id == planId, ct);
                 if (plan is null) break;
-                if (!string.IsNullOrWhiteSpace(plan.PeripheralFilter))
-                    q = q.Where(c => c.PeripheralName == plan.PeripheralFilter);
+                // "(全部)" / null / empty → all peripherals; otherwise only that module.
+                var peri = plan.PeripheralFilter;
+                if (!string.IsNullOrWhiteSpace(peri)
+                    && peri != "(全部)"
+                    && peri != "全部")
+                {
+                    q = q.Where(c => c.PeripheralName == peri);
+                }
+                // Chip on plan is series label; do not drop cases with empty ChipModelName.
                 if (!string.IsNullOrWhiteSpace(plan.ChipModelName))
-                    q = q.Where(c => c.ChipModelName == plan.ChipModelName);
+                {
+                    var chip = plan.ChipModelName;
+                    q = q.Where(c => c.ChipModelName == null
+                                     || c.ChipModelName == ""
+                                     || c.ChipModelName == chip);
+                }
                 if (!string.IsNullOrWhiteSpace(plan.FunctionFilter))
                     q = q.Where(c => c.FunctionName.Contains(plan.FunctionFilter));
                 break;
             }
+            case "Plan" when string.Equals(request.ScopeValue, "(全部)", StringComparison.Ordinal)
+                            || string.Equals(request.ScopeValue, "全部", StringComparison.Ordinal)
+                            || string.IsNullOrWhiteSpace(request.ScopeValue):
+                // No peripheral filter: all cases in project.
+                break;
         }
 
-        return await q.OrderBy(c => c.Name).Select(c => c.Id).Take(500).ToListAsync(ct);
+        return await q.OrderBy(c => c.Name).Select(c => c.Id).ToListAsync(ct);
     }
 
     private static void ApplyStatus(TestBatchRun batch, LlTestRunStatus status, bool compileSucceeded)

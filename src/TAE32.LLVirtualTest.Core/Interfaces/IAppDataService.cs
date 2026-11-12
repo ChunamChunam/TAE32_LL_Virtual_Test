@@ -33,6 +33,24 @@ public interface IAppDataService
 
     Task<LlFunctionDetailDto?> GetFunctionDetailAsync(Guid id, CancellationToken cancellationToken = default);
 
+    Task<CallGraphStats> GetCallGraphStatsAsync(CancellationToken cancellationToken = default);
+
+    Task<IReadOnlyList<LlFunctionCallRowDto>> SearchFunctionCallsAsync(
+        string? search = null,
+        string? callerPeripheral = null,
+        string? calleeKind = null,
+        int skip = 0,
+        int take = 200,
+        CancellationToken cancellationToken = default);
+
+    Task<int> CountFunctionCallsAsync(
+        string? search = null,
+        string? callerPeripheral = null,
+        string? calleeKind = null,
+        CancellationToken cancellationToken = default);
+
+    Task<IReadOnlyList<string>> GetCallGraphCallerPeripheralsAsync(CancellationToken cancellationToken = default);
+
     Task<IReadOnlyList<PeripheralInstance>> GetPeripheralInstancesAsync(
         Guid? sdkProjectId = null,
         Guid? peripheralId = null,

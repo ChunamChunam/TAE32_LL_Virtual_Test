@@ -5,58 +5,83 @@
     <Grid.RowDefinitions>
       <RowDefinition Height="Auto"/>
       <RowDefinition Height="2*"/>
-      <RowDefinition Height="Auto"/>
       <RowDefinition Height="1.4*"/>
     </Grid.RowDefinitions>
 
-    <StackPanel Margin="0,0,0,10">
+    <Border Grid.Row="0" Style="{StaticResource AppCardBorderStyle}" Margin="0,0,0,6">
       <DockPanel>
-        <Button DockPanel.Dock="Right" Content="深度解析" Command="{Binding DeepParseCommand}" Margin="8,0,0,0"/>
-        <Button DockPanel.Dock="Right" Content="查询" Command="{Binding SearchCommand}" Margin="8,0,0,0"/>
-        <TextBlock Text="LL 函数库" FontSize="22" FontWeight="SemiBold" Foreground="{StaticResource BrushTextPrimary}"/>
-      </DockPanel>
-      <DockPanel Margin="0,8,0,0">
-        <ComboBox DockPanel.Dock="Right" Width="120" ItemsSource="{Binding FormFilters}" SelectedItem="{Binding SelectedForm}" Margin="8,0,0,0"/>
-        <ComboBox DockPanel.Dock="Right" Width="120" ItemsSource="{Binding ChipFilters}" SelectedItem="{Binding SelectedChip}" Margin="8,0,0,0"/>
-        <ComboBox DockPanel.Dock="Right" Width="140" ItemsSource="{Binding PeripheralFilters}" SelectedItem="{Binding SelectedPeripheral}" Margin="8,0,0,0"/>
-        <TextBox Text="{Binding SearchText, UpdateSourceTrigger=PropertyChanged}"/>
-      </DockPanel>
-      <TextBlock Margin="0,6,0,0" Foreground="{StaticResource BrushTextMuted}" Text="{Binding PageInfoText}"/>
-      <TextBlock Margin="0,4,0,0" Foreground="{StaticResource BrushAccent}" Text="{Binding ParseSummaryText}" TextWrapping="Wrap"/>
-    </StackPanel>
-
-    <DataGrid Grid.Row="1" ItemsSource="{Binding Items}" SelectedItem="{Binding SelectedFunction}" Margin="0,0,0,8">
-      <DataGrid.Columns>
-        <DataGridTextColumn Header="函数名" Binding="{Binding FunctionName}" Width="2*"/>
-        <DataGridTextColumn Header="芯片" Binding="{Binding ChipName}" Width="100"/>
-        <DataGridTextColumn Header="外设" Binding="{Binding PeripheralName}" Width="90"/>
-        <DataGridTextColumn Header="形式" Binding="{Binding Form}" Width="120"/>
-        <DataGridTextColumn Header="解析" Binding="{Binding ParseStatus}" Width="80"/>
-        <DataGridTextColumn Header="文件" Binding="{Binding FilePath}" Width="2*"/>
-        <DataGridTextColumn Header="行" Binding="{Binding StartLine}" Width="60"/>
-      </DataGrid.Columns>
-    </DataGrid>
-
-    <Border Grid.Row="2" Background="{StaticResource BrushBgCard}" BorderBrush="{StaticResource BrushBorder}"
-            BorderThickness="1" CornerRadius="6" Padding="10,6" Margin="0,0,0,10">
-      <DockPanel>
-        <StackPanel DockPanel.Dock="Left" Orientation="Horizontal" VerticalAlignment="Center">
-          <TextBlock Text="每页" Foreground="{StaticResource BrushTextMuted}" VerticalAlignment="Center" Margin="0,0,8,0"/>
-          <ComboBox Width="72" ItemsSource="{Binding PageSizeOptions}" SelectedItem="{Binding PageSize}" VerticalAlignment="Center"/>
-          <TextBlock Text="条" Foreground="{StaticResource BrushTextMuted}" VerticalAlignment="Center" Margin="8,0,0,0"/>
+        <StackPanel DockPanel.Dock="Right" Orientation="Horizontal">
+          <Button Content="深度解析" Command="{Binding DeepParseCommand}"/>
         </StackPanel>
-        <StackPanel Orientation="Horizontal" HorizontalAlignment="Right" VerticalAlignment="Center">
-          <Button Content="首页" Command="{Binding FirstPageCommand}" Margin="0,0,6,0"/>
-          <Button Content="上一页" Command="{Binding PreviousPageCommand}" Margin="0,0,6,0"/>
-          <TextBlock Text="{Binding PageInfoText}" Foreground="{StaticResource BrushTextPrimary}"
-                     VerticalAlignment="Center" Margin="8,0" MinWidth="260"/>
-          <Button Content="下一页" Command="{Binding NextPageCommand}" Margin="0,0,6,0"/>
-          <Button Content="末页" Command="{Binding LastPageCommand}"/>
+        <StackPanel>
+          <TextBlock Text="LL 函数库" FontSize="20" FontWeight="SemiBold" Foreground="{StaticResource BrushTextPrimary}"/>
+          <TextBlock Margin="0,4,0,0" Foreground="{StaticResource BrushAccent}" Text="{Binding ParseSummaryText}" TextWrapping="Wrap"/>
         </StackPanel>
       </DockPanel>
     </Border>
 
-    <Border Grid.Row="3" Background="{StaticResource BrushBgCard}" BorderBrush="{StaticResource BrushBorder}" BorderThickness="1" CornerRadius="8" Padding="14">
+    <Border Grid.Row="1" Style="{StaticResource AppCardBorderStyle}" Margin="0,0,0,10" Padding="0">
+      <DockPanel>
+        <Border DockPanel.Dock="Top" Padding="10,8,10,6" BorderBrush="{StaticResource BrushBorder}" BorderThickness="0,0,0,1">
+          <Grid>
+            <Grid.RowDefinitions>
+              <RowDefinition Height="Auto"/>
+              <RowDefinition Height="Auto"/>
+            </Grid.RowDefinitions>
+            <Grid Grid.Row="0">
+              <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="*"/>
+                <ColumnDefinition Width="Auto"/>
+                <ColumnDefinition Width="Auto"/>
+                <ColumnDefinition Width="Auto"/>
+                <ColumnDefinition Width="Auto"/>
+              </Grid.ColumnDefinitions>
+              <TextBox Grid.Column="0" Text="{Binding SearchText, UpdateSourceTrigger=PropertyChanged}"
+                       ToolTip="函数名、文件名…" Margin="0,0,8,0"/>
+              <ComboBox Grid.Column="1" Width="120" Margin="0,0,8,0"
+                        ItemsSource="{Binding PeripheralFilters}" SelectedItem="{Binding SelectedPeripheral}"/>
+              <ComboBox Grid.Column="2" Width="100" Margin="0,0,8,0"
+                        ItemsSource="{Binding ChipFilters}" SelectedItem="{Binding SelectedChip}"/>
+              <ComboBox Grid.Column="3" Width="100" Margin="0,0,8,0"
+                        ItemsSource="{Binding FormFilters}" SelectedItem="{Binding SelectedForm}"/>
+              <Button Grid.Column="4" Style="{StaticResource GhostButtonStyle}" Content="查询" Command="{Binding SearchCommand}"/>
+            </Grid>
+            <TextBlock Grid.Row="1" Margin="0,6,0,0" Foreground="{StaticResource BrushTextMuted}" Text="{Binding PageInfoText}"/>
+          </Grid>
+        </Border>
+        <Border DockPanel.Dock="Bottom" Style="{StaticResource GridPagerFooterStyle}">
+          <DockPanel>
+            <StackPanel DockPanel.Dock="Left" Orientation="Horizontal" VerticalAlignment="Center">
+              <TextBlock Text="每页" Foreground="{StaticResource BrushTextMuted}" VerticalAlignment="Center" Margin="0,0,8,0"/>
+              <ComboBox Width="72" ItemsSource="{Binding PageSizeOptions}" SelectedItem="{Binding PageSize}" VerticalAlignment="Center"/>
+              <TextBlock Text="条" Foreground="{StaticResource BrushTextMuted}" VerticalAlignment="Center" Margin="8,0,0,0"/>
+            </StackPanel>
+            <StackPanel DockPanel.Dock="Right" Orientation="Horizontal" VerticalAlignment="Center">
+              <Button Style="{StaticResource GhostButtonStyle}" Content="首页" Command="{Binding FirstPageCommand}" Margin="0,0,6,0"/>
+              <Button Style="{StaticResource GhostButtonStyle}" Content="上一页" Command="{Binding PreviousPageCommand}" Margin="0,0,6,0"/>
+              <Button Style="{StaticResource GhostButtonStyle}" Content="下一页" Command="{Binding NextPageCommand}" Margin="0,0,6,0"/>
+              <Button Style="{StaticResource GhostButtonStyle}" Content="末页" Command="{Binding LastPageCommand}"/>
+            </StackPanel>
+            <TextBlock Text="{Binding PageInfoText}" Foreground="{StaticResource BrushTextPrimary}"
+                       VerticalAlignment="Center" Margin="8,0,0,0"/>
+          </DockPanel>
+        </Border>
+        <DataGrid ItemsSource="{Binding Items}" SelectedItem="{Binding SelectedFunction}">
+          <DataGrid.Columns>
+            <DataGridTextColumn Header="函数名" Binding="{Binding FunctionName}" Width="1.6*"/>
+            <DataGridTextColumn Header="芯片" Binding="{Binding ChipName}" Width="88"/>
+            <DataGridTextColumn Header="外设" Binding="{Binding PeripheralName}" Width="72"/>
+            <DataGridTextColumn Header="形式" Binding="{Binding Form}" Width="108"/>
+            <DataGridTextColumn Header="解析" Binding="{Binding ParseStatus}" Width="72"/>
+            <DataGridTextColumn Header="文件" Binding="{Binding FilePath}" Width="2*"
+                                ElementStyle="{StaticResource DataGridEllipsisTextStyle}"/>
+            <DataGridTextColumn Header="行" Binding="{Binding StartLine}" Width="48"/>
+          </DataGrid.Columns>
+        </DataGrid>
+      </DockPanel>
+    </Border>
+
+    <Border Grid.Row="2" Style="{StaticResource AppCardBorderStyle}">
       <DockPanel>
         <StackPanel DockPanel.Dock="Top" Orientation="Horizontal" Margin="0,0,0,8">
           <TextBlock Text="函数详情" FontWeight="SemiBold" Foreground="{StaticResource BrushTextPrimary}"/>
@@ -65,46 +90,35 @@
         </StackPanel>
         <TabControl>
           <TabItem Header="基本信息">
-            <ScrollViewer VerticalScrollBarVisibility="Auto">
-              <StackPanel Margin="4">
-                <TextBlock Text="签名" Foreground="{StaticResource BrushTextMuted}"/>
-                <TextBlock Text="{Binding DetailSignature}" TextWrapping="Wrap" Margin="0,0,0,8"/>
-                <TextBlock Text="返回类型" Foreground="{StaticResource BrushTextMuted}"/>
-                <TextBlock Text="{Binding DetailReturn}" Margin="0,0,0,8"/>
-                <TextBlock Text="参数" Foreground="{StaticResource BrushTextMuted}"/>
-                <TextBlock Text="{Binding DetailParameters}" TextWrapping="Wrap" FontFamily="Consolas"/>
-              </StackPanel>
-            </ScrollViewer>
+            <StackPanel Margin="0,4,0,0">
+              <TextBlock Text="签名" Foreground="{StaticResource BrushTextMuted}" FontSize="11"/>
+              <TextBox Style="{StaticResource MonospaceReadOnlyTextBoxStyle}" MinHeight="48"
+                       Text="{Binding DetailSignature, Mode=OneWay}"/>
+              <TextBlock Text="返回类型" Foreground="{StaticResource BrushTextMuted}" FontSize="11" Margin="0,8,0,0"/>
+              <TextBox Style="{StaticResource MonospaceReadOnlyTextBoxStyle}" MinHeight="36"
+                       Text="{Binding DetailReturn, Mode=OneWay}"/>
+              <TextBlock Text="参数" Foreground="{StaticResource BrushTextMuted}" FontSize="11" Margin="0,8,0,0"/>
+              <TextBox Style="{StaticResource MonospaceReadOnlyTextBoxStyle}"
+                       Text="{Binding DetailParameters, Mode=OneWay}"/>
+            </StackPanel>
           </TabItem>
           <TabItem Header="源码">
-            <ScrollViewer VerticalScrollBarVisibility="Auto">
-              <TextBlock Text="{Binding DetailSource}" TextWrapping="Wrap" FontFamily="Consolas" Margin="4"/>
-            </ScrollViewer>
+            <TextBox Style="{StaticResource MonospaceReadOnlyTextBoxStyle}" Text="{Binding DetailSource, Mode=OneWay}"/>
           </TabItem>
           <TabItem Header="操作">
-            <ScrollViewer VerticalScrollBarVisibility="Auto">
-              <TextBlock Text="{Binding DetailOperations}" TextWrapping="Wrap" FontFamily="Consolas" Margin="4"/>
-            </ScrollViewer>
+            <TextBox Style="{StaticResource MonospaceReadOnlyTextBoxStyle}" Text="{Binding DetailOperations, Mode=OneWay}"/>
           </TabItem>
           <TabItem Header="寄存器">
-            <ScrollViewer VerticalScrollBarVisibility="Auto">
-              <TextBlock Text="{Binding DetailRegisters}" TextWrapping="Wrap" FontFamily="Consolas" Margin="4"/>
-            </ScrollViewer>
+            <TextBox Style="{StaticResource MonospaceReadOnlyTextBoxStyle}" Text="{Binding DetailRegisters, Mode=OneWay}"/>
           </TabItem>
           <TabItem Header="宏引用">
-            <ScrollViewer VerticalScrollBarVisibility="Auto">
-              <TextBlock Text="{Binding DetailMacros}" TextWrapping="Wrap" FontFamily="Consolas" Margin="4"/>
-            </ScrollViewer>
+            <TextBox Style="{StaticResource MonospaceReadOnlyTextBoxStyle}" Text="{Binding DetailMacros, Mode=OneWay}"/>
           </TabItem>
           <TabItem Header="调用">
-            <ScrollViewer VerticalScrollBarVisibility="Auto">
-              <TextBlock Text="{Binding DetailCallGraph}" TextWrapping="Wrap" FontFamily="Consolas" Margin="4"/>
-            </ScrollViewer>
+            <TextBox Style="{StaticResource MonospaceReadOnlyTextBoxStyle}" Text="{Binding DetailCallGraph, Mode=OneWay}"/>
           </TabItem>
           <TabItem Header="诊断">
-            <ScrollViewer VerticalScrollBarVisibility="Auto">
-              <TextBlock Text="{Binding DetailDiagnostics}" TextWrapping="Wrap" FontFamily="Consolas" Margin="4"/>
-            </ScrollViewer>
+            <TextBox Style="{StaticResource MonospaceReadOnlyTextBoxStyle}" Text="{Binding DetailDiagnostics, Mode=OneWay}"/>
           </TabItem>
         </TabControl>
       </DockPanel>

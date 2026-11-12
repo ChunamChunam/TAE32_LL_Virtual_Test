@@ -1,4 +1,6 @@
+using System.Diagnostics;
 using System.Runtime.InteropServices;
+using System.Text.Json;
 using TAE32.LLVirtualTest.Core.Interfaces;
 using TAE32.LLVirtualTest.Core.Models;
 
@@ -7,51 +9,119 @@ namespace TAE32.LLVirtualTest.Infrastructure.TestEngine;
 /// <summary>
 /// Loads compiled harness DLL and executes against a host RAM peripheral image,
 /// then syncs memory back into an isolated virtual MCU instance.
+/// Native execution runs in a child process so AccessViolation cannot kill the UI.
 /// </summary>
 internal sealed class NativeTestHost : IDisposable
 {
-    private IntPtr _module;
-
-    [UnmanagedFunctionPointer(CallingConvention.Cdecl)]
-    private delegate int Tae32RunDelegate(ref PeriImg peri, IntPtr args, out uint outRet);
-
-    [StructLayout(LayoutKind.Sequential)]
-    private struct PeriImg
-    {
-        public IntPtr Base;
-        public uint Size;
-    }
+    private string? _dllPath;
 
     public void Load(string dllPath)
     {
-        Dispose();
-        _module = NativeLibrary.Load(dllPath);
+        if (!File.Exists(dllPath))
+            throw new FileNotFoundException("Harness DLL 不存在", dllPath);
+        _dllPath = dllPath;
     }
 
+    /// <summary>
+    /// Execute harness in an isolated child process. On native crash the child dies;
+    /// this method returns an error instead of crashing the WPF host.
+    /// </summary>
     public uint Execute(
         IntPtr periBase,
         uint periSize,
         byte[] argsBlob,
         out int nativeRc)
     {
-        if (_module == IntPtr.Zero)
+        if (string.IsNullOrWhiteSpace(_dllPath))
             throw new InvalidOperationException("Harness DLL 未加载");
+        if (periBase == IntPtr.Zero || periSize == 0)
+            throw new InvalidOperationException("外设映像无效");
 
-        if (!NativeLibrary.TryGetExport(_module, "tae32_run", out var fn))
-            throw new InvalidOperationException("DLL 缺少导出 tae32_run");
+        var work = Path.Combine(Path.GetTempPath(), "tae32_ll_native_" + Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(work);
+        var periIn = Path.Combine(work, "peri_in.bin");
+        var periOut = Path.Combine(work, "peri_out.bin");
+        var argsPath = Path.Combine(work, "args.bin");
+        var resultPath = Path.Combine(work, "result.json");
 
-        var del = Marshal.GetDelegateForFunctionPointer<Tae32RunDelegate>(fn);
-        var peri = new PeriImg { Base = periBase, Size = periSize };
-        var argsPtr = Marshal.AllocHGlobal(Math.Max(argsBlob.Length, 8));
         try
         {
-            Marshal.Copy(argsBlob, 0, argsPtr, argsBlob.Length);
-            nativeRc = del(ref peri, argsPtr, out var ret);
+            var periBytes = new byte[periSize];
+            Marshal.Copy(periBase, periBytes, 0, (int)periSize);
+            File.WriteAllBytes(periIn, periBytes);
+            File.WriteAllBytes(argsPath, argsBlob.Length == 0 ? new byte[8] : argsBlob);
+
+            var (runner, prefixArgs) = ResolveRunner();
+            var psi = new ProcessStartInfo
+            {
+                FileName = runner,
+                UseShellExecute = false,
+                CreateNoWindow = true,
+                RedirectStandardError = true,
+                RedirectStandardOutput = true
+            };
+            foreach (var a in prefixArgs) psi.ArgumentList.Add(a);
+            psi.ArgumentList.Add(_dllPath!);
+            psi.ArgumentList.Add(periIn);
+            psi.ArgumentList.Add(periOut);
+            psi.ArgumentList.Add(argsPath);
+            psi.ArgumentList.Add(resultPath);
+
+            using var proc = new Process { StartInfo = psi };
+
+            if (!proc.Start())
+                throw new InvalidOperationException("无法启动 NativeRunner 子进程");
+
+            // Hard cap: native AVE / hang must not block UI forever.
+            if (!proc.WaitForExit(60_000))
+            {
+                try { proc.Kill(entireProcessTree: true); } catch { /* ignore */ }
+                throw new TimeoutException("原生执行子进程超时（可能死循环/挂死）");
+            }
+
+            var stderr = proc.StandardError.ReadToEnd();
+            if (!File.Exists(resultPath))
+            {
+                nativeRc = -1000;
+                throw new InvalidOperationException(
+                    "原生执行子进程异常退出（常见于 AccessViolation）。" +
+                    $" exit={proc.ExitCode}. {Truncate(stderr, 400)}");
+            }
+
+            using var doc = JsonDocument.Parse(File.ReadAllText(resultPath));
+            var root = doc.RootElement;
+            nativeRc = root.TryGetProperty("rc", out var rcEl) ? rcEl.GetInt32() : -1;
+            var ret = root.TryGetProperty("ret", out var retEl) ? retEl.GetUInt32() : 0u;
+            var error = root.TryGetProperty("error", out var errEl) ? errEl.GetString() : null;
+
+            if (proc.ExitCode != 0 && nativeRc == -999)
+                throw new InvalidOperationException("原生执行失败：" + (error ?? stderr));
+
+            if (proc.ExitCode is not (0 or 3) && !File.Exists(periOut))
+            {
+                throw new InvalidOperationException(
+                    "原生执行子进程崩溃（疑似 AccessViolation / 非法指针）。" +
+                    $" exit={proc.ExitCode}. 该用例已隔离，未导致主程序闪退。{Truncate(stderr, 300)}");
+            }
+
+            if (File.Exists(periOut))
+            {
+                var outBytes = File.ReadAllBytes(periOut);
+                var copyLen = Math.Min(outBytes.Length, (int)periSize);
+                if (copyLen > 0)
+                    Marshal.Copy(outBytes, 0, periBase, copyLen);
+            }
+
+            if (nativeRc != 0 && nativeRc != -999)
+            {
+                // Caller treats non-zero harness rc as soft failure.
+            }
+
             return ret;
         }
         finally
         {
-            Marshal.FreeHGlobal(argsPtr);
+            try { Directory.Delete(work, recursive: true); } catch { /* ignore */ }
         }
     }
 
@@ -75,11 +145,13 @@ internal sealed class NativeTestHost : IDisposable
             })
             .ToList();
 
-        // If absolute addresses missing, pack by enumeration order (4-byte stride) — marked unsafe for HW fidelity.
+        // Larger pad: some LL paths touch adjacent/reserved offsets; AVE was taking down the UI process.
+        const int minSize = 65536;
+
         if (withOff.Count == 0)
         {
             var list = regs.ToList();
-            var size = Math.Max(4096, list.Count * 4 + 64);
+            var size = Math.Max(minSize, list.Count * 4 + 256);
             var ptr = Marshal.AllocHGlobal(size);
             unsafe
             {
@@ -96,7 +168,7 @@ internal sealed class NativeTestHost : IDisposable
         }
 
         var maxOff = withOff.Max(x => x.Offset + Math.Max(4, x.WidthBits / 8));
-        var bufSize = Math.Max(4096, maxOff + 64);
+        var bufSize = Math.Max(minSize, maxOff + 1024);
         var basePtr = Marshal.AllocHGlobal(bufSize);
         unsafe
         {
@@ -129,22 +201,46 @@ internal sealed class NativeTestHost : IDisposable
 
     public static byte[] PackArgs(IReadOnlyDictionary<string, uint> named)
     {
-        // Layout matches tae32_args: sequence of uint32 fields + pad.
-        // Caller must use same order as harness generator (non-TypeDef params).
         using var ms = new MemoryStream();
         using var bw = new BinaryWriter(ms);
         foreach (var kv in named)
             bw.Write(kv.Value);
-        bw.Write(0u); // _pad
+        bw.Write(0u);
         return ms.ToArray();
     }
 
     public void Dispose()
     {
-        if (_module != IntPtr.Zero)
-        {
-            NativeLibrary.Free(_module);
-            _module = IntPtr.Zero;
-        }
+        _dllPath = null;
     }
+
+    private static (string FileName, string[] PrefixArgs) ResolveRunner()
+    {
+        var probes = new[]
+        {
+            AppContext.BaseDirectory,
+            Path.GetFullPath(Path.Combine(AppContext.BaseDirectory, "..", "..", "..", "..", "TAE32.LLVirtualTest.NativeRunner", "bin", "Debug", "net8.0")),
+            Path.GetFullPath(Path.Combine(AppContext.BaseDirectory, "..", "..", "..", "..", "TAE32.LLVirtualTest.NativeRunner", "bin", "Release", "net8.0")),
+        };
+
+        foreach (var dir in probes)
+        {
+            var exe = Path.Combine(dir, "TAE32.LLVirtualTest.NativeRunner.exe");
+            if (File.Exists(exe))
+                return (exe, Array.Empty<string>());
+        }
+
+        foreach (var dir in probes)
+        {
+            var dll = Path.Combine(dir, "TAE32.LLVirtualTest.NativeRunner.dll");
+            if (File.Exists(dll))
+                return ("dotnet", new[] { dll });
+        }
+
+        throw new FileNotFoundException(
+            "未找到 TAE32.LLVirtualTest.NativeRunner.exe。请重新生成解决方案（App 会复制 NativeRunner 到输出目录）。");
+    }
+
+    private static string Truncate(string? s, int max)
+        => string.IsNullOrEmpty(s) ? "" : s.Length <= max ? s : s[..max] + "…";
 }

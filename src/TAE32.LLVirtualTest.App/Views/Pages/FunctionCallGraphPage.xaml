@@ -1,0 +1,85 @@
+<UserControl x:Class="TAE32.LLVirtualTest.App.Views.Pages.FunctionCallGraphPage"
+             xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
+  <Grid>
+    <Grid.RowDefinitions>
+      <RowDefinition Height="Auto"/>
+      <RowDefinition Height="Auto"/>
+      <RowDefinition Height="*"/>
+    </Grid.RowDefinitions>
+
+    <Border Grid.Row="0" Style="{StaticResource AppCardBorderStyle}" Margin="0,0,0,10">
+      <StackPanel>
+        <DockPanel>
+          <Button DockPanel.Dock="Right" Style="{StaticResource GhostButtonStyle}" Content="刷新"
+                  Command="{Binding RefreshCommand}"/>
+          <TextBlock Text="函数调用关系" FontSize="20" FontWeight="SemiBold" Foreground="{StaticResource BrushTextPrimary}"/>
+        </DockPanel>
+        <TextBlock Margin="0,6,0,0" TextWrapping="Wrap" Foreground="{StaticResource BrushTextMuted}" Text="{Binding HintText}"/>
+        <TextBlock Margin="0,8,0,0" Foreground="{StaticResource BrushAccent}" TextWrapping="Wrap" Text="{Binding SummaryText}"/>
+      </StackPanel>
+    </Border>
+
+    <Border Grid.Row="1" Style="{StaticResource AppCardBorderStyle}" Padding="10,8" Margin="0,0,0,10">
+      <Grid>
+        <Grid.ColumnDefinitions>
+          <ColumnDefinition Width="2*"/>
+          <ColumnDefinition Width="*"/>
+          <ColumnDefinition Width="*"/>
+          <ColumnDefinition Width="Auto"/>
+        </Grid.ColumnDefinitions>
+        <TextBox Grid.Column="0" Text="{Binding SearchText, UpdateSourceTrigger=PropertyChanged}"
+                 ToolTip="调用方 / 被调函数名"/>
+        <ComboBox Grid.Column="1" Margin="8,0,0,0" ItemsSource="{Binding PeripheralFilters}"
+                  SelectedItem="{Binding SelectedPeripheral}"/>
+        <ComboBox Grid.Column="2" Margin="8,0,0,0" ItemsSource="{Binding CalleeKindFilters}"
+                  SelectedItem="{Binding SelectedCalleeKind}"/>
+        <Button Grid.Column="3" Margin="8,0,0,0" Content="查询" Command="{Binding SearchCommand}"/>
+      </Grid>
+    </Border>
+
+    <Grid Grid.Row="2">
+      <Grid.ColumnDefinitions>
+        <ColumnDefinition Width="1.5*"/>
+        <ColumnDefinition Width="*"/>
+      </Grid.ColumnDefinitions>
+      <Border Grid.Column="0" Style="{StaticResource AppCardBorderStyle}" Margin="0,0,10,0" Padding="0">
+        <DockPanel>
+          <Border DockPanel.Dock="Bottom" Style="{StaticResource GridPagerFooterStyle}">
+            <DockPanel>
+              <StackPanel DockPanel.Dock="Left" Orientation="Horizontal" VerticalAlignment="Center">
+                <TextBlock Text="每页" Foreground="{StaticResource BrushTextMuted}" VerticalAlignment="Center" Margin="0,0,8,0"/>
+                <ComboBox Width="72" ItemsSource="{Binding PageSizeOptions}" SelectedItem="{Binding PageSize}"/>
+              </StackPanel>
+              <StackPanel DockPanel.Dock="Right" Orientation="Horizontal">
+                <Button Style="{StaticResource GhostButtonStyle}" Content="上一页"
+                        Command="{Binding PreviousPageCommand}" Margin="0,0,6,0"/>
+                <Button Style="{StaticResource GhostButtonStyle}" Content="下一页" Command="{Binding NextPageCommand}"/>
+              </StackPanel>
+              <TextBlock Text="{Binding PageInfoText}" VerticalAlignment="Center" Margin="8,0,0,0"
+                         Foreground="{StaticResource BrushTextMuted}"/>
+            </DockPanel>
+          </Border>
+          <DataGrid ItemsSource="{Binding Items}" SelectedItem="{Binding SelectedRow}">
+            <DataGrid.Columns>
+              <DataGridTextColumn Header="调用方" Binding="{Binding CallerName}" Width="1.4*"/>
+              <DataGridTextColumn Header="外设" Binding="{Binding CallerPeripheral}" Width="64"/>
+              <DataGridTextColumn Header="被调" Binding="{Binding CalleeName}" Width="*"/>
+              <DataGridTextColumn Header="类型" Binding="{Binding CalleeKind}" Width="72"/>
+              <DataGridTextColumn Header="次" Binding="{Binding CallCount}" Width="40"/>
+              <DataGridTextColumn Header="行" Binding="{Binding CallLine}" Width="48"/>
+            </DataGrid.Columns>
+          </DataGrid>
+        </DockPanel>
+      </Border>
+      <Border Grid.Column="1" Style="{StaticResource AppCardBorderStyle}">
+        <DockPanel>
+          <TextBlock DockPanel.Dock="Top" Text="边详情" FontWeight="SemiBold" Margin="0,0,0,8"
+                     Foreground="{StaticResource BrushTextPrimary}"/>
+          <TextBox Style="{StaticResource MonospaceReadOnlyTextBoxStyle}"
+                   Text="{Binding DetailText, Mode=OneWay}"/>
+        </DockPanel>
+      </Border>
+    </Grid>
+  </Grid>
+</UserControl>

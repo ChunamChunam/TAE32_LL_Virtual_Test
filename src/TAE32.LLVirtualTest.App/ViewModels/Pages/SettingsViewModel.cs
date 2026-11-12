@@ -3,6 +3,7 @@ using System.Windows;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
 using Microsoft.Win32;
+using TAE32.LLVirtualTest.App.Services;
 using TAE32.LLVirtualTest.Core.Interfaces;
 
 namespace TAE32.LLVirtualTest.App.ViewModels.Pages;
@@ -10,6 +11,15 @@ namespace TAE32.LLVirtualTest.App.ViewModels.Pages;
 public partial class SettingsViewModel : ObservableObject
 {
     private readonly ISystemMaintenanceService _maintenance;
+    private readonly UiScaleService _uiScale;
+
+    public IReadOnlyList<double> UiScalePresets => UiScaleService.Presets;
+
+    public double UiScale
+    {
+        get => _uiScale.Scale;
+        set => _uiScale.Scale = value;
+    }
 
     [ObservableProperty] private string _workspaceRoot = AppPaths.WorkspaceRoot;
     [ObservableProperty] private string _databasePath = AppPaths.DatabasePath;
@@ -18,9 +28,15 @@ public partial class SettingsViewModel : ObservableObject
     [ObservableProperty] private string _statusText = "就绪";
     [ObservableProperty] private string _note = "移除 SDK 项目仅删除数据库元数据，不会删除 SDKContent 中的原始文件。备份/恢复针对 SQLite 数据库文件。";
 
-    public SettingsViewModel(ISystemMaintenanceService maintenance)
+    public SettingsViewModel(ISystemMaintenanceService maintenance, UiScaleService uiScale)
     {
         _maintenance = maintenance;
+        _uiScale = uiScale;
+        _uiScale.PropertyChanged += (_, e) =>
+        {
+            if (e.PropertyName == nameof(UiScaleService.Scale))
+                OnPropertyChanged(nameof(UiScale));
+        };
         _ = RefreshDiagnosticsAsync();
     }
 

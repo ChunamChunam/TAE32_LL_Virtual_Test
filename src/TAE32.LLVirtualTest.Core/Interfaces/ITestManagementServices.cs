@@ -36,6 +36,15 @@ public interface ITestBatchService
         int take = 100,
         CancellationToken ct = default);
 
+    Task<(IReadOnlyList<TestBatchRun> Items, int TotalCount)> ListHistoryPagedAsync(
+        Guid sdkProjectId,
+        string? searchText = null,
+        Guid? planId = null,
+        Guid? suiteId = null,
+        int skip = 0,
+        int take = 50,
+        CancellationToken ct = default);
+
     Task<TestBatchRun?> GetAsync(Guid batchRunId, CancellationToken ct = default);
 }
 

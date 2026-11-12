@@ -11,4 +11,11 @@ public interface ITestReportService
     Task GenerateAsync(Guid runId, CancellationToken cancellationToken = default);
 
     Task<IReadOnlyList<TestReportArtifact>> ListArtifactsAsync(Guid sdkProjectId, int take = 50, CancellationToken ct = default);
+
+    Task<(IReadOnlyList<TestReportArtifact> Items, int TotalCount)> ListArtifactsPagedAsync(
+        Guid sdkProjectId,
+        string? searchText = null,
+        int skip = 0,
+        int take = 50,
+        CancellationToken ct = default);
 }

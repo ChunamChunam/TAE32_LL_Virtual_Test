@@ -1,13 +1,28 @@
 <Window x:Class="TAE32.LLVirtualTest.App.MainWindow"
         xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:shell="clr-namespace:System.Windows.Shell;assembly=PresentationFramework"
         xmlns:pages="clr-namespace:TAE32.LLVirtualTest.App.ViewModels.Pages"
         xmlns:views="clr-namespace:TAE32.LLVirtualTest.App.Views.Pages"
         Title="TAE32 LL Virtual Test"
         Width="1280" Height="800"
         MinWidth="1024" MinHeight="640"
+        WindowStyle="None"
+        ResizeMode="CanResize"
         Background="{StaticResource BrushBgDeep}"
-        WindowStartupLocation="CenterScreen">
+        WindowStartupLocation="CenterScreen"
+        UseLayoutRounding="True"
+        SnapsToDevicePixels="True"
+        TextOptions.TextFormattingMode="Display"
+        StateChanged="OnWindowStateChanged">
+  <shell:WindowChrome.WindowChrome>
+    <shell:WindowChrome CaptionHeight="40"
+                         ResizeBorderThickness="6"
+                         GlassFrameThickness="0"
+                         CornerRadius="0"
+                         UseAeroCaptionButtons="False"/>
+  </shell:WindowChrome.WindowChrome>
+
   <Window.Resources>
     <DataTemplate DataType="{x:Type pages:DashboardViewModel}">
       <views:DashboardPage/>
@@ -23,6 +38,9 @@
     </DataTemplate>
     <DataTemplate DataType="{x:Type pages:LlFunctionLibraryViewModel}">
       <views:LlFunctionLibraryPage/>
+    </DataTemplate>
+    <DataTemplate DataType="{x:Type pages:FunctionCallGraphViewModel}">
+      <views:FunctionCallGraphPage/>
     </DataTemplate>
     <DataTemplate DataType="{x:Type pages:RegisterManagementViewModel}">
       <views:RegisterManagementPage/>
@@ -44,63 +62,90 @@
     </DataTemplate>
   </Window.Resources>
 
-  <Grid>
-    <Grid.ColumnDefinitions>
-      <ColumnDefinition Width="220"/>
-      <ColumnDefinition Width="*"/>
-    </Grid.ColumnDefinitions>
-
-    <!-- Left nav -->
-    <Border Grid.Column="0" Background="{StaticResource BrushBgPanel}" BorderBrush="{StaticResource BrushBorder}" BorderThickness="0,0,1,0">
-      <DockPanel>
-        <StackPanel DockPanel.Dock="Top" Margin="16,20,16,12">
-          <TextBlock Text="TAE32" FontSize="20" FontWeight="Bold" Foreground="{StaticResource BrushAccent}"/>
-          <TextBlock Text="LL Virtual Test" FontSize="13" Foreground="{StaticResource BrushTextMuted}"/>
-        </StackPanel>
-        <ScrollViewer VerticalScrollBarVisibility="Auto">
-          <StackPanel>
-            <Button Style="{StaticResource NavButtonStyle}" Content="工作台" Command="{Binding NavigateCommand}" CommandParameter="Dashboard"/>
-            <Button Style="{StaticResource NavButtonStyle}" Content="SDK 管理" Command="{Binding NavigateCommand}" CommandParameter="SdkManagement"/>
-            <Button Style="{StaticResource NavButtonStyle}" Content="芯片管理" Command="{Binding NavigateCommand}" CommandParameter="ChipManagement"/>
-            <Button Style="{StaticResource NavButtonStyle}" Content="外设管理" Command="{Binding NavigateCommand}" CommandParameter="PeripheralManagement"/>
-            <Button Style="{StaticResource NavButtonStyle}" Content="LL 函数库" Command="{Binding NavigateCommand}" CommandParameter="LlFunctionLibrary"/>
-            <Button Style="{StaticResource NavButtonStyle}" Content="函数调用关系" Command="{Binding NavigateCommand}" CommandParameter="FunctionCallGraph"/>
-            <Button Style="{StaticResource NavButtonStyle}" Content="寄存器管理" Command="{Binding NavigateCommand}" CommandParameter="RegisterManagement"/>
-            <Button Style="{StaticResource NavButtonStyle}" Content="虚拟 MCU" Command="{Binding NavigateCommand}" CommandParameter="VirtualMcu"/>
-            <Button Style="{StaticResource NavButtonStyle}" Content="自动化测试" Command="{Binding NavigateCommand}" CommandParameter="AutomationTest"/>
-            <Button Style="{StaticResource NavButtonStyle}" Content="测试管理" Command="{Binding NavigateCommand}" CommandParameter="TestReport"/>
-            <Button Style="{StaticResource NavButtonStyle}" Content="系统设置" Command="{Binding NavigateCommand}" CommandParameter="Settings"/>
-          </StackPanel>
-        </ScrollViewer>
-      </DockPanel>
-    </Border>
-
-    <!-- Main area -->
-    <Grid Grid.Column="1">
+  <Border BorderBrush="{StaticResource BrushBorder}" BorderThickness="1">
+    <Grid>
       <Grid.RowDefinitions>
-        <RowDefinition Height="52"/>
+        <RowDefinition Height="40"/>
         <RowDefinition Height="*"/>
-        <RowDefinition Height="28"/>
       </Grid.RowDefinitions>
 
-      <!-- Top toolbar -->
-      <Border Grid.Row="0" Background="{StaticResource BrushBgPanel}" BorderBrush="{StaticResource BrushBorder}" BorderThickness="0,0,0,1" Padding="16,0">
-        <DockPanel>
-          <TextBlock Text="{Binding Title}" FontSize="16" FontWeight="SemiBold" Foreground="{StaticResource BrushTextPrimary}" VerticalAlignment="Center"/>
-          <TextBlock DockPanel.Dock="Right" Text="Phase-7 Test Management" Foreground="{StaticResource BrushTextMuted}" VerticalAlignment="Center"/>
+      <!-- 自定义标题栏（与 App 深色主题一致） -->
+      <Border Grid.Row="0" Background="{StaticResource BrushBgPanel}"
+              BorderBrush="{StaticResource BrushBorder}" BorderThickness="0,0,0,1">
+        <DockPanel Margin="4,0,4,0" LastChildFill="True">
+          <StackPanel DockPanel.Dock="Right" Orientation="Horizontal" VerticalAlignment="Center">
+            <Button x:Name="MinimizeButton" Style="{StaticResource TitleBarButtonStyle}" Content="&#xE921;"
+                    ToolTip="最小化" Click="OnMinimizeClick"
+                    shell:WindowChrome.IsHitTestVisibleInChrome="True"/>
+            <Button x:Name="MaximizeButton" Style="{StaticResource TitleBarButtonStyle}" Content="&#xE922;"
+                    ToolTip="最大化" Click="OnMaximizeClick"
+                    shell:WindowChrome.IsHitTestVisibleInChrome="True"/>
+            <Button Style="{StaticResource TitleBarCloseButtonStyle}" Content="&#xE8BB;"
+                    ToolTip="关闭" Click="OnCloseClick"
+                    shell:WindowChrome.IsHitTestVisibleInChrome="True"/>
+          </StackPanel>
+          <StackPanel Orientation="Horizontal" VerticalAlignment="Center" Margin="10,0,0,0">
+            <Border Width="22" Height="22" CornerRadius="5" Background="#FF1A2E28"
+                    BorderBrush="{StaticResource BrushAccent}" BorderThickness="1" Margin="0,0,10,0">
+              <TextBlock Text="T" FontWeight="Bold" FontSize="12" Foreground="{StaticResource BrushAccent}"
+                         HorizontalAlignment="Center" VerticalAlignment="Center"/>
+            </Border>
+            <TextBlock Text="TAE32 LL Virtual Test" FontSize="12.5" FontWeight="SemiBold"
+                       Foreground="{StaticResource BrushTextPrimary}" VerticalAlignment="Center"/>
+            <TextBlock Margin="12,0,0,0" FontSize="11" Foreground="{StaticResource BrushTextMuted}"
+                       VerticalAlignment="Center" Text="{Binding Title}"/>
+          </StackPanel>
         </DockPanel>
       </Border>
 
-      <!-- Workspace -->
-      <ContentControl Grid.Row="1" Content="{Binding CurrentPage}" Margin="16"/>
+      <Grid Grid.Row="1" LayoutTransform="{Binding ClientScaleTransform}">
+        <Grid.ColumnDefinitions>
+          <ColumnDefinition Width="248"/>
+          <ColumnDefinition Width="*"/>
+        </Grid.ColumnDefinitions>
 
-      <!-- Status bar -->
-      <Border Grid.Row="2" Background="#FF0C1015" BorderBrush="{StaticResource BrushBorder}" BorderThickness="0,1,0,0" Padding="12,0">
-        <DockPanel>
-          <TextBlock Text="{Binding StatusText}" Foreground="{StaticResource BrushTextMuted}" VerticalAlignment="Center"/>
-          <TextBlock DockPanel.Dock="Right" Text=".NET 8 / WPF / MVVM / SQLite" Foreground="{StaticResource BrushTextMuted}" VerticalAlignment="Center"/>
-        </DockPanel>
-      </Border>
+        <Border Grid.Column="0" Background="{StaticResource BrushBgPanel}"
+                BorderBrush="{StaticResource BrushBorder}" BorderThickness="0,0,1,0">
+          <DockPanel>
+            <ListBox DockPanel.Dock="Top" Margin="0,8,0,0"
+                     Style="{StaticResource NavListBoxStyle}"
+                     ItemContainerStyle="{StaticResource NavListBoxItemStyle}"
+                     ItemsSource="{Binding NavItemsView}"
+                     SelectedValue="{Binding SelectedNav, Mode=TwoWay}"
+                     SelectedValuePath="Item">
+              <ListBox.GroupStyle>
+                <GroupStyle>
+                  <GroupStyle.HeaderTemplate>
+                    <DataTemplate>
+                      <TextBlock Style="{StaticResource NavGroupHeaderStyle}" Text="{Binding Name}"/>
+                    </DataTemplate>
+                  </GroupStyle.HeaderTemplate>
+                </GroupStyle>
+              </ListBox.GroupStyle>
+            </ListBox>
+          </DockPanel>
+        </Border>
+
+        <Grid Grid.Column="1">
+          <Grid.RowDefinitions>
+            <RowDefinition Height="*"/>
+            <RowDefinition Height="28"/>
+          </Grid.RowDefinitions>
+
+          <ContentControl Grid.Row="0" Content="{Binding CurrentPage}" Margin="16"
+                          HorizontalAlignment="Stretch" VerticalAlignment="Stretch"
+                          HorizontalContentAlignment="Stretch" VerticalContentAlignment="Stretch"/>
+
+          <Border Grid.Row="1" Background="#FF0C1015" BorderBrush="{StaticResource BrushBorder}"
+                  BorderThickness="0,1,0,0" Padding="12,0">
+            <DockPanel>
+              <TextBlock Text="{Binding StatusText}" Foreground="{StaticResource BrushTextMuted}" VerticalAlignment="Center"/>
+              <TextBlock DockPanel.Dock="Right" Text=".NET 8 / WPF / MVVM / SQLite"
+                         Foreground="{StaticResource BrushTextMuted}" VerticalAlignment="Center"/>
+            </DockPanel>
+          </Border>
+        </Grid>
+      </Grid>
     </Grid>
-  </Grid>
+  </Border>
 </Window>

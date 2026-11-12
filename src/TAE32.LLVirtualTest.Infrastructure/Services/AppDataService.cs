@@ -137,6 +137,78 @@ public sealed class AppDataService : IAppDataService
         };
     }
 
+    public async Task<CallGraphStats> GetCallGraphStatsAsync(CancellationToken cancellationToken = default)
+    {
+        await using var db = await _dbFactory.CreateDbContextAsync(cancellationToken);
+        var totalEdges = await db.LlFunctionCalls.AsNoTracking().CountAsync(cancellationToken);
+        var callers = await db.LlFunctionCalls.AsNoTracking().Select(x => x.LlFunctionId).Distinct().CountAsync(cancellationToken);
+        var unknown = await db.LlFunctionCalls.AsNoTracking()
+            .CountAsync(x => x.CalleeKind == "Unknown" || x.CalleeKind == "Indirect", cancellationToken);
+        var parsed = await db.LlFunctions.AsNoTracking()
+            .CountAsync(x => x.ParseStatus == "Success" || x.ParseStatus == "Partial", cancellationToken);
+        return new CallGraphStats
+        {
+            TotalEdges = totalEdges,
+            CallerFunctions = callers,
+            UnknownCalleeEdges = unknown,
+            ParsedFunctionCount = parsed
+        };
+    }
+
+    public async Task<IReadOnlyList<LlFunctionCallRowDto>> SearchFunctionCallsAsync(
+        string? search = null,
+        string? callerPeripheral = null,
+        string? calleeKind = null,
+        int skip = 0,
+        int take = 200,
+        CancellationToken cancellationToken = default)
+    {
+        await using var db = await _dbFactory.CreateDbContextAsync(cancellationToken);
+        var q = FilterCallEdges(db, search, callerPeripheral, calleeKind);
+        var rows = await q
+            .OrderBy(x => x.Function.PeripheralName)
+            .ThenBy(x => x.Function.FunctionName)
+            .ThenBy(x => x.Call.CalleeName)
+            .Skip(skip).Take(take)
+            .Select(x => new LlFunctionCallRowDto
+            {
+                CallId = x.Call.Id,
+                CallerFunctionId = x.Function.Id,
+                CallerName = x.Function.FunctionName,
+                CallerPeripheral = x.Function.PeripheralName ?? string.Empty,
+                CalleeName = x.Call.CalleeName,
+                CalleeKind = x.Call.CalleeKind,
+                CallLine = x.Call.CallLine,
+                CallCount = x.Call.CallCount,
+                CallFile = x.Call.CallFile ?? x.Function.FilePath,
+                CalleePeripheral = x.Call.CalleePeripheral
+            })
+            .ToListAsync(cancellationToken);
+        return rows;
+    }
+
+    public async Task<int> CountFunctionCallsAsync(
+        string? search = null,
+        string? callerPeripheral = null,
+        string? calleeKind = null,
+        CancellationToken cancellationToken = default)
+    {
+        await using var db = await _dbFactory.CreateDbContextAsync(cancellationToken);
+        return await FilterCallEdges(db, search, callerPeripheral, calleeKind).CountAsync(cancellationToken);
+    }
+
+    public async Task<IReadOnlyList<string>> GetCallGraphCallerPeripheralsAsync(CancellationToken cancellationToken = default)
+    {
+        await using var db = await _dbFactory.CreateDbContextAsync(cancellationToken);
+        return await (
+            from c in db.LlFunctionCalls.AsNoTracking()
+            join f in db.LlFunctions.AsNoTracking() on c.LlFunctionId equals f.Id
+            select f.PeripheralName)
+            .Distinct()
+            .OrderBy(x => x)
+            .ToListAsync(cancellationToken);
+    }
+
     public async Task<IReadOnlyList<PeripheralInstance>> GetPeripheralInstancesAsync(
         Guid? sdkProjectId = null,
         Guid? peripheralId = null,
@@ -315,6 +387,37 @@ public sealed class AppDataService : IAppDataService
                 || x.StructName.Contains(s)
                 || (x.PeripheralInstance != null && x.PeripheralInstance.Name.Contains(s)));
         }
+        return q;
+    }
+
+    private sealed class CallEdgeJoin
+    {
+        public LlFunctionCall Call { get; init; } = null!;
+        public LlFunction Function { get; init; } = null!;
+    }
+
+    private static IQueryable<CallEdgeJoin> FilterCallEdges(
+        AppDbContext db, string? search, string? callerPeripheral, string? calleeKind)
+    {
+        var q = from c in db.LlFunctionCalls.AsNoTracking()
+                join f in db.LlFunctions.AsNoTracking() on c.LlFunctionId equals f.Id
+                select new CallEdgeJoin { Call = c, Function = f };
+
+        if (!string.IsNullOrWhiteSpace(callerPeripheral))
+            q = q.Where(x => x.Function.PeripheralName == callerPeripheral);
+
+        if (!string.IsNullOrWhiteSpace(calleeKind) && calleeKind != "(全部)")
+            q = q.Where(x => x.Call.CalleeKind == calleeKind);
+
+        if (!string.IsNullOrWhiteSpace(search))
+        {
+            var s = search.Trim();
+            q = q.Where(x =>
+                x.Function.FunctionName.Contains(s)
+                || x.Call.CalleeName.Contains(s)
+                || (x.Function.PeripheralName != null && x.Function.PeripheralName.Contains(s)));
+        }
+
         return q;
     }
 

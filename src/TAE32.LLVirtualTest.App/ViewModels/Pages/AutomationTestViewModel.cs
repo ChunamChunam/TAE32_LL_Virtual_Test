@@ -13,24 +13,45 @@ namespace TAE32.LLVirtualTest.App.ViewModels.Pages;
 
 public partial class AutomationTestViewModel : ObservableObject
 {
+    private const string InlineForm = "inline_definition";
     private readonly ILLTestEngine _engine;
     private readonly ILlTestCaseStore _store;
     private readonly ICompilerService _compiler;
     private readonly IAppDataService _data;
     private readonly ISdkProjectService _projects;
+    private readonly HashSet<Guid> _checkedFunctionIds = new();
     private CancellationTokenSource? _runCts;
+    private bool _suppressAllSelectedSync;
+    private bool _contentLoaded;
+    private Guid? _contentProjectId;
+    private bool _compilerChecked;
 
     public ObservableCollection<string> PeripheralFilters { get; } = new();
-    public ObservableCollection<LlFunction> Functions { get; } = new();
-    public ObservableCollection<LlTestCase> Cases { get; } = new();
-    public ObservableCollection<LlTestRun> Runs { get; } = new();
+    public ObservableCollection<FunctionPickItem> Functions { get; } = new();
+    public ObservableCollection<CasePickItem> Cases { get; } = new();
+    public ObservableCollection<RunPickItem> Runs { get; } = new();
     public ObservableCollection<string> LogLines { get; } = new();
     public ObservableCollection<int> FunctionPageSizeOptions { get; } = new() { 50, 100, 200, 300 };
 
     [ObservableProperty] private string _selectedPeripheral = "(全部)";
-    [ObservableProperty] private LlFunction? _selectedFunction;
-    [ObservableProperty] private LlTestCase? _selectedCase;
-    [ObservableProperty] private LlTestRun? _selectedRun;
+    [ObservableProperty] private FunctionPickItem? _selectedFunctionItem;
+    [ObservableProperty] private CasePickItem? _selectedCaseItem;
+    [ObservableProperty] private RunPickItem? _selectedRunItem;
+    [ObservableProperty] private bool _isAllRunsOnPageSelected;
+    [ObservableProperty] private string _runSearchText = string.Empty;
+    [ObservableProperty] private int _runPageIndex = 1;
+    [ObservableProperty] private int _runPageSize = 50;
+    [ObservableProperty] private int _runTotalCount;
+    [ObservableProperty] private int _runTotalPages = 1;
+    [ObservableProperty] private string _runPageInfo = string.Empty;
+    [ObservableProperty] private bool _canRunPrev;
+    [ObservableProperty] private bool _canRunNext;
+    private bool _suppressRunAllSelectedSync;
+
+    public LlTestRun? SelectedRun => SelectedRunItem?.Run;
+    [ObservableProperty] private bool _isAllCasesSelected;
+    [ObservableProperty] private string _caseCheckedCountText = "已勾选用例 0";
+    private bool _suppressCaseAllSelectedSync;
     [ObservableProperty] private string _clangPath = string.Empty;
     [ObservableProperty] private string _compilerSummary = "尚未检查编译环境";
     [ObservableProperty] private string _caseEditorJson = string.Empty;
@@ -45,6 +66,19 @@ public partial class AutomationTestViewModel : ObservableObject
     [ObservableProperty] private string _functionPageInfo = string.Empty;
     [ObservableProperty] private bool _canFunctionPrev;
     [ObservableProperty] private bool _canFunctionNext;
+    [ObservableProperty] private bool _isAllOnPageSelected;
+    [ObservableProperty] private string _checkedCountText = "已勾选 0";
+    [ObservableProperty] private string _caseSearchText = string.Empty;
+    [ObservableProperty] private int _casePageIndex = 1;
+    [ObservableProperty] private int _casePageSize = 100;
+    [ObservableProperty] private int _caseTotalCount;
+    [ObservableProperty] private int _caseTotalPages = 1;
+    [ObservableProperty] private string _casePageInfo = string.Empty;
+    [ObservableProperty] private bool _canCasePrev;
+    [ObservableProperty] private bool _canCaseNext;
+
+    public LlFunction? SelectedFunction => SelectedFunctionItem?.Function;
+    public LlTestCase? SelectedCase => SelectedCaseItem?.Case;
 
     public AutomationTestViewModel(
         ILLTestEngine engine,
@@ -60,8 +94,13 @@ public partial class AutomationTestViewModel : ObservableObject
         _projects = projects;
     }
 
+    /// <summary>导航进入页：已加载过则只刷新运行记录，避免每次切页全量查库 + Clang 检测。</summary>
+    public Task EnsureLoadedAsync() => RefreshCoreAsync(force: false);
+
     [RelayCommand]
-    public async Task RefreshAsync()
+    public Task RefreshAsync() => RefreshCoreAsync(force: true);
+
+    private async Task RefreshCoreAsync(bool force)
     {
         var projects = await _projects.GetAllAsync();
         var project = projects.FirstOrDefault(p => p.IsActive) ?? projects.FirstOrDefault();
@@ -69,20 +108,43 @@ public partial class AutomationTestViewModel : ObservableObject
         if (project is null)
         {
             StatusText = "无 SDK 项目";
+            _contentLoaded = false;
+            _contentProjectId = null;
             return;
         }
 
-        PeripheralFilters.Clear();
-        PeripheralFilters.Add("(全部)");
-        foreach (var p in await _data.GetPeripheralsAsync(project.Id))
-            PeripheralFilters.Add(p.Name);
-        if (!PeripheralFilters.Contains(SelectedPeripheral))
-            SelectedPeripheral = "(全部)";
+        if (project.Id != _contentProjectId)
+        {
+            force = true;
+            _contentLoaded = false;
+        }
 
-        await ReloadFunctionsAsync();
-        await ReloadCasesAsync();
-        await ReloadRunsAsync();
-        await CheckCompilerAsync();
+        if (!force && _contentLoaded && _contentProjectId == project.Id)
+        {
+            await ReloadRunsAsync();
+            return;
+        }
+
+        if (force || PeripheralFilters.Count <= 1)
+        {
+            PeripheralFilters.Clear();
+            PeripheralFilters.Add("(全部)");
+            foreach (var p in await _data.GetPeripheralsAsync(project.Id))
+                PeripheralFilters.Add(p.Name);
+            if (!PeripheralFilters.Contains(SelectedPeripheral))
+                SelectedPeripheral = "(全部)";
+        }
+
+        await Task.WhenAll(ReloadFunctionsAsync(), ReloadCasesAsync(), ReloadRunsAsync());
+
+        if (!_compilerChecked)
+        {
+            await CheckCompilerAsync();
+            _compilerChecked = true;
+        }
+
+        _contentLoaded = true;
+        _contentProjectId = project.Id;
     }
 
     [RelayCommand]
@@ -148,22 +210,32 @@ public partial class AutomationTestViewModel : ObservableObject
     [RelayCommand]
     private async Task GenerateCasesAsync()
     {
-        if (SelectedFunction is null)
+        var ids = _checkedFunctionIds.ToList();
+        if (ids.Count == 0 && SelectedFunction is not null)
+            ids.Add(SelectedFunction.Id);
+        if (ids.Count == 0)
         {
-            StatusText = "请先选择 LL 函数";
+            StatusText = "请勾选函数，或点「全选当前页 / 全选全部匹配」";
             return;
         }
+
         IsBusy = true;
         try
         {
-            var generated = await _engine.GenerateCasesAsync(SelectedFunction.Id);
             var n = 0;
-            foreach (var g in generated)
+            var fi = 0;
+            foreach (var id in ids)
             {
-                await _store.UpsertAsync(g);
-                n++;
+                fi++;
+                StatusText = $"正在生成 {fi}/{ids.Count}…";
+                var generated = await _engine.GenerateCasesAsync(id);
+                foreach (var g in generated)
+                {
+                    await _store.UpsertAsync(g);
+                    n++;
+                }
             }
-            StatusText = $"已生成并保存 {n} 条用例（含读写成对/清标志草稿，可编辑）。";
+            StatusText = $"已对 {ids.Count} 个函数生成并保存 {n} 条用例（含读写成对/清标志草稿）。";
             await ReloadCasesAsync();
         }
         catch (Exception ex)
@@ -174,6 +246,70 @@ public partial class AutomationTestViewModel : ObservableObject
     }
 
     [RelayCommand]
+    private void SelectAllOnPage()
+    {
+        foreach (var item in Functions)
+            item.IsSelected = true;
+        SyncCheckedCount();
+        RefreshAllOnPageFlag();
+    }
+
+    [RelayCommand]
+    private void ClearPageSelection()
+    {
+        foreach (var item in Functions)
+            item.IsSelected = false;
+        SyncCheckedCount();
+        RefreshAllOnPageFlag();
+    }
+
+    [RelayCommand]
+    private async Task SelectAllMatchingAsync()
+    {
+        if (ActiveProjectId is not Guid pid)
+        {
+            StatusText = "无 SDK 项目";
+            return;
+        }
+
+        IsBusy = true;
+        try
+        {
+            var peri = SelectedPeripheral == "(全部)" ? null : SelectedPeripheral;
+            var all = await _data.GetFunctionsAsync(
+                sdkProjectId: pid,
+                peripheralName: peri,
+                form: InlineForm,
+                skip: 0,
+                take: Math.Max(FunctionTotalCount, 1));
+            _checkedFunctionIds.Clear();
+            foreach (var f in all)
+                _checkedFunctionIds.Add(f.Id);
+            foreach (var item in Functions)
+                item.IsSelected = _checkedFunctionIds.Contains(item.Function.Id);
+            SyncCheckedCount();
+            RefreshAllOnPageFlag();
+            StatusText = $"已勾选全部匹配函数 {_checkedFunctionIds.Count} 个（可翻页查看；再点「生成勾选函数用例」）";
+        }
+        catch (Exception ex)
+        {
+            StatusText = "全选失败：" + ex.Message;
+        }
+        finally { IsBusy = false; }
+    }
+
+    [RelayCommand]
+    private void ClearAllSelection()
+    {
+        _checkedFunctionIds.Clear();
+        foreach (var item in Functions)
+            item.IsSelected = false;
+        SyncCheckedCount();
+        RefreshAllOnPageFlag();
+        StatusText = "已清空函数勾选";
+    }
+
+    [RelayCommand]
     private async Task GeneratePeripheralBatchAsync()
     {
         if (ActiveProjectId is not Guid pid)
@@ -181,23 +317,38 @@ public partial class AutomationTestViewModel : ObservableObject
             StatusText = "无 SDK 项目";
             return;
         }
-        if (string.IsNullOrWhiteSpace(SelectedPeripheral) || SelectedPeripheral == "(全部)")
+
+        // "(全部)" → every peripheral; otherwise only the selected one.
+        var targets = SelectedPeripheral == "(全部)" || string.IsNullOrWhiteSpace(SelectedPeripheral)
+            ? PeripheralFilters.Where(p => p != "(全部)" && !string.IsNullOrWhiteSpace(p)).ToList()
+            : new List<string> { SelectedPeripheral };
+
+        if (targets.Count == 0)
         {
-            StatusText = "请先在下拉框选择具体外设（不要选「全部」）";
+            StatusText = "没有可生成的外设";
             return;
         }
+
         IsBusy = true;
         try
         {
-            StatusText = $"正在批量生成 {SelectedPeripheral} 用例…";
-            var generated = await _engine.GenerateCasesForPeripheralAsync(pid, SelectedPeripheral, maxFunctions: 40);
             var n = 0;
-            foreach (var g in generated)
+            var periDone = 0;
+            foreach (var peri in targets)
             {
-                await _store.UpsertAsync(g);
-                n++;
+                periDone++;
+                StatusText = $"正在批量生成 {peri}（{periDone}/{targets.Count}）…";
+                var generated = await _engine.GenerateCasesForPeripheralAsync(pid, peri, maxFunctions: 40);
+                foreach (var g in generated)
+                {
+                    await _store.UpsertAsync(g);
+                    n++;
+                }
             }
-            StatusText = $"外设 {SelectedPeripheral}：已批量生成并保存 {n} 条（最多 40 个函数；含写读成对）。";
+
+            StatusText = targets.Count == 1
+                ? $"外设 {targets[0]}：已批量生成并保存 {n} 条（最多 40 个函数；含写读成对）。"
+                : $"全部外设（{targets.Count} 个）：已批量生成并保存 {n} 条（每外设最多 40 个函数；含写读成对）。";
             await ReloadCasesAsync();
         }
         catch (Exception ex)
@@ -234,10 +385,39 @@ public partial class AutomationTestViewModel : ObservableObject
     [RelayCommand]
     private async Task DeleteCaseAsync()
     {
-        if (SelectedCase is null) return;
-        await _store.DeleteAsync(SelectedCase.Id);
-        StatusText = "已删除用例";
+        var ids = Cases.Where(c => c.IsSelected).Select(c => c.Case.Id).ToList();
+        if (ids.Count == 0 && SelectedCase is not null)
+            ids.Add(SelectedCase.Id);
+        if (ids.Count == 0)
+        {
+            StatusText = "请先勾选要删除的用例";
+            return;
+        }
+
+        var confirm = MessageBox.Show(
+            $"确认删除选中的 {ids.Count} 条测试用例及其运行记录？",
+            "批量删除",
+            MessageBoxButton.YesNo,
+            MessageBoxImage.Warning);
+        if (confirm != MessageBoxResult.Yes) return;
+
+        var n = await _store.DeleteManyAsync(ids);
+        StatusText = $"已删除 {n} 条用例";
         await ReloadCasesAsync();
+    }
+
+    [RelayCommand]
+    private void SelectAllCases()
+    {
+        foreach (var c in Cases) c.IsSelected = true;
+        RefreshCaseSelectionUi();
+    }
+
+    [RelayCommand]
+    private void ClearCaseSelection()
+    {
+        foreach (var c in Cases) c.IsSelected = false;
+        RefreshCaseSelectionUi();
     }
 
     [RelayCommand]
@@ -255,7 +435,13 @@ public partial class AutomationTestViewModel : ObservableObject
         if (Cases.Count == 0) return;
         var dlg = new SaveFileDialog { Filter = "JSON|*.json", FileName = "ll-test-cases.json" };
         if (dlg.ShowDialog() != true) return;
-        var json = await _store.ExportJsonAsync(Cases.Select(c => c.Id));
+        var exportIds = Cases.Where(c => c.IsSelected).Select(c => c.Case.Id).ToList();
+        if (exportIds.Count == 0)
+        {
+            var all = await LoadFilteredCasesAsync();
+            exportIds = all.Select(c => c.Id).ToList();
+        }
+        var json = await _store.ExportJsonAsync(exportIds);
         await File.WriteAllTextAsync(dlg.FileName, json, Encoding.UTF8);
         StatusText = "已导出 " + dlg.FileName;
     }
@@ -275,17 +461,25 @@ public partial class AutomationTestViewModel : ObservableObject
     [RelayCommand]
     private async Task RunSelectedAsync()
     {
-        if (SelectedCase is null) return;
-        await RunInternalAsync(new[] { SelectedCase.Id });
+        var runIds = Cases.Where(c => c.IsSelected).Select(c => c.Case.Id).ToList();
+        if (runIds.Count == 0 && SelectedCase is not null)
+            runIds.Add(SelectedCase.Id);
+        if (runIds.Count == 0)
+        {
+            StatusText = "请勾选要运行的用例";
+            return;
+        }
+        await RunInternalAsync(runIds);
     }
 
     [RelayCommand]
     private async Task RunReadyBatchAsync()
     {
-        var ids = Cases.Where(c => c.Status == "Ready").Select(c => c.Id).ToList();
+        var all = await LoadFilteredCasesAsync();
+        var ids = all.Where(c => c.Status == "Ready").Select(c => c.Id).ToList();
         if (ids.Count == 0)
         {
-            StatusText = "当前列表无 Ready 状态用例（可先批量生成，或把 Draft 改成 Ready）";
+            StatusText = "当前筛选无 Ready 状态用例（可先批量生成，或把 Draft 改成 Ready）";
             return;
         }
         await RunInternalAsync(ids);
@@ -294,10 +488,11 @@ public partial class AutomationTestViewModel : ObservableObject
     [RelayCommand]
     private async Task RunAllListedAsync()
     {
-        var ids = Cases.Select(c => c.Id).ToList();
+        var all = await LoadFilteredCasesAsync();
+        var ids = all.Select(c => c.Id).ToList();
         if (ids.Count == 0)
         {
-            StatusText = "当前列表无用例";
+            StatusText = "当前筛选用例为空";
             return;
         }
         await RunInternalAsync(ids);
@@ -306,15 +501,16 @@ public partial class AutomationTestViewModel : ObservableObject
     [RelayCommand]
     private async Task MarkListedReadyAsync()
     {
+        var all = await LoadFilteredCasesAsync();
         var n = 0;
-        foreach (var c in Cases.Where(x => x.Status != "Ready").ToList())
+        foreach (var c in all.Where(x => x.Status != "Ready"))
         {
             var edit = Infrastructure.TestEngine.LlTestCaseStore.ToEdit(c);
             edit.Status = "Ready";
             await _store.UpsertAsync(edit);
             n++;
         }
-        StatusText = $"已将当前列表中 {n} 条标为 Ready";
+        StatusText = $"已将当前筛选内 {n} 条标为 Ready";
         await ReloadCasesAsync();
     }
 
@@ -328,8 +524,53 @@ public partial class AutomationTestViewModel : ObservableObject
     partial void OnSelectedPeripheralChanged(string value)
     {
         FunctionPageIndex = 1;
+        CasePageIndex = 1;
+        _checkedFunctionIds.Clear();
+        SyncCheckedCount();
         _ = ReloadFunctionsAsync();
         _ = ReloadCasesAsync();
+    }
+
+    [RelayCommand]
+    private async Task SearchCasesAsync()
+    {
+        CasePageIndex = 1;
+        await ReloadCasesAsync();
+    }
+
+    partial void OnCasePageSizeChanged(int value)
+    {
+        CasePageIndex = 1;
+        _ = ReloadCasesAsync();
+    }
+
+    [RelayCommand]
+    private async Task CasePreviousPageAsync()
+    {
+        if (CasePageIndex <= 1) return;
+        CasePageIndex--;
+        await ReloadCasesAsync();
+    }
+
+    [RelayCommand]
+    private async Task CaseNextPageAsync()
+    {
+        if (CasePageIndex >= CaseTotalPages) return;
+        CasePageIndex++;
+        await ReloadCasesAsync();
+    }
+
+    partial void OnIsAllOnPageSelectedChanged(bool value)
+    {
+        if (_suppressAllSelectedSync) return;
+        foreach (var item in Functions)
+            item.IsSelected = value;
+        SyncCheckedCount();
+    }
+
+    partial void OnSelectedFunctionItemChanged(FunctionPickItem? value)
+    {
+        // Keep highlight selection independent from checkbox multi-select.
     }
 
     partial void OnFunctionPageSizeChanged(int value)
@@ -368,14 +609,14 @@ public partial class AutomationTestViewModel : ObservableObject
         await ReloadFunctionsAsync();
     }
 
-    partial void OnSelectedCaseChanged(LlTestCase? value)
+    partial void OnSelectedCaseItemChanged(CasePickItem? value)
     {
         if (value is null)
         {
             CaseEditorJson = string.Empty;
             return;
         }
-        var edit = Infrastructure.TestEngine.LlTestCaseStore.ToEdit(value);
+        var edit = Infrastructure.TestEngine.LlTestCaseStore.ToEdit(value.Case);
         CaseEditorJson = System.Text.Json.JsonSerializer.Serialize(edit, new System.Text.Json.JsonSerializerOptions
         {
             WriteIndented = true,
@@ -383,9 +624,76 @@ public partial class AutomationTestViewModel : ObservableObject
         });
     }
 
-    partial void OnSelectedRunChanged(LlTestRun? value)
+    partial void OnIsAllCasesSelectedChanged(bool value)
     {
-        if (value is null)
+        if (_suppressCaseAllSelectedSync) return;
+        foreach (var c in Cases) c.IsSelected = value;
+        RefreshCaseSelectionUi(updateAllFlag: false);
+    }
+
+    [RelayCommand]
+    private async Task SearchRunsAsync()
+    {
+        RunPageIndex = 1;
+        await ReloadRunsAsync();
+    }
+
+    partial void OnRunPageSizeChanged(int value)
+    {
+        RunPageIndex = 1;
+        _ = ReloadRunsAsync();
+    }
+
+    [RelayCommand]
+    private async Task RunPreviousPageAsync()
+    {
+        if (RunPageIndex <= 1) return;
+        RunPageIndex--;
+        await ReloadRunsAsync();
+    }
+
+    [RelayCommand]
+    private async Task RunNextPageAsync()
+    {
+        if (RunPageIndex >= RunTotalPages) return;
+        RunPageIndex++;
+        await ReloadRunsAsync();
+    }
+
+    [RelayCommand]
+    private async Task DeleteSelectedRunsAsync()
+    {
+        var ids = Runs.Where(r => r.IsSelected).Select(r => r.Run.Id).ToList();
+        if (ids.Count == 0 && SelectedRun is not null)
+            ids.Add(SelectedRun.Id);
+        if (ids.Count == 0)
+        {
+            StatusText = "请先勾选要删除的运行记录";
+            return;
+        }
+
+        var confirm = MessageBox.Show(
+            $"确认删除选中的 {ids.Count} 条运行记录？（不删除测试用例本身）",
+            "删除运行记录",
+            MessageBoxButton.YesNo,
+            MessageBoxImage.Warning);
+        if (confirm != MessageBoxResult.Yes) return;
+
+        var n = await _store.DeleteRunsAsync(ids);
+        StatusText = $"已删除 {n} 条运行记录";
+        await ReloadRunsAsync();
+    }
+
+    partial void OnIsAllRunsOnPageSelectedChanged(bool value)
+    {
+        if (_suppressRunAllSelectedSync) return;
+        foreach (var r in Runs) r.IsSelected = value;
+    }
+
+    partial void OnSelectedRunItemChanged(RunPickItem? value)
+    {
+        var run = value?.Run;
+        if (run is null)
         {
             ResultDetail = string.Empty;
             return;
@@ -394,28 +702,35 @@ public partial class AutomationTestViewModel : ObservableObject
         static string Flag(bool ok, string yes, string no) => ok ? yes : no;
         var sb = new StringBuilder();
         sb.AppendLine("======== 运行摘要（虚拟环境，非真实硬件）========");
-        sb.AppendLine($"状态        : {value.Status}");
-        sb.AppendLine($"编译        : {Flag(value.CompileSucceeded, "通过", "未通过")}");
-        sb.AppendLine($"执行        : {Flag(value.ExecuteCompleted, "完成", "未完成")}");
-        sb.AppendLine($"断言        : {Flag(value.AssertionsPassed, "通过", "未通过")}");
-        sb.AppendLine($"硬件行为模拟: {Flag(value.HardwareBehaviorSimulated, "是", "否")}");
-        sb.AppendLine($"返回值      : {value.ReturnValueText ?? "—"}");
-        sb.AppendLine($"耗时        : {value.DurationMs} ms");
-        sb.AppendLine($"失败原因    : {value.FailureReason ?? "—"}");
+        sb.AppendLine($"状态        : {run.Status}");
+        sb.AppendLine($"编译        : {Flag(run.CompileSucceeded, "通过", "未通过")}");
+        sb.AppendLine($"执行        : {Flag(run.ExecuteCompleted, "完成", "未完成")}");
+        sb.AppendLine($"断言        : {Flag(run.AssertionsPassed, "通过", "未通过")}");
+        sb.AppendLine($"硬件行为模拟: {Flag(run.HardwareBehaviorSimulated, "是", "否")}");
+        sb.AppendLine($"返回值      : {run.ReturnValueText ?? "—"}");
+        sb.AppendLine($"耗时        : {run.DurationMs} ms");
+        sb.AppendLine($"失败原因    : {run.FailureReason ?? "—"}");
         sb.AppendLine();
         sb.AppendLine("======== 执行日志 ========");
-        sb.AppendLine(string.IsNullOrWhiteSpace(value.ExecutionLog) ? "（无）" : value.ExecutionLog.Trim());
+        sb.AppendLine(string.IsNullOrWhiteSpace(run.ExecutionLog) ? "（无）" : run.ExecutionLog.Trim());
         sb.AppendLine();
         sb.AppendLine("======== 编译日志 ========");
-        sb.AppendLine(string.IsNullOrWhiteSpace(value.CompileLog) ? "（无）" : value.CompileLog.Trim());
+        sb.AppendLine(string.IsNullOrWhiteSpace(run.CompileLog) ? "（无）" : run.CompileLog.Trim());
         sb.AppendLine();
         sb.AppendLine("======== 断言结果 ========");
-        sb.AppendLine(string.IsNullOrWhiteSpace(value.AssertionResultsJson) ? "（无）" : value.AssertionResultsJson.Trim());
+        sb.AppendLine(string.IsNullOrWhiteSpace(run.AssertionResultsJson) ? "（无）" : run.AssertionResultsJson.Trim());
         sb.AppendLine();
         sb.AppendLine("======== 阶段 / 访问轨迹 ========");
-        sb.AppendLine(string.IsNullOrWhiteSpace(value.StagesJson) ? "阶段：（无）" : "阶段: " + value.StagesJson.Trim());
-        sb.AppendLine(string.IsNullOrWhiteSpace(value.AccessTraceJson) ? "轨迹：（无）" : "轨迹: " + value.AccessTraceJson.Trim());
+        sb.AppendLine(string.IsNullOrWhiteSpace(run.StagesJson) ? "阶段：（无）" : "阶段: " + run.StagesJson.Trim());
+        sb.AppendLine(string.IsNullOrWhiteSpace(run.AccessTraceJson) ? "轨迹：（无）" : "轨迹: " + run.AccessTraceJson.Trim());
         ResultDetail = sb.ToString();
+    }
+
+    private void RefreshRunSelectionUi()
+    {
+        _suppressRunAllSelectedSync = true;
+        IsAllRunsOnPageSelected = Runs.Count > 0 && Runs.All(r => r.IsSelected);
+        _suppressRunAllSelectedSync = false;
     }
 
     private async Task RunInternalAsync(IReadOnlyList<Guid> ids)
@@ -442,7 +757,7 @@ public partial class AutomationTestViewModel : ObservableObject
             {
                 // Prefer selecting the latest run from the refreshed project-wide list.
                 var lastId = results[^1].RunId;
-                SelectedRun = Runs.FirstOrDefault(r => r.Id == lastId) ?? Runs.FirstOrDefault();
+                SelectedRunItem = Runs.FirstOrDefault(r => r.Run.Id == lastId) ?? Runs.FirstOrDefault();
             }
         }
         catch (OperationCanceledException)
@@ -470,14 +785,14 @@ public partial class AutomationTestViewModel : ObservableObject
             FunctionPageInfo = "无项目";
             CanFunctionPrev = false;
             CanFunctionNext = false;
+            SelectedFunctionItem = null;
             return;
         }
 
         var peri = SelectedPeripheral == "(全部)" ? null : SelectedPeripheral;
         // Only real inline LL definitions (baseline: 3628). Paginate so "(全部)" is not truncated to ADC-only.
-        const string inlineForm = "inline_definition";
         FunctionTotalCount = await _data.CountFunctionsAsync(
-            sdkProjectId: pid, peripheralName: peri, form: inlineForm);
+            sdkProjectId: pid, peripheralName: peri, form: InlineForm);
         FunctionTotalPages = Math.Max(1, (int)Math.Ceiling(FunctionTotalCount / (double)FunctionPageSize));
         if (FunctionPageIndex > FunctionTotalPages) FunctionPageIndex = FunctionTotalPages;
         if (FunctionPageIndex < 1) FunctionPageIndex = 1;
@@ -486,44 +801,216 @@ public partial class AutomationTestViewModel : ObservableObject
         var list = await _data.GetFunctionsAsync(
             sdkProjectId: pid,
             peripheralName: peri,
-            form: inlineForm,
+            form: InlineForm,
             skip: skip,
             take: FunctionPageSize);
 
         Functions.Clear();
-        foreach (var f in list) Functions.Add(f);
+        foreach (var f in list)
+        {
+            var item = new FunctionPickItem(f, _checkedFunctionIds.Contains(f.Id));
+            item.SelectionChanged += OnFunctionItemSelectionChanged;
+            Functions.Add(item);
+        }
 
         var from = FunctionTotalCount == 0 ? 0 : skip + 1;
         var to = Math.Min(skip + Functions.Count, FunctionTotalCount);
         FunctionPageInfo = $"inline {FunctionTotalCount}　第 {FunctionPageIndex}/{FunctionTotalPages} 页　{from}-{to}";
         CanFunctionPrev = FunctionPageIndex > 1;
         CanFunctionNext = FunctionPageIndex < FunctionTotalPages;
-        SelectedFunction = Functions.FirstOrDefault();
+        SelectedFunctionItem = Functions.FirstOrDefault();
+        RefreshAllOnPageFlag();
+        SyncCheckedCount();
+    }
+
+    private void OnFunctionItemSelectionChanged(FunctionPickItem item)
+    {
+        if (item.IsSelected) _checkedFunctionIds.Add(item.Function.Id);
+        else _checkedFunctionIds.Remove(item.Function.Id);
+        SyncCheckedCount();
+        RefreshAllOnPageFlag();
+    }
+
+    private void SyncCheckedCount() => CheckedCountText = $"已勾选 {_checkedFunctionIds.Count}";
+
+    private void RefreshAllOnPageFlag()
+    {
+        _suppressAllSelectedSync = true;
+        IsAllOnPageSelected = Functions.Count > 0 && Functions.All(x => x.IsSelected);
+        _suppressAllSelectedSync = false;
     }
 
     private async Task ReloadCasesAsync()
     {
-        if (ActiveProjectId is not Guid pid) return;
-        var peri = SelectedPeripheral == "(全部)" ? null : SelectedPeripheral;
-        var list = await _store.ListAsync(pid, peri);
+        if (ActiveProjectId is not Guid pid)
+        {
+            Cases.Clear();
+            CaseTotalCount = 0;
+            CaseTotalPages = 1;
+            CasePageInfo = "无项目";
+            CanCasePrev = false;
+            CanCaseNext = false;
+            return;
+        }
+
+        var peri = CasePeripheralFilter();
+        var search = string.IsNullOrWhiteSpace(CaseSearchText) ? null : CaseSearchText.Trim();
+        var skip = Math.Max(0, (CasePageIndex - 1) * CasePageSize);
+        var (list, total) = await _store.ListPagedAsync(pid, peri, search, skip, CasePageSize);
+        CaseTotalCount = total;
+        CaseTotalPages = Math.Max(1, (int)Math.Ceiling(total / (double)Math.Max(1, CasePageSize)));
+        if (CasePageIndex > CaseTotalPages) CasePageIndex = CaseTotalPages;
+        if (CasePageIndex < 1) CasePageIndex = 1;
+        var from = total == 0 ? 0 : skip + 1;
+        var to = total == 0 ? 0 : Math.Min(total, skip + list.Count);
+        CasePageInfo = $"共 {total} 条　第 {CasePageIndex}/{CaseTotalPages} 页　{from}-{to}";
+        CanCasePrev = CasePageIndex > 1;
+        CanCaseNext = CasePageIndex < CaseTotalPages;
+
+        var selectedId = SelectedCaseItem?.Case.Id;
         Cases.Clear();
-        foreach (var c in list) Cases.Add(c);
-        SelectedCase = Cases.FirstOrDefault();
+        foreach (var c in list)
+        {
+            var item = new CasePickItem(c);
+            item.SelectionChanged += _ => RefreshCaseSelectionUi();
+            Cases.Add(item);
+        }
+        SelectedCaseItem = Cases.FirstOrDefault(x => x.Case.Id == selectedId) ?? Cases.FirstOrDefault();
+        RefreshCaseSelectionUi();
+    }
+
+    private string? CasePeripheralFilter() => SelectedPeripheral == "(全部)" ? null : SelectedPeripheral;
+
+    private async Task<IReadOnlyList<LlTestCase>> LoadFilteredCasesAsync()
+    {
+        if (ActiveProjectId is not Guid pid) return Array.Empty<LlTestCase>();
+        var search = string.IsNullOrWhiteSpace(CaseSearchText) ? null : CaseSearchText.Trim();
+        return await _store.ListFilteredAsync(pid, CasePeripheralFilter(), search);
+    }
+
+    private void RefreshCaseSelectionUi(bool updateAllFlag = true)
+    {
+        var n = Cases.Count(c => c.IsSelected);
+        CaseCheckedCountText = $"已勾选用例 {n}";
+        if (!updateAllFlag) return;
+        _suppressCaseAllSelectedSync = true;
+        IsAllCasesSelected = Cases.Count > 0 && Cases.All(c => c.IsSelected);
+        _suppressCaseAllSelectedSync = false;
     }
 
     private async Task ReloadRunsAsync()
     {
-        // Project-wide recent runs so batch execution shows every case result, not only the selected case.
         if (ActiveProjectId is not Guid pid)
         {
             Runs.Clear();
-            SelectedRun = null;
+            SelectedRunItem = null;
+            RunTotalCount = 0;
+            RunTotalPages = 1;
+            RunPageInfo = "无项目";
+            CanRunPrev = false;
+            CanRunNext = false;
             return;
         }
 
-        var list = await _store.ListRunsAsync(sdkProjectId: pid, take: 300);
+        var search = string.IsNullOrWhiteSpace(RunSearchText) ? null : RunSearchText.Trim();
+        var skip = Math.Max(0, (RunPageIndex - 1) * RunPageSize);
+        var (list, total) = await _store.ListRunsPagedAsync(pid, search, skip, RunPageSize);
+        RunTotalCount = total;
+        RunTotalPages = Math.Max(1, (int)Math.Ceiling(total / (double)Math.Max(1, RunPageSize)));
+        if (RunPageIndex > RunTotalPages) RunPageIndex = RunTotalPages;
+        if (RunPageIndex < 1) RunPageIndex = 1;
+        var from = total == 0 ? 0 : skip + 1;
+        var to = total == 0 ? 0 : Math.Min(total, skip + list.Count);
+        RunPageInfo = $"共 {total} 条　第 {RunPageIndex}/{RunTotalPages} 页　{from}-{to}";
+        CanRunPrev = RunPageIndex > 1;
+        CanRunNext = RunPageIndex < RunTotalPages;
+
+        var selectedId = SelectedRunItem?.Run.Id;
         Runs.Clear();
-        foreach (var r in list) Runs.Add(r);
-        SelectedRun = Runs.FirstOrDefault();
+        foreach (var r in list)
+        {
+            var item = new RunPickItem(r);
+            item.SelectionChanged += _ => RefreshRunSelectionUi();
+            Runs.Add(item);
+        }
+
+        SelectedRunItem = Runs.FirstOrDefault(x => x.Run.Id == selectedId) ?? Runs.FirstOrDefault();
+        RefreshRunSelectionUi();
     }
+}
+
+public sealed class RunPickItem : ObservableObject
+{
+    private bool _isSelected;
+
+    public RunPickItem(LlTestRun run) => Run = run;
+
+    public LlTestRun Run { get; }
+    public string Status => Run.Status;
+    public string CaseName => Run.TestCase?.Name ?? "—";
+    public int DurationMs => Run.DurationMs;
+
+    public bool IsSelected
+    {
+        get => _isSelected;
+        set
+        {
+            if (SetProperty(ref _isSelected, value))
+                SelectionChanged?.Invoke(this);
+        }
+    }
+
+    public event Action<RunPickItem>? SelectionChanged;
+}
+
+public sealed class FunctionPickItem : ObservableObject
+{
+    private bool _isSelected;
+
+    public FunctionPickItem(LlFunction function, bool isSelected)
+    {
+        Function = function;
+        _isSelected = isSelected;
+    }
+
+    public LlFunction Function { get; }
+    public string PeripheralName => Function.PeripheralName ?? "";
+    public string FunctionName => Function.FunctionName;
+
+    public bool IsSelected
+    {
+        get => _isSelected;
+        set
+        {
+            if (SetProperty(ref _isSelected, value))
+                SelectionChanged?.Invoke(this);
+        }
+    }
+
+    public event Action<FunctionPickItem>? SelectionChanged;
+}
+
+public sealed class CasePickItem : ObservableObject
+{
+    private bool _isSelected;
+
+    public CasePickItem(LlTestCase testCase) => Case = testCase;
+
+    public LlTestCase Case { get; }
+    public string Name => Case.Name;
+    public string FunctionName => Case.FunctionName;
+    public string? PeripheralName => Case.PeripheralName;
+    public string Status => Case.Status;
+
+    public bool IsSelected
+    {
+        get => _isSelected;
+        set
+        {
+            if (SetProperty(ref _isSelected, value))
+                SelectionChanged?.Invoke(this);
+        }
+    }
+
+    public event Action<CasePickItem>? SelectionChanged;
 }

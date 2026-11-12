@@ -5,172 +5,349 @@
     <Grid.RowDefinitions>
       <RowDefinition Height="Auto"/>
       <RowDefinition Height="*"/>
-      <RowDefinition Height="1.1*"/>
     </Grid.RowDefinitions>
 
-    <StackPanel Margin="0,0,0,10">
-      <DockPanel>
-        <TextBlock Text="自动化测试" FontSize="22" FontWeight="SemiBold" Foreground="{StaticResource BrushTextPrimary}"/>
-        <TextBlock DockPanel.Dock="Right" VerticalAlignment="Center" Foreground="{StaticResource BrushTextMuted}"
-                   Text="虚拟 MCU 验证 · 非真实硬件结果"/>
-      </DockPanel>
-      <DockPanel Margin="0,8,0,0">
-        <Button DockPanel.Dock="Right" Content="保存 Clang 路径" Command="{Binding SaveClangPathCommand}" Margin="8,0,0,0"/>
-        <Button DockPanel.Dock="Right" Content="浏览…" Command="{Binding BrowseClangCommand}" Margin="8,0,0,0"/>
-        <Button DockPanel.Dock="Right" Content="检查编译环境" Command="{Binding CheckCompilerCommand}" Margin="8,0,0,0"/>
-        <Button DockPanel.Dock="Right" Content="获取内置 Clang" Command="{Binding FetchEmbeddedClangCommand}" Margin="8,0,0,0"/>
-        <TextBlock Text="Clang" VerticalAlignment="Center" Margin="0,0,8,0" Foreground="{StaticResource BrushTextMuted}"/>
-        <TextBox Text="{Binding ClangPath, UpdateSourceTrigger=PropertyChanged}"/>
-      </DockPanel>
-      <TextBlock Margin="0,6,0,0" Foreground="{StaticResource BrushAccent}" Text="{Binding CompilerSummary}" TextWrapping="Wrap"/>
-      <TextBlock Margin="0,4,0,0" Foreground="{StaticResource BrushTextMuted}" Text="{Binding StatusText}" TextWrapping="Wrap"/>
-    </StackPanel>
+    <!-- 紧凑页头 -->
+    <Border Grid.Row="0" Background="{StaticResource BrushBgCard}" BorderBrush="{StaticResource BrushBorder}"
+            BorderThickness="1" CornerRadius="8" Padding="12,10" Margin="0,0,0,10">
+      <StackPanel>
+        <DockPanel>
+          <TextBlock Text="自动化测试" FontSize="20" FontWeight="SemiBold" Foreground="{StaticResource BrushTextPrimary}"/>
+          <TextBlock DockPanel.Dock="Right" VerticalAlignment="Center" Foreground="{StaticResource BrushTextMuted}"
+                     Text="虚拟 MCU · 非真实硬件"/>
+        </DockPanel>
+        <TextBlock Margin="0,6,0,0" Foreground="{StaticResource BrushAccent}" Text="{Binding StatusText}" TextWrapping="Wrap"/>
+        <Expander Margin="0,8,0,0" Header="编译环境（Clang）" IsExpanded="False"
+                  Foreground="{StaticResource BrushTextMuted}">
+          <StackPanel Margin="0,6,0,0">
+            <DockPanel Margin="0,0,0,6">
+              <WrapPanel DockPanel.Dock="Right">
+                <Button Style="{StaticResource GhostButtonStyle}" HorizontalAlignment="Left" Margin="0,0,6,0"
+                        Content="获取内置" Command="{Binding FetchEmbeddedClangCommand}"/>
+                <Button Style="{StaticResource GhostButtonStyle}" HorizontalAlignment="Left" Margin="0,0,6,0"
+                        Content="检查" Command="{Binding CheckCompilerCommand}"/>
+                <Button Style="{StaticResource GhostButtonStyle}" HorizontalAlignment="Left" Margin="0,0,6,0"
+                        Content="浏览" Command="{Binding BrowseClangCommand}"/>
+                <Button Style="{StaticResource GhostButtonStyle}" HorizontalAlignment="Left"
+                        Content="保存路径" Command="{Binding SaveClangPathCommand}"/>
+              </WrapPanel>
+              <TextBox Text="{Binding ClangPath, UpdateSourceTrigger=PropertyChanged}" MinHeight="28"/>
+            </DockPanel>
+            <TextBlock Foreground="{StaticResource BrushTextMuted}" Text="{Binding CompilerSummary}" TextWrapping="Wrap"/>
+          </StackPanel>
+        </Expander>
+      </StackPanel>
+    </Border>
 
-    <Grid Grid.Row="1" Margin="0,0,0,10">
+    <!-- 主区：左函数库 + 右工作区 -->
+    <Grid Grid.Row="1">
       <Grid.ColumnDefinitions>
-        <ColumnDefinition Width="1.1*"/>
-        <ColumnDefinition Width="1.2*"/>
-        <ColumnDefinition Width="1.2*"/>
+        <ColumnDefinition Width="320" MinWidth="280" MaxWidth="440"/>
+        <ColumnDefinition Width="8"/>
+        <ColumnDefinition Width="*"/>
       </Grid.ColumnDefinitions>
 
+      <!-- LL 函数 -->
       <Border Grid.Column="0" Background="{StaticResource BrushBgCard}" BorderBrush="{StaticResource BrushBorder}"
-              BorderThickness="1" CornerRadius="8" Padding="10" Margin="0,0,8,0">
+              BorderThickness="1" CornerRadius="8" Padding="10">
         <DockPanel>
-          <StackPanel DockPanel.Dock="Top" Margin="0,0,0,8">
-            <TextBlock Text="芯片 / 外设 / LL 函数" FontWeight="SemiBold" Foreground="{StaticResource BrushTextPrimary}"/>
-            <ComboBox Margin="0,8,0,0" ItemsSource="{Binding PeripheralFilters}" SelectedItem="{Binding SelectedPeripheral}"/>
-            <Button Margin="0,8,0,0" Content="生成选中函数用例" Command="{Binding GenerateCasesCommand}"/>
-            <Button Margin="0,6,0,0" Content="批量生成当前外设" Command="{Binding GeneratePeripheralBatchCommand}"
-                    ToolTip="对外设下最多 40 个 inline 函数生成用例（含写→读成对）"/>
-            <DockPanel Margin="0,8,0,0">
-              <TextBlock Text="每页" Foreground="{StaticResource BrushTextMuted}" VerticalAlignment="Center" Margin="0,0,6,0"/>
-              <ComboBox Width="64" ItemsSource="{Binding FunctionPageSizeOptions}" SelectedItem="{Binding FunctionPageSize}"
-                        VerticalAlignment="Center" DockPanel.Dock="Left"/>
-              <TextBlock Text="{Binding FunctionPageInfo}" Foreground="{StaticResource BrushTextMuted}"
-                         VerticalAlignment="Center" Margin="8,0,0,0" TextWrapping="Wrap"/>
-            </DockPanel>
-            <StackPanel Orientation="Horizontal" Margin="0,6,0,0">
-              <Button Content="首页" Command="{Binding FunctionFirstPageCommand}" Margin="0,0,4,0"
-                      IsEnabled="{Binding CanFunctionPrev}"/>
-              <Button Content="上一页" Command="{Binding FunctionPreviousPageCommand}" Margin="0,0,4,0"
-                      IsEnabled="{Binding CanFunctionPrev}"/>
-              <Button Content="下一页" Command="{Binding FunctionNextPageCommand}" Margin="0,0,4,0"
-                      IsEnabled="{Binding CanFunctionNext}"/>
-              <Button Content="末页" Command="{Binding FunctionLastPageCommand}"
-                      IsEnabled="{Binding CanFunctionNext}"/>
-            </StackPanel>
+          <StackPanel DockPanel.Dock="Top" Margin="0,0,0,6">
+            <TextBlock Text="LL 函数" FontWeight="SemiBold" Foreground="{StaticResource BrushTextPrimary}"/>
+            <ComboBox Margin="0,6,0,0" ItemsSource="{Binding PeripheralFilters}" SelectedItem="{Binding SelectedPeripheral}"/>
+            <Grid Margin="0,8,0,4">
+              <Grid.RowDefinitions>
+                <RowDefinition Height="Auto"/>
+                <RowDefinition Height="Auto"/>
+                <RowDefinition Height="Auto"/>
+              </Grid.RowDefinitions>
+              <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="*"/>
+                <ColumnDefinition Width="6"/>
+                <ColumnDefinition Width="*"/>
+              </Grid.ColumnDefinitions>
+              <Button Grid.Row="0" Grid.Column="0" Margin="0,0,0,6" Padding="8,4"
+                      HorizontalAlignment="Stretch" HorizontalContentAlignment="Center"
+                      Content="生成勾选" Command="{Binding GenerateCasesCommand}"
+                      ToolTip="对已勾选函数生成用例"/>
+              <Button Grid.Row="0" Grid.Column="2" Margin="0,0,0,6" Padding="8,4"
+                      HorizontalAlignment="Stretch" HorizontalContentAlignment="Center"
+                      Content="外设批量" Command="{Binding GeneratePeripheralBatchCommand}"
+                      ToolTip="(全部)=所有外设；单外设=仅该模块"/>
+              <Button Grid.Row="1" Grid.Column="0" Margin="0,0,0,6" Padding="8,4"
+                      HorizontalAlignment="Stretch" HorizontalContentAlignment="Center"
+                      Content="全选匹配" Command="{Binding SelectAllMatchingCommand}"/>
+              <Button Grid.Row="1" Grid.Column="2" Margin="0,0,0,6" Padding="8,4"
+                      HorizontalAlignment="Stretch" HorizontalContentAlignment="Center"
+                      Content="清空" Command="{Binding ClearAllSelectionCommand}"/>
+              <CheckBox Grid.Row="2" Grid.Column="0" Grid.ColumnSpan="3"
+                        Content="页全选" IsChecked="{Binding IsAllOnPageSelected}" Margin="0,0,0,2"/>
+            </Grid>
+            <TextBlock Text="{Binding CheckedCountText}" Foreground="{StaticResource BrushAccent}" FontSize="11" Margin="0,2,0,0"/>
           </StackPanel>
-          <ListBox ItemsSource="{Binding Functions}" SelectedItem="{Binding SelectedFunction}">
+          <Border DockPanel.Dock="Bottom" Style="{StaticResource GridPagerFooterStyle}" Margin="-10,-2,-10,-10"
+                  Padding="8,6" CornerRadius="0,0,8,8">
+            <DockPanel LastChildFill="True">
+              <StackPanel DockPanel.Dock="Right" Orientation="Horizontal" VerticalAlignment="Center">
+                <Button Style="{StaticResource GhostButtonStyle}" Content="‹" Padding="8,2"
+                        Command="{Binding FunctionPreviousPageCommand}" Margin="0,0,4,0"
+                        IsEnabled="{Binding CanFunctionPrev}"/>
+                <Button Style="{StaticResource GhostButtonStyle}" Content="›" Padding="8,2"
+                        Command="{Binding FunctionNextPageCommand}" IsEnabled="{Binding CanFunctionNext}"/>
+              </StackPanel>
+              <StackPanel DockPanel.Dock="Left" Orientation="Horizontal" VerticalAlignment="Center">
+                <TextBlock Text="每页" Foreground="{StaticResource BrushTextMuted}" FontSize="11"
+                           VerticalAlignment="Center" Margin="0,0,6,0"/>
+                <ComboBox Width="56" ItemsSource="{Binding FunctionPageSizeOptions}" SelectedItem="{Binding FunctionPageSize}"/>
+              </StackPanel>
+              <TextBlock Text="{Binding FunctionPageInfo}" Foreground="{StaticResource BrushTextMuted}" FontSize="11"
+                         VerticalAlignment="Center" Margin="10,0,8,0" TextTrimming="CharacterEllipsis"
+                         ToolTip="{Binding FunctionPageInfo}"/>
+            </DockPanel>
+          </Border>
+          <ListBox ItemsSource="{Binding Functions}" SelectedItem="{Binding SelectedFunctionItem}"
+                   Background="Transparent" BorderThickness="0" Padding="0,4,0,0"
+                   ScrollViewer.HorizontalScrollBarVisibility="Auto"
+                   VirtualizingPanel.ScrollUnit="Pixel">
+            <ListBox.ItemContainerStyle>
+              <Style TargetType="ListBoxItem" BasedOn="{StaticResource {x:Type ListBoxItem}}">
+                <Setter Property="Padding" Value="4,3"/>
+                <Setter Property="HorizontalContentAlignment" Value="Stretch"/>
+              </Style>
+            </ListBox.ItemContainerStyle>
             <ListBox.ItemTemplate>
               <DataTemplate>
-                <DockPanel>
-                  <TextBlock DockPanel.Dock="Left" Text="{Binding PeripheralName}" Width="64"
-                             Foreground="{DynamicResource BrushTextMuted}" Margin="0,0,8,0"/>
-                  <TextBlock Text="{Binding FunctionName}" TextTrimming="CharacterEllipsis"
-                             Foreground="{DynamicResource BrushTextPrimary}"/>
-                </DockPanel>
+                <Grid Margin="0,1">
+                  <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="Auto"/>
+                    <ColumnDefinition Width="44"/>
+                    <ColumnDefinition Width="*"/>
+                  </Grid.ColumnDefinitions>
+                  <CheckBox Grid.Column="0" IsChecked="{Binding IsSelected, Mode=TwoWay}"
+                            VerticalAlignment="Center" Margin="0,0,6,0"/>
+                  <TextBlock Grid.Column="1" Text="{Binding PeripheralName}" FontSize="11"
+                             Foreground="{StaticResource BrushTextMuted}" VerticalAlignment="Center"
+                             TextTrimming="CharacterEllipsis"/>
+                  <TextBlock Grid.Column="2" Text="{Binding FunctionName}" FontSize="12"
+                             Foreground="{StaticResource BrushTextPrimary}" VerticalAlignment="Center"
+                             TextTrimming="CharacterEllipsis" ToolTip="{Binding FunctionName}"/>
+                </Grid>
               </DataTemplate>
             </ListBox.ItemTemplate>
           </ListBox>
         </DockPanel>
       </Border>
 
-      <Border Grid.Column="1" Background="{StaticResource BrushBgCard}" BorderBrush="{StaticResource BrushBorder}"
-              BorderThickness="1" CornerRadius="8" Padding="10" Margin="0,0,8,0">
-        <DockPanel>
-          <StackPanel DockPanel.Dock="Top" Margin="0,0,0,8">
-            <TextBlock Text="测试用例" FontWeight="SemiBold" Foreground="{StaticResource BrushTextPrimary}"/>
-            <WrapPanel Margin="0,8,0,0">
-              <Button Content="运行选中" Command="{Binding RunSelectedCommand}" Margin="0,0,6,6"/>
-              <Button Content="运行全部 Ready" Command="{Binding RunReadyBatchCommand}" Margin="0,0,6,6"
-                      ToolTip="只跑当前列表里 Status=Ready 的用例"/>
-              <Button Content="运行当前列表" Command="{Binding RunAllListedCommand}" Margin="0,0,6,6"
-                      ToolTip="跑当前列表全部用例（含 Draft）"/>
-              <Button Content="列表标 Ready" Command="{Binding MarkListedReadyCommand}" Margin="0,0,6,6"/>
-              <Button Content="取消" Command="{Binding CancelRunCommand}" Margin="0,0,6,6"/>
-              <Button Content="复制" Command="{Binding DuplicateCaseCommand}" Margin="0,0,6,6"/>
-              <Button Content="删除" Command="{Binding DeleteCaseCommand}" Margin="0,0,6,6"/>
-              <Button Content="导出" Command="{Binding ExportCasesCommand}" Margin="0,0,6,6"/>
-              <Button Content="导入" Command="{Binding ImportCasesCommand}" Margin="0,0,6,6"/>
-            </WrapPanel>
-          </StackPanel>
-          <DataGrid ItemsSource="{Binding Cases}" SelectedItem="{Binding SelectedCase}" AutoGenerateColumns="False" IsReadOnly="True">
-            <DataGrid.Columns>
-              <DataGridTextColumn Header="名称" Binding="{Binding Name}" Width="2*"/>
-              <DataGridTextColumn Header="函数" Binding="{Binding FunctionName}" Width="*"/>
-              <DataGridTextColumn Header="外设" Binding="{Binding PeripheralName}" Width="70"/>
-              <DataGridTextColumn Header="状态" Binding="{Binding Status}" Width="70"/>
-            </DataGrid.Columns>
-          </DataGrid>
-        </DockPanel>
-      </Border>
+      <GridSplitter Grid.Column="1" Width="8" HorizontalAlignment="Stretch" Background="Transparent"/>
 
-      <Border Grid.Column="2" Background="{StaticResource BrushBgCard}" BorderBrush="{StaticResource BrushBorder}"
-              BorderThickness="1" CornerRadius="8" Padding="10">
-        <DockPanel>
-          <DockPanel DockPanel.Dock="Top" Margin="0,0,0,8">
-            <TextBlock Text="参数 / 初始寄存器 / 断言 (JSON)" FontWeight="SemiBold" Foreground="{StaticResource BrushTextPrimary}" VerticalAlignment="Center"/>
-            <Button DockPanel.Dock="Right" Content="保存编辑" Command="{Binding SaveCaseEditorCommand}"/>
-          </DockPanel>
-          <TextBox Text="{Binding CaseEditorJson, UpdateSourceTrigger=PropertyChanged}"
-                   AcceptsReturn="True" VerticalScrollBarVisibility="Auto" FontFamily="Consolas"
-                   TextWrapping="Wrap"/>
-        </DockPanel>
-      </Border>
+      <!-- 右：用例 / 编辑 / 执行 -->
+      <TabControl Grid.Column="2" Style="{StaticResource AppTabControlStyle}" ItemContainerStyle="{StaticResource AppTabItemStyle}">
+        <TabItem Header="测试用例">
+          <Border Margin="0,8,0,0" Background="{StaticResource BrushBgCard}" BorderBrush="{StaticResource BrushBorder}"
+                  BorderThickness="1" CornerRadius="8" Padding="10">
+            <DockPanel>
+              <WrapPanel DockPanel.Dock="Top" Margin="0,0,0,6">
+                <Button Content="运行" Command="{Binding RunSelectedCommand}" Margin="0,0,4,4" ToolTip="勾选或当前行"/>
+                <Button Content="Ready 批跑" Command="{Binding RunReadyBatchCommand}" Margin="0,0,4,4"/>
+                <Button Content="列表全跑" Command="{Binding RunAllListedCommand}" Margin="0,0,4,4"
+                        ToolTip="当前左侧外设 + 搜索条件下的全部用例"/>
+                <Button Content="标 Ready" Command="{Binding MarkListedReadyCommand}" Margin="0,0,4,4"/>
+                <Button Content="取消" Command="{Binding CancelRunCommand}" Margin="0,0,4,4"/>
+                <Button Content="复制" Command="{Binding DuplicateCaseCommand}" Margin="0,0,4,4"/>
+                <Button Content="删除" Command="{Binding DeleteCaseCommand}" Margin="0,0,4,4"/>
+                <Button Content="导出" Command="{Binding ExportCasesCommand}" Margin="0,0,4,4"/>
+                <Button Content="导入" Command="{Binding ImportCasesCommand}" Margin="0,0,4,4"/>
+              </WrapPanel>
+              <Grid DockPanel.Dock="Top" Margin="0,0,0,4">
+                <Grid.ColumnDefinitions>
+                  <ColumnDefinition Width="*"/>
+                  <ColumnDefinition Width="Auto"/>
+                  <ColumnDefinition Width="Auto"/>
+                  <ColumnDefinition Width="Auto"/>
+                  <ColumnDefinition Width="Auto"/>
+                </Grid.ColumnDefinitions>
+                <TextBox Grid.Column="0" Text="{Binding CaseSearchText, UpdateSourceTrigger=PropertyChanged}"
+                         ToolTip="名称 / 函数 / 外设 / 状态" Margin="0,0,8,0"/>
+                <Button Grid.Column="1" Style="{StaticResource GhostButtonStyle}" Content="查询"
+                        Command="{Binding SearchCasesCommand}" Margin="0,0,8,0"/>
+                <CheckBox Grid.Column="2" Content="页全选" IsChecked="{Binding IsAllCasesSelected}"
+                          VerticalAlignment="Center" Margin="0,0,8,0"/>
+                <TextBlock Grid.Column="3" Text="{Binding CaseCheckedCountText}" Foreground="{StaticResource BrushAccent}"
+                           VerticalAlignment="Center" Margin="0,0,8,0"/>
+                <Button Grid.Column="4" Style="{StaticResource GhostButtonStyle}" Content="清空勾选"
+                        Command="{Binding ClearCaseSelectionCommand}"/>
+              </Grid>
+              <Border DockPanel.Dock="Bottom" Style="{StaticResource GridPagerFooterStyle}" Margin="-10,-2,-10,-10"
+                      Padding="8,6" CornerRadius="0,0,8,8">
+                <DockPanel LastChildFill="True">
+                  <StackPanel DockPanel.Dock="Right" Orientation="Horizontal" VerticalAlignment="Center">
+                    <Button Style="{StaticResource GhostButtonStyle}" Content="‹" Padding="8,2"
+                            Command="{Binding CasePreviousPageCommand}" Margin="0,0,4,0"
+                            IsEnabled="{Binding CanCasePrev}"/>
+                    <Button Style="{StaticResource GhostButtonStyle}" Content="›" Padding="8,2"
+                            Command="{Binding CaseNextPageCommand}" IsEnabled="{Binding CanCaseNext}"/>
+                  </StackPanel>
+                  <StackPanel DockPanel.Dock="Left" Orientation="Horizontal" VerticalAlignment="Center">
+                    <TextBlock Text="每页" Foreground="{StaticResource BrushTextMuted}" FontSize="11"
+                               VerticalAlignment="Center" Margin="0,0,6,0"/>
+                    <ComboBox Width="56" ItemsSource="{Binding FunctionPageSizeOptions}" SelectedItem="{Binding CasePageSize}"/>
+                  </StackPanel>
+                  <TextBlock Text="{Binding CasePageInfo}" Foreground="{StaticResource BrushTextMuted}" FontSize="11"
+                             VerticalAlignment="Center" Margin="10,0,8,0" TextTrimming="CharacterEllipsis"
+                             ToolTip="{Binding CasePageInfo}"/>
+                </DockPanel>
+              </Border>
+              <DataGrid ItemsSource="{Binding Cases}" SelectedItem="{Binding SelectedCaseItem}"
+                        AutoGenerateColumns="False" CanUserAddRows="False" HeadersVisibility="Column">
+                <DataGrid.Columns>
+                  <DataGridTemplateColumn Header="选" Width="36">
+                    <DataGridTemplateColumn.CellTemplate>
+                      <DataTemplate>
+                        <CheckBox IsChecked="{Binding IsSelected, Mode=TwoWay}" HorizontalAlignment="Center"/>
+                      </DataTemplate>
+                    </DataGridTemplateColumn.CellTemplate>
+                  </DataGridTemplateColumn>
+                  <DataGridTextColumn Header="名称" Binding="{Binding Name}" Width="2*" IsReadOnly="True"/>
+                  <DataGridTextColumn Header="函数" Binding="{Binding FunctionName}" Width="*" IsReadOnly="True"/>
+                  <DataGridTextColumn Header="外设" Binding="{Binding PeripheralName}" Width="64" IsReadOnly="True"/>
+                  <DataGridTextColumn Header="状态" Binding="{Binding Status}" Width="64" IsReadOnly="True"/>
+                </DataGrid.Columns>
+              </DataGrid>
+            </DockPanel>
+          </Border>
+        </TabItem>
+
+        <TabItem Header="用例编辑">
+          <Border Margin="0,8,0,0" Background="{StaticResource BrushBgCard}" BorderBrush="{StaticResource BrushBorder}"
+                  BorderThickness="1" CornerRadius="8" Padding="10">
+            <DockPanel>
+              <DockPanel DockPanel.Dock="Top" Margin="0,0,0,8" LastChildFill="True">
+                <Button DockPanel.Dock="Right" Content="保存编辑" Command="{Binding SaveCaseEditorCommand}"
+                        Margin="0" Padding="12,6" HorizontalAlignment="Right" VerticalAlignment="Center"/>
+                <TextBlock Text="参数 / 初始寄存器 / 断言 (JSON)" FontWeight="SemiBold"
+                           Foreground="{StaticResource BrushTextPrimary}" VerticalAlignment="Center"
+                           HorizontalAlignment="Left"/>
+              </DockPanel>
+              <TextBox Text="{Binding CaseEditorJson, UpdateSourceTrigger=PropertyChanged}"
+                       AcceptsReturn="True" VerticalScrollBarVisibility="Auto" FontFamily="Consolas" TextWrapping="Wrap"/>
+            </DockPanel>
+          </Border>
+        </TabItem>
+
+        <TabItem Header="执行与结果">
+          <Grid Margin="0,8,0,0">
+            <Grid.RowDefinitions>
+              <RowDefinition Height="*"/>
+              <RowDefinition Height="6"/>
+              <RowDefinition Height="*" MinHeight="120"/>
+            </Grid.RowDefinitions>
+
+            <Border Grid.Row="0" Background="{StaticResource BrushBgCard}" BorderBrush="{StaticResource BrushBorder}"
+                    BorderThickness="1" CornerRadius="8" Padding="10">
+              <DockPanel>
+                <TextBlock DockPanel.Dock="Top" Text="实时日志" FontWeight="SemiBold" Margin="0,0,0,6"
+                           Foreground="{StaticResource BrushTextPrimary}"/>
+                <ListBox ItemsSource="{Binding LogLines}" FontFamily="Consolas" FontSize="12"/>
+              </DockPanel>
+            </Border>
+
+            <GridSplitter Grid.Row="1" Height="6" HorizontalAlignment="Stretch" Background="Transparent"/>
+
+            <Grid Grid.Row="2">
+              <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="1.1*"/>
+                <ColumnDefinition Width="6"/>
+                <ColumnDefinition Width="*"/>
+              </Grid.ColumnDefinitions>
+              <Border Grid.Column="0" Style="{StaticResource AppCardBorderStyle}" Padding="10" Margin="0,0,0,0">
+                <DockPanel>
+                  <DockPanel DockPanel.Dock="Top" Margin="0,0,0,4" LastChildFill="True">
+                    <TextBlock Text="运行记录" FontWeight="SemiBold" Foreground="{StaticResource BrushTextPrimary}"
+                               VerticalAlignment="Center" HorizontalAlignment="Left"/>
+                    <TextBlock DockPanel.Dock="Right" Text="{Binding RunTotalCount, StringFormat=共 {0} 条}"
+                               Foreground="{StaticResource BrushTextMuted}" VerticalAlignment="Center"/>
+                  </DockPanel>
+                  <Grid DockPanel.Dock="Top" Margin="0,0,0,4">
+                    <Grid.ColumnDefinitions>
+                      <ColumnDefinition Width="*"/>
+                      <ColumnDefinition Width="Auto"/>
+                      <ColumnDefinition Width="Auto"/>
+                      <ColumnDefinition Width="Auto"/>
+                    </Grid.ColumnDefinitions>
+                    <TextBox Grid.Column="0" Text="{Binding RunSearchText, UpdateSourceTrigger=PropertyChanged}"
+                             ToolTip="状态 / 用例名 / 函数名" Margin="0,0,8,0"/>
+                    <Button Grid.Column="1" Style="{StaticResource GhostButtonStyle}" Content="查询"
+                            Command="{Binding SearchRunsCommand}" Margin="0,0,8,0"/>
+                    <CheckBox Grid.Column="2" Content="页全选" IsChecked="{Binding IsAllRunsOnPageSelected}"
+                              VerticalAlignment="Center" Margin="0,0,8,0"/>
+                    <Button Grid.Column="3" Content="删除" Command="{Binding DeleteSelectedRunsCommand}"
+                            Padding="10,4"/>
+                  </Grid>
+                  <Border DockPanel.Dock="Bottom" Style="{StaticResource GridPagerFooterStyle}" Margin="-10,-2,-10,-10"
+                          Padding="8,6" CornerRadius="0,0,8,8">
+                    <DockPanel LastChildFill="True">
+                      <StackPanel DockPanel.Dock="Right" Orientation="Horizontal" VerticalAlignment="Center">
+                        <Button Style="{StaticResource GhostButtonStyle}" Content="‹" Padding="8,2"
+                                Command="{Binding RunPreviousPageCommand}" Margin="0,0,4,0"
+                                IsEnabled="{Binding CanRunPrev}"/>
+                        <Button Style="{StaticResource GhostButtonStyle}" Content="›" Padding="8,2"
+                                Command="{Binding RunNextPageCommand}" IsEnabled="{Binding CanRunNext}"/>
+                      </StackPanel>
+                      <StackPanel DockPanel.Dock="Left" Orientation="Horizontal" VerticalAlignment="Center">
+                        <TextBlock Text="每页" Foreground="{StaticResource BrushTextMuted}" FontSize="11"
+                                   VerticalAlignment="Center" Margin="0,0,6,0"/>
+                        <ComboBox Width="56" ItemsSource="{Binding FunctionPageSizeOptions}"
+                                  SelectedItem="{Binding RunPageSize}"/>
+                      </StackPanel>
+                      <TextBlock Text="{Binding RunPageInfo}" Foreground="{StaticResource BrushTextMuted}" FontSize="11"
+                                 VerticalAlignment="Center" Margin="10,0,8,0" TextTrimming="CharacterEllipsis"
+                                 ToolTip="{Binding RunPageInfo}"/>
+                    </DockPanel>
+                  </Border>
+                  <DataGrid ItemsSource="{Binding Runs}" SelectedItem="{Binding SelectedRunItem}"
+                            AutoGenerateColumns="False" IsReadOnly="True">
+                    <DataGrid.Columns>
+                      <DataGridTemplateColumn Header="选" Width="36">
+                        <DataGridTemplateColumn.CellTemplate>
+                          <DataTemplate>
+                            <CheckBox IsChecked="{Binding IsSelected, Mode=TwoWay}" HorizontalAlignment="Center"/>
+                          </DataTemplate>
+                        </DataGridTemplateColumn.CellTemplate>
+                      </DataGridTemplateColumn>
+                      <DataGridTextColumn Header="状态" Binding="{Binding Status}" Width="56"/>
+                      <DataGridTextColumn Header="用例" Binding="{Binding CaseName}" Width="*"
+                                          ElementStyle="{StaticResource DataGridEllipsisTextStyle}"/>
+                      <DataGridTextColumn Header="ms" Binding="{Binding DurationMs}" Width="44"/>
+                    </DataGrid.Columns>
+                  </DataGrid>
+                </DockPanel>
+              </Border>
+              <GridSplitter Grid.Column="1" Width="6" Background="Transparent"/>
+              <Border Grid.Column="2" Background="{StaticResource BrushBgCard}" BorderBrush="{StaticResource BrushBorder}"
+                      BorderThickness="1" CornerRadius="8" Padding="10">
+                <DockPanel>
+                  <TextBlock DockPanel.Dock="Top" Text="结果详情" FontWeight="SemiBold" Margin="0,0,0,6"
+                             Foreground="{StaticResource BrushTextPrimary}"/>
+                  <TextBox Text="{Binding ResultDetail, Mode=OneWay}" IsReadOnly="True" AcceptsReturn="True"
+                           TextWrapping="Wrap" VerticalScrollBarVisibility="Auto" FontFamily="Consolas" FontSize="12"
+                           BorderThickness="0" Background="{StaticResource BrushBgInput}"
+                           Foreground="{StaticResource BrushTextPrimary}"/>
+                </DockPanel>
+              </Border>
+            </Grid>
+          </Grid>
+        </TabItem>
+      </TabControl>
     </Grid>
 
-    <Grid Grid.Row="2">
-      <Grid.ColumnDefinitions>
-        <ColumnDefinition Width="1.2*"/>
-        <ColumnDefinition Width="*"/>
-        <ColumnDefinition Width="1.2*"/>
-      </Grid.ColumnDefinitions>
-
-      <Border Grid.Column="0" Background="{StaticResource BrushBgCard}" BorderBrush="{StaticResource BrushBorder}"
-              BorderThickness="1" CornerRadius="8" Padding="10" Margin="0,0,8,0">
-        <DockPanel>
-          <TextBlock DockPanel.Dock="Top" Text="实时日志" FontWeight="SemiBold" Margin="0,0,0,8" Foreground="{StaticResource BrushTextPrimary}"/>
-          <ListBox ItemsSource="{Binding LogLines}" FontFamily="Consolas"/>
-        </DockPanel>
-      </Border>
-
-      <Border Grid.Column="1" Background="{StaticResource BrushBgCard}" BorderBrush="{StaticResource BrushBorder}"
-              BorderThickness="1" CornerRadius="8" Padding="10" Margin="0,0,8,0">
-        <DockPanel>
-          <DockPanel DockPanel.Dock="Top" Margin="0,0,0,8">
-            <TextBlock Text="运行记录（当前项目，含批量）" FontWeight="SemiBold" Foreground="{StaticResource BrushTextPrimary}" VerticalAlignment="Center"/>
-            <TextBlock DockPanel.Dock="Right" Text="{Binding Runs.Count, StringFormat=共 {0} 条}" Foreground="{StaticResource BrushTextMuted}" VerticalAlignment="Center"/>
-          </DockPanel>
-          <DataGrid ItemsSource="{Binding Runs}" SelectedItem="{Binding SelectedRun}" AutoGenerateColumns="False" IsReadOnly="True">
-            <DataGrid.Columns>
-              <DataGridTextColumn Header="状态" Binding="{Binding Status}" Width="70"/>
-              <DataGridTextColumn Header="用例" Binding="{Binding TestCase.Name}" Width="1.4*"/>
-              <DataGridTextColumn Header="函数" Binding="{Binding TestCase.FunctionName}" Width="*"/>
-              <DataGridTextColumn Header="耗时ms" Binding="{Binding DurationMs}" Width="58"/>
-              <DataGridTextColumn Header="开始" Binding="{Binding StartedAtUtc}" Width="120"/>
-            </DataGrid.Columns>
-          </DataGrid>
-        </DockPanel>
-      </Border>
-
-      <Border Grid.Column="2" Background="{StaticResource BrushBgCard}" BorderBrush="{StaticResource BrushBorder}"
-              BorderThickness="1" CornerRadius="8" Padding="10">
-        <DockPanel>
-          <TextBlock DockPanel.Dock="Top" Text="结果详情" FontWeight="SemiBold" Margin="0,0,0,8" Foreground="{StaticResource BrushTextPrimary}"/>
-          <TextBox Text="{Binding ResultDetail, Mode=OneWay}"
-                   IsReadOnly="True"
-                   AcceptsReturn="True"
-                   TextWrapping="Wrap"
-                   VerticalScrollBarVisibility="Auto"
-                   HorizontalScrollBarVisibility="Auto"
-                   FontFamily="Consolas"
-                   FontSize="12"
-                   BorderThickness="0"
-                   Background="{StaticResource BrushBgInput}"
-                   Foreground="{StaticResource BrushTextPrimary}"
-                   CaretBrush="{StaticResource BrushTextPrimary}"/>
-        </DockPanel>
-      </Border>
-    </Grid>
+    <Border Grid.RowSpan="2" Background="#990F1419"
+            Visibility="{Binding IsBusy, Converter={StaticResource BoolToVis}}">
+      <StackPanel VerticalAlignment="Center" HorizontalAlignment="Center">
+        <ProgressBar IsIndeterminate="True" Width="240" Height="4" Margin="0,0,0,12"/>
+        <TextBlock Text="测试执行中…" Foreground="{StaticResource BrushTextPrimary}" HorizontalAlignment="Center"/>
+        <TextBlock Text="{Binding StatusText}" Foreground="{StaticResource BrushTextMuted}" Margin="0,8,0,0"
+                   TextAlignment="Center" MaxWidth="400" TextWrapping="Wrap"/>
+        <Button Content="取消" Command="{Binding CancelRunCommand}" Margin="0,16,0,0" HorizontalAlignment="Center"/>
+      </StackPanel>
+    </Border>
   </Grid>
 </UserControl>

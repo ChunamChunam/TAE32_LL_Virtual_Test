@@ -14,4 +14,11 @@ public partial class TestManagementPage : UserControl
         if (DataContext is TestManagementViewModel vm && sender is ListBox list && list.SelectedItem is LlTestCase c)
             vm.ToggleCaseSelectionCommand.Execute(c);
     }
+
+    private void OnArtifactDoubleClick(object sender, MouseButtonEventArgs e)
+    {
+        if (DataContext is not TestManagementViewModel vm) return;
+        if (sender is DataGrid grid && grid.SelectedItem is TestReportArtifact artifact)
+            vm.OpenArtifactCommand.Execute(artifact);
+    }
 }

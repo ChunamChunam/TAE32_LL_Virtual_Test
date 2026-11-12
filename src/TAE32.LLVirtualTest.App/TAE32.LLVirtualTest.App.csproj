@@ -4,7 +4,25 @@
     <ProjectReference Include="..\TAE32.LLVirtualTest.Core\TAE32.LLVirtualTest.Core.csproj" />
     <ProjectReference Include="..\TAE32.LLVirtualTest.Infrastructure\TAE32.LLVirtualTest.Infrastructure.csproj" />
     <ProjectReference Include="..\TAE32.LLVirtualTest.SDK\TAE32.LLVirtualTest.SDK.csproj" />
+    <ProjectReference Include="..\TAE32.LLVirtualTest.NativeRunner\TAE32.LLVirtualTest.NativeRunner.csproj">
+      <ReferenceOutputAssembly>false</ReferenceOutputAssembly>
+      <Private>false</Private>
+    </ProjectReference>
   </ItemGroup>
+
+  <!-- Copy out-of-process native harness runner beside the WPF app (AVE isolation). -->
+  <Target Name="CopyNativeRunner" AfterTargets="Build">
+    <PropertyGroup>
+      <_NativeRunnerOut>$([System.IO.Path]::GetFullPath('$(MSBuildThisFileDirectory)..\TAE32.LLVirtualTest.NativeRunner\bin\$(Configuration)\net8.0\'))</_NativeRunnerOut>
+    </PropertyGroup>
+    <ItemGroup>
+      <_NativeRunnerFiles Include="$(_NativeRunnerOut)**\*.*" Condition="Exists('$(_NativeRunnerOut)')" />
+    </ItemGroup>
+    <Copy SourceFiles="@(_NativeRunnerFiles)"
+          DestinationFolder="$(OutputPath)"
+          SkipUnchangedFiles="true"
+          Condition="'@(_NativeRunnerFiles)' != ''" />
+  </Target>
 
   <ItemGroup>
     <PackageReference Include="CommunityToolkit.Mvvm" Version="8.3.2" />
@@ -25,6 +43,8 @@
     <Nullable>enable</Nullable>
     <ImplicitUsings>enable</ImplicitUsings>
     <UseWPF>true</UseWPF>
+    <ApplicationManifest>app.manifest</ApplicationManifest>
+    <ApplicationHighDpiMode>PerMonitorV2</ApplicationHighDpiMode>
   </PropertyGroup>
 
 </Project>

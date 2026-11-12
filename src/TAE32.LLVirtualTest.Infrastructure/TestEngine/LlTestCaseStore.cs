@@ -26,6 +26,58 @@ public sealed class LlTestCaseStore : ILlTestCaseStore
             .ToListAsync(cancellationToken);
     }
 
+    public async Task<(IReadOnlyList<LlTestCase> Items, int TotalCount)> ListPagedAsync(
+        Guid sdkProjectId,
+        string? peripheralName = null,
+        string? searchText = null,
+        int skip = 0,
+        int take = 100,
+        CancellationToken cancellationToken = default)
+    {
+        await using var db = await _dbFactory.CreateDbContextAsync(cancellationToken);
+        var q = ApplyCaseFilters(db.LlTestCases.AsNoTracking(), sdkProjectId, peripheralName, searchText);
+        var total = await q.CountAsync(cancellationToken);
+        take = Math.Max(1, take);
+        skip = Math.Max(0, skip);
+        var items = await q.OrderBy(x => x.PeripheralName).ThenBy(x => x.FunctionName).ThenBy(x => x.Name)
+            .Skip(skip).Take(take).ToListAsync(cancellationToken);
+        return (items, total);
+    }
+
+    public async Task<IReadOnlyList<LlTestCase>> ListFilteredAsync(
+        Guid sdkProjectId,
+        string? peripheralName = null,
+        string? searchText = null,
+        CancellationToken cancellationToken = default)
+    {
+        await using var db = await _dbFactory.CreateDbContextAsync(cancellationToken);
+        var q = ApplyCaseFilters(db.LlTestCases.AsNoTracking(), sdkProjectId, peripheralName, searchText);
+        return await q.OrderBy(x => x.PeripheralName).ThenBy(x => x.FunctionName).ThenBy(x => x.Name)
+            .ToListAsync(cancellationToken);
+    }
+
+    private static IQueryable<LlTestCase> ApplyCaseFilters(
+        IQueryable<LlTestCase> q,
+        Guid sdkProjectId,
+        string? peripheralName,
+        string? searchText)
+    {
+        q = q.Where(x => x.SdkProjectId == sdkProjectId);
+        if (!string.IsNullOrWhiteSpace(peripheralName))
+            q = q.Where(x => x.PeripheralName == peripheralName);
+        if (!string.IsNullOrWhiteSpace(searchText))
+        {
+            var term = searchText.Trim();
+            q = q.Where(x =>
+                x.Name.Contains(term) ||
+                x.FunctionName.Contains(term) ||
+                (x.PeripheralName != null && x.PeripheralName.Contains(term)) ||
+                x.Status.Contains(term));
+        }
+
+        return q;
+    }
+
     public async Task<LlTestCase?> GetAsync(Guid id, CancellationToken cancellationToken = default)
     {
         await using var db = await _dbFactory.CreateDbContextAsync(cancellationToken);
@@ -69,9 +121,16 @@ public sealed class LlTestCaseStore : ILlTestCaseStore
 
     public async Task DeleteAsync(Guid id, CancellationToken cancellationToken = default)
     {
+        await DeleteManyAsync(new[] { id }, cancellationToken);
+    }
+
+    public async Task<int> DeleteManyAsync(IEnumerable<Guid> ids, CancellationToken cancellationToken = default)
+    {
+        var idList = ids.Distinct().ToList();
+        if (idList.Count == 0) return 0;
         await using var db = await _dbFactory.CreateDbContextAsync(cancellationToken);
-        await db.LlTestRuns.Where(x => x.LlTestCaseId == id).ExecuteDeleteAsync(cancellationToken);
-        await db.LlTestCases.Where(x => x.Id == id).ExecuteDeleteAsync(cancellationToken);
+        await db.LlTestRuns.Where(x => idList.Contains(x.LlTestCaseId)).ExecuteDeleteAsync(cancellationToken);
+        return await db.LlTestCases.Where(x => idList.Contains(x.Id)).ExecuteDeleteAsync(cancellationToken);
     }
 
     public async Task<LlTestCase> DuplicateAsync(Guid id, CancellationToken cancellationToken = default)
@@ -119,6 +178,40 @@ public sealed class LlTestCaseStore : ILlTestCaseStore
         if (testCaseId is Guid id) q = q.Where(x => x.LlTestCaseId == id);
         var limit = take <= 0 ? 200 : Math.Min(take, 1000);
         return await q.OrderByDescending(x => x.StartedAtUtc).Take(limit).ToListAsync(cancellationToken);
+    }
+
+    public async Task<(IReadOnlyList<LlTestRun> Items, int TotalCount)> ListRunsPagedAsync(
+        Guid sdkProjectId,
+        string? searchText = null,
+        int skip = 0,
+        int take = 50,
+        CancellationToken cancellationToken = default)
+    {
+        await using var db = await _dbFactory.CreateDbContextAsync(cancellationToken);
+        var q = db.LlTestRuns.AsNoTracking().Include(x => x.TestCase)
+            .Where(x => x.SdkProjectId == sdkProjectId);
+        if (!string.IsNullOrWhiteSpace(searchText))
+        {
+            var term = searchText.Trim();
+            q = q.Where(x =>
+                x.Status.Contains(term) ||
+                (x.TestCase != null &&
+                 (x.TestCase.Name.Contains(term) || x.TestCase.FunctionName.Contains(term))));
+        }
+
+        var total = await q.CountAsync(cancellationToken);
+        take = Math.Max(1, take);
+        skip = Math.Max(0, skip);
+        var items = await q.OrderByDescending(x => x.StartedAtUtc).Skip(skip).Take(take).ToListAsync(cancellationToken);
+        return (items, total);
+    }
+
+    public async Task<int> DeleteRunsAsync(IEnumerable<Guid> runIds, CancellationToken cancellationToken = default)
+    {
+        var idList = runIds.Distinct().ToList();
+        if (idList.Count == 0) return 0;
+        await using var db = await _dbFactory.CreateDbContextAsync(cancellationToken);
+        return await db.LlTestRuns.Where(x => idList.Contains(x.Id)).ExecuteDeleteAsync(cancellationToken);
     }
 
     public async Task<LlTestRun?> GetRunAsync(Guid runId, CancellationToken cancellationToken = default)

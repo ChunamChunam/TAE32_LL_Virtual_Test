@@ -11,11 +11,27 @@ public interface ILlTestCaseStore
         string? functionName = null,
         CancellationToken cancellationToken = default);
 
+    Task<(IReadOnlyList<LlTestCase> Items, int TotalCount)> ListPagedAsync(
+        Guid sdkProjectId,
+        string? peripheralName = null,
+        string? searchText = null,
+        int skip = 0,
+        int take = 100,
+        CancellationToken cancellationToken = default);
+
+    Task<IReadOnlyList<LlTestCase>> ListFilteredAsync(
+        Guid sdkProjectId,
+        string? peripheralName = null,
+        string? searchText = null,
+        CancellationToken cancellationToken = default);
+
     Task<LlTestCase?> GetAsync(Guid id, CancellationToken cancellationToken = default);
 
     Task<LlTestCase> UpsertAsync(LlTestCaseEditModel model, CancellationToken cancellationToken = default);
 
     Task DeleteAsync(Guid id, CancellationToken cancellationToken = default);
+
+    Task<int> DeleteManyAsync(IEnumerable<Guid> ids, CancellationToken cancellationToken = default);
 
     Task<LlTestCase> DuplicateAsync(Guid id, CancellationToken cancellationToken = default);
 
@@ -32,6 +48,15 @@ public interface ILlTestCaseStore
         Guid? testCaseId = null,
         int take = 200,
         CancellationToken cancellationToken = default);
+
+    Task<(IReadOnlyList<LlTestRun> Items, int TotalCount)> ListRunsPagedAsync(
+        Guid sdkProjectId,
+        string? searchText = null,
+        int skip = 0,
+        int take = 50,
+        CancellationToken cancellationToken = default);
+
+    Task<int> DeleteRunsAsync(IEnumerable<Guid> runIds, CancellationToken cancellationToken = default);
 
     Task<LlTestRun?> GetRunAsync(Guid runId, CancellationToken cancellationToken = default);
 
