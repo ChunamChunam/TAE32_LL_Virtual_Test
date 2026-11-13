@@ -8,6 +8,7 @@ using TAE32.LLVirtualTest.App.Views.Dialogs;
 using TAE32.LLVirtualTest.Core.Entities;
 using TAE32.LLVirtualTest.Core.Interfaces;
 using TAE32.LLVirtualTest.Core.Models;
+using TAE32.LLVirtualTest.Infrastructure.Services;
 
 namespace TAE32.LLVirtualTest.App.ViewModels.Pages;
 
@@ -584,14 +585,39 @@ public partial class TestManagementViewModel : ObservableObject
     }
 
     [RelayCommand]
-    private void OpenSource(FailureAnalysisItem? item)
+    private async Task OpenSourceAsync(FailureAnalysisItem? item)
     {
-        if (item?.SourceFile is null || !File.Exists(item.SourceFile))
+        item ??= SelectedFailureRow?.Item;
+        if (string.IsNullOrWhiteSpace(item?.SourceFile))
         {
-            StatusText = "源码文件不存在或路径未知";
+            StatusText = "源码路径未知";
             return;
         }
-        Process.Start(new ProcessStartInfo { FileName = item.SourceFile, UseShellExecute = true });
+
+        string? sdkRoot = null;
+        if (ActiveProjectId is Guid pid)
+            sdkRoot = (await _projects.GetByIdAsync(pid))?.SdkRootPath;
+
+        if (!SdkSourcePathResolver.TryResolve(item.SourceFile, sdkRoot, out var absolutePath))
+        {
+            StatusText = "源码文件不存在。请确认 SDK 根路径与仓库内 SDKContent 仍有效。路径：" + item.SourceFile;
+            return;
+        }
+
+        try
+        {
+            Process.Start(new ProcessStartInfo { FileName = absolutePath, UseShellExecute = true });
+            StatusText = "已打开 " + absolutePath;
+        }
+        catch (Exception ex)
+        {
+            StatusText = "打开失败：" + ex.Message;
+            MessageBox.Show(
+                "无法打开文件：\n" + absolutePath + "\n\n" + ex.Message,
+                "TAE32 LL Virtual Test",
+                MessageBoxButton.OK,
+                MessageBoxImage.Warning);
+        }
     }
 
     [RelayCommand]

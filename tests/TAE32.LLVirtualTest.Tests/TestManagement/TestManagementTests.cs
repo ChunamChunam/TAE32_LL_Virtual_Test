@@ -162,6 +162,8 @@ public class TestManagementTests
         html.Should().Contain("不等同于真实硬件");
         html.Should().Contain("Unit Report");
         html.Should().Contain("2.0.0");
+        html.Should().Contain("通过 — 详细测试记录");
+        html.Should().Contain("LL_GPIO_Init");
     }
 
     [Fact]

@@ -237,40 +237,51 @@ public sealed class ClangCompilerService : ICompilerService
         }
 
         Directory.CreateDirectory(Path.GetDirectoryName(outputDllPath)!);
+
+        var hostDefines = new List<string>
+        {
+            "TAE32G58xx",
+            "TMR6=1",
+            "__GNUC__=4",
+            "__STDC__=1"
+        };
+        var defineArgs = new StringBuilder();
+        foreach (var d in hostDefines
+                     .Concat(env.Defines)
+                     .Concat(extraDefines ?? Array.Empty<string>())
+                     .Distinct(StringComparer.Ordinal))
+            defineArgs.Append("-D").Append(d).Append(' ');
+
+        var includeArgs = new StringBuilder();
+        foreach (var inc in env.IncludePaths)
+            includeArgs.Append("-I\"").Append(inc).Append("\" ");
+
+        var clangDir = Path.GetDirectoryName(env.ClangPath!)!;
+        var compileInput = await TryMaterializePointerFixedHarnessAsync(
+            env.ClangPath!, harnessCPath, defineArgs.ToString(), includeArgs.ToString(),
+            cancellationToken, extraPath: clangDir)
+            ?? harnessCPath;
+
         var args = new StringBuilder();
-        // Windows MSVC target rejects -fPIC; PIC is implied for DLL on that triple.
         args.Append("-shared -O0 -g -std=c11 ");
         if (OperatingSystem.IsWindows())
             args.Append("-fuse-ld=lld ");
         else
             args.Append("-fPIC ");
-
-        // Same host-compile macros as Phase3 ClangEnvironment: CMSIS picks gcc path via __GNUC__.
-        var hostDefines = new List<string>
-        {
-            "TAE32G58xx",
-            "__GNUC__=4",
-            "__STDC__=1"
-        };
-        foreach (var d in hostDefines
-                     .Concat(env.Defines)
-                     .Concat(extraDefines ?? Array.Empty<string>())
-                     .Distinct(StringComparer.Ordinal))
-            args.Append("-D").Append(d).Append(' ');
-
-        foreach (var inc in env.IncludePaths)
-            args.Append("-I\"").Append(inc).Append("\" ");
+        args.Append(defineArgs);
+        args.Append(includeArgs);
         args.Append("-Wno-everything ");
         args.Append("-o \"").Append(outputDllPath).Append("\" ");
-        args.Append('"').Append(harnessCPath).Append('"');
+        args.Append('"').Append(compileInput).Append('"');
 
         var profile = await GetOrCreateProfileAsync(sdkProjectId, cancellationToken);
         if (!string.IsNullOrWhiteSpace(profile.ExtraArgs))
             args.Append(' ').Append(profile.ExtraArgs);
 
-        var clangDir = Path.GetDirectoryName(env.ClangPath!)!;
         var (code, stdout, stderr) = await RunAsync(env.ClangPath!, args.ToString(), cancellationToken, extraPath: clangDir);
         var log = $"CMD: {env.ClangPath} {args}\n\nSTDOUT:\n{stdout}\n\nSTDERR:\n{stderr}";
+        if (!string.Equals(compileInput, harnessCPath, StringComparison.OrdinalIgnoreCase))
+            log += $"\n\nHOSTFIX: {compileInput}";
         var errors = Regex.Matches(stderr + "\n" + stdout, @"error:.*", RegexOptions.IgnoreCase)
             .Select(m => m.Value.Trim()).Distinct().Take(40).ToList();
         if (code != 0 && errors.Count == 0)
@@ -442,6 +453,36 @@ public sealed class ClangCompilerService : ICompilerService
         var hash = await SHA256.HashDataAsync(stream, ct);
         var actual = Convert.ToHexString(hash).ToLowerInvariant();
         return string.Equals(actual, expectedHex, StringComparison.OrdinalIgnoreCase);
+    }
+
+    private static async Task<string?> TryMaterializePointerFixedHarnessAsync(
+        string clangPath,
+        string harnessCPath,
+        string defineArgs,
+        string includeArgs,
+        CancellationToken ct,
+        string? extraPath = null)
+    {
+        if (!File.Exists(harnessCPath))
+            return null;
+
+        var ppArgs = $"-E -std=c11 -P {defineArgs}{includeArgs}-Wno-everything \"{harnessCPath}\"";
+        var (code, stdout, stderr) = await RunAsync(clangPath, ppArgs, ct, extraPath: extraPath);
+        if (code != 0 || string.IsNullOrEmpty(stdout))
+            return null;
+
+        var needsFix = stdout.Contains("((uint32_t) ((uint32_t)(&", StringComparison.Ordinal)
+            || stdout.Contains("(uint32_t) ((uint32_t)(&", StringComparison.Ordinal)
+            || stdout.Contains("0x40023048UL", StringComparison.Ordinal);
+        if (!needsFix)
+            return null;
+
+        var fixedSrc = HostHarnessPointerFix.Apply(stdout);
+        var outPath = Path.Combine(
+            Path.GetDirectoryName(harnessCPath)!,
+            Path.GetFileNameWithoutExtension(harnessCPath) + ".hostfix.c");
+        await File.WriteAllTextAsync(outPath, fixedSrc, ct);
+        return outPath;
     }
 
     private static async Task<(int code, string stdout, string stderr)> RunAsync(

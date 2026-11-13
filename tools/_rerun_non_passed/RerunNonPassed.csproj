@@ -1,0 +1,21 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net8.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+  </PropertyGroup>
+  <ItemGroup>
+    <ProjectReference Include="..\..\src\TAE32.LLVirtualTest.Infrastructure\TAE32.LLVirtualTest.Infrastructure.csproj" />
+    <ProjectReference Include="..\..\src\TAE32.LLVirtualTest.Core\TAE32.LLVirtualTest.Core.csproj" />
+  </ItemGroup>
+  <Target Name="CopyNativeRunner" AfterTargets="Build">
+    <PropertyGroup>
+      <_NrOut>$([System.IO.Path]::GetFullPath('$(MSBuildThisFileDirectory)..\..\src\TAE32.LLVirtualTest.NativeRunner\bin\$(Configuration)\net8.0\'))</_NrOut>
+    </PropertyGroup>
+    <ItemGroup>
+      <_NrFiles Include="$(_NrOut)**\*.*" Condition="Exists('$(_NrOut)')" />
+    </ItemGroup>
+    <Copy SourceFiles="@(_NrFiles)" DestinationFolder="$(OutputPath)" SkipUnchangedFiles="true" Condition="'@(_NrFiles)' != ''" />
+  </Target>
+</Project>

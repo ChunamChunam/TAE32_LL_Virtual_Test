@@ -487,7 +487,7 @@
           <DockPanel>
             <StackPanel DockPanel.Dock="Top" Margin="0,0,0,10">
               <TextBlock Text="导出报告（真实运行数据）" FontWeight="SemiBold" Foreground="{StaticResource BrushTextPrimary}"/>
-              <TextBlock Text="报告将声明：基于虚拟 MCU，不等同真实硬件测试。PDF 为可打印 HTML。双击列表行可打开文件。"
+              <TextBlock Text="报告含：用例参数、初始寄存器预置、寄存器写入值一览（before→after）、断言与访问轨迹。通过用例折叠展示；失败默认展开。未选批次=各用例最新运行。虚拟 MCU，不等同真实硬件。"
                          Foreground="{StaticResource BrushTextMuted}" Margin="0,4,0,8" TextWrapping="Wrap"/>
               <StackPanel Orientation="Horizontal">
                 <ComboBox Width="120" SelectedValue="{Binding SelectedReportFormat}" SelectedValuePath="Content">

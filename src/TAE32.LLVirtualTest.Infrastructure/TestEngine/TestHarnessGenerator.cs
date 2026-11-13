@@ -47,8 +47,15 @@ public static class TestHarnessGenerator
         sb.AppendLine("  uint32_t size;");
         sb.AppendLine("} tae32_peri_img;");
         sb.AppendLine();
-        sb.AppendLine($"#include \"{Escape(llHeaderFileName)}\"");
+        sb.AppendLine("#include \"tae32_ll_host_scs_buf.h\"");
+        sb.AppendLine("#include \"tae32g58xx.h\"");
+        sb.AppendLine("#include \"tae32_ll_host_scs_remap.h\"");
+        sb.AppendLine("#include \"tae32_ll_host_scs_remap_tail.h\"");
+        sb.AppendLine("#include \"tae32_ll_host_cmsis_override.h\"");
+        sb.AppendLine("#include \"tae32_ll_host_peri_glob.h\"");
+        sb.AppendLine("#include \"tae32_ll_host_eflash.h\"");
         sb.AppendLine("#include \"tae32_ll_host_shim.h\"");
+        sb.AppendLine($"#include \"{Escape(llHeaderFileName)}\"");
         sb.AppendLine();
         sb.AppendLine("#if defined(_WIN32)");
         sb.AppendLine("#define TAE32_EXPORT __declspec(dllexport)");
@@ -85,13 +92,18 @@ public static class TestHarnessGenerator
         sb.AppendLine("TAE32_EXPORT int tae32_run(tae32_peri_img* peri, const tae32_args* args, uint32_t* out_ret)");
         sb.AppendLine("{");
         sb.AppendLine("  if (peri == NULL || peri->base == NULL || args == NULL) return -1;");
+        sb.AppendLine("  tae32_host_peri_load(peri->base, peri->size);");
 
         // Resolve peri typedef from first TypeDef* across steps.
         var periParam = allSteps.SelectMany(x => x.Step.Parameters).FirstOrDefault(IsPeripheralTypeDefPointer);
         if (periParam is not null)
         {
             var typedefName = ExtractTypeDefName(periParam.Type);
-            sb.AppendLine($"  {typedefName}* PERIx = ({typedefName}*)peri->base;");
+            sb.AppendLine($"  {typedefName}* PERIx = ({typedefName}*)tae32_host_peri_image;");
+        }
+        else
+        {
+            EmitHostPeripheralTypedef(sb, llHeaderFileName);
         }
 
         EmitHostPointerBuffers(sb, allSteps);
@@ -140,6 +152,7 @@ public static class TestHarnessGenerator
             }
         }
 
+        sb.AppendLine("  tae32_host_peri_store(peri->base, peri->size);");
         sb.AppendLine("  return 0;");
         sb.AppendLine("}");
         sb.AppendLine();
@@ -249,6 +262,29 @@ public static class TestHarnessGenerator
         return dict;
     }
 
+    /// <summary>Argument uint32 values in the same order as the generated <c>tae32_args</c> struct fields.</summary>
+    public static IReadOnlyList<uint> BuildArgsValuesInHarnessOrder(
+        IReadOnlyList<LlTestParameterValue> parameters,
+        IReadOnlyList<LlTestCallStep>? prelude = null)
+    {
+        var list = new List<uint>();
+        prelude ??= Array.Empty<LlTestCallStep>();
+        for (var i = 0; i < prelude.Count; i++)
+        {
+            foreach (var p in prelude[i].Parameters)
+            {
+                if (IsPeripheralTypeDefPointer(p)) continue;
+                list.Add(ParseUIntExpression(p.ValueExpression));
+            }
+        }
+        foreach (var p in parameters)
+        {
+            if (IsPeripheralTypeDefPointer(p)) continue;
+            list.Add(ParseUIntExpression(p.ValueExpression));
+        }
+        return list;
+    }
+
     public static uint ParseUIntExpression(string? expr)
     {
         if (string.IsNullOrWhiteSpace(expr)) return 0;
@@ -314,6 +350,16 @@ public static class TestHarnessGenerator
                 sb.AppendLine("  WRITE_REG(PERIx->PWM[((uint32_t)args->m_Pwmx) % LL_HRPWM_PWMx_NUMS].REG.CNTR,");
                 sb.AppendLine("      HRPWM_SLV0_CNTR_CNTWR_Msk | ((uint32_t)args->m_Cnt & HRPWM_SLV0_CNTR_CNT_Val));");
                 sb.AppendLine("  CLEAR_BIT(PERIx->PWM[((uint32_t)args->m_Pwmx) % LL_HRPWM_PWMx_NUMS].REG.CNTR, HRPWM_SLV0_CNTR_CNTWR_Msk);");
+                sb.AppendLine("  if (out_ret) *out_ret = 0;");
+                return true;
+            case "LL_Delay_NoISR":
+                sb.AppendLine("  /* host: satisfy COUNTFLAG wait loop (no real time) */");
+                sb.AppendLine("  {");
+                sb.AppendLine("    uint32_t ms = args->m_Milliseconds ? args->m_Milliseconds : 1u;");
+                sb.AppendLine("    while (ms--) {");
+                sb.AppendLine("      SysTick->CTRL |= SysTick_CTRL_COUNTFLAG_Msk;");
+                sb.AppendLine("    }");
+                sb.AppendLine("  }");
                 sb.AppendLine("  if (out_ret) *out_ret = 0;");
                 return true;
             default:
@@ -382,4 +428,15 @@ public static class TestHarnessGenerator
     }
 
     private static string Escape(string s) => s.Replace("\\", "\\\\").Replace("\"", "\\\"");
+
+    private static void EmitHostPeripheralTypedef(StringBuilder sb, string llHeaderFileName)
+    {
+        var h = llHeaderFileName.ToLowerInvariant();
+        if (h.Contains("sysctrl"))
+            sb.AppendLine("  SYSCTRL_TypeDef* PERIx = (SYSCTRL_TypeDef*)tae32_host_peri_image;");
+        else if (h.Contains("ll_rcu") || h.Contains("rcu"))
+            sb.AppendLine("  RCU_TypeDef* PERIx = (RCU_TypeDef*)tae32_host_peri_image;");
+        else if (h.Contains("cortex"))
+            sb.AppendLine("  /* CORTEX LL uses CMSIS SCS shadow; peri base unused */");
+    }
 }

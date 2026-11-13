@@ -69,6 +69,14 @@ public interface ITestAnalyticsService
         int take = 100,
         CancellationToken ct = default);
 
+    /// <summary>
+    /// 报告专用：批次内全部运行，或项目下「每个用例最新一次运行」（含 Passed 明细字段）。
+    /// </summary>
+    Task<IReadOnlyList<FailureAnalysisItem>> GetReportRunDetailsAsync(
+        Guid sdkProjectId,
+        Guid? batchRunId = null,
+        CancellationToken ct = default);
+
     Task<(IReadOnlyList<FailureAnalysisItem> Items, int TotalCount)> GetFailuresPagedAsync(
         Guid sdkProjectId,
         Guid? batchRunId = null,

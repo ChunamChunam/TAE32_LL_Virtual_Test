@@ -27,7 +27,9 @@ internal sealed class GpioPeripheralSimulator : IVirtualPeripheral
     public void OnAttached(IVirtualRegisterSpace space)
     {
         _space = space;
-        if (_space.TryGetByName(InstanceName, "ODR", out var odr) && odr is not null)
+        if (_space.TryGetByName(InstanceName, "DOR", out var dor) && dor is not null)
+            _outputShadow = dor.CurrentValue;
+        else if (_space.TryGetByName(InstanceName, "ODR", out var odr) && odr is not null)
             _outputShadow = odr.CurrentValue;
         _state["Mode"] = "Basic ODR/IDR/BSR shadow";
     }
@@ -35,30 +37,33 @@ internal sealed class GpioPeripheralSimulator : IVirtualPeripheral
     public void OnAfterWrite(VirtualRegisterView register, uint previous, uint current, VirtualAccessContext? context)
     {
         var member = register.MemberName.ToUpperInvariant();
-        if (member is "ODR")
+        if (member is "DOR")
         {
             _outputShadow = current;
-            _state["ODR"] = $"0x{current:X8}";
+            _state[member] = $"0x{current:X8}";
             TryMirrorToIdr(current);
+            SyncOutputRegisters((inst, mem, val) =>
+            {
+                if (_space!.TryGetByName(inst, mem, out var slot) && slot is not null)
+                    slot.CurrentValue = val;
+            });
+        }
+        else if (member is "ODR")
+        {
+            // Open-drain config (GPIO ODR); not the data output port (DOR).
+            _state["ODR"] = $"0x{current:X8}";
         }
         else if (member is "BSR" or "BSRR")
         {
-            // Common pattern: low 16 set, high 16 reset — only apply if width suggests it
-            var set = current & 0xFFFFu;
-            var reset = (current >> 16) & 0xFFFFu;
-            if (set == 0 && reset == 0 && register.WidthBits <= 16)
-            {
-                // Some parts use separate set register; treat write as OR into ODR
-                _outputShadow |= current;
-            }
-            else
-            {
-                _outputShadow = (_outputShadow | set) & ~reset;
-            }
+            _outputShadow = GpioBsrDorLogic.MergeBsrIntoDor(current, _outputShadow);
             _state["BSR"] = $"0x{current:X8}";
-            _state["ODR_shadow"] = $"0x{_outputShadow:X8}";
             WriteOdrShadow();
             TryMirrorToIdr(_outputShadow);
+            SyncOutputRegisters((inst, mem, val) =>
+            {
+                if (_space!.TryGetByName(inst, mem, out var slot) && slot is not null)
+                    slot.CurrentValue = val;
+            });
         }
         else if (member is "BRR")
         {
@@ -80,15 +85,12 @@ internal sealed class GpioPeripheralSimulator : IVirtualPeripheral
         _state["ODR_shadow"] = $"0x{_outputShadow:X8}";
     }
 
-    /// <summary>TAE32 uses DOR (and some aliases ODR); keep storage in sync after BSR/BRR.</summary>
+    /// <summary>TAE32 DOR is data output; ODR is open-drain config — do not mirror port level into ODR.</summary>
     public void SyncOutputRegisters(Action<string, string, uint> forceWrite)
     {
         if (_space is null) return;
-        foreach (var member in new[] { "DOR", "ODR" })
-        {
-            if (_space.TryGetByName(InstanceName, member, out _))
-                forceWrite(InstanceName, member, _outputShadow);
-        }
+        if (_space.TryGetByName(InstanceName, "DOR", out _))
+            forceWrite(InstanceName, "DOR", _outputShadow);
     }
 
     private void TryMirrorToIdr(uint level)

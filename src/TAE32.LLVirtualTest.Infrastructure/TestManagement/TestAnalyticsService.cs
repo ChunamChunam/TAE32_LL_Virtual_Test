@@ -147,6 +147,42 @@ public sealed class TestAnalyticsService : ITestAnalyticsService
         return items;
     }
 
+    public async Task<IReadOnlyList<FailureAnalysisItem>> GetReportRunDetailsAsync(
+        Guid sdkProjectId, Guid? batchRunId = null, CancellationToken ct = default)
+    {
+        await using var db = await _dbFactory.CreateDbContextAsync(ct);
+        List<Core.Entities.LlTestRun> rows;
+        if (batchRunId is Guid bid)
+        {
+            var batch = await db.TestBatchRuns.AsNoTracking().FirstOrDefaultAsync(x => x.Id == bid, ct);
+            var ids = batch is null
+                ? new List<Guid>()
+                : JsonSerializer.Deserialize<List<Guid>>(batch.CaseRunIdsJson) ?? new();
+            rows = await db.LlTestRuns.AsNoTracking()
+                .Include(x => x.TestCase)
+                .Where(x => ids.Contains(x.Id))
+                .ToListAsync(ct);
+        }
+        else
+        {
+            var all = await db.LlTestRuns.AsNoTracking()
+                .Include(x => x.TestCase)
+                .Where(x => x.SdkProjectId == sdkProjectId)
+                .ToListAsync(ct);
+            rows = all
+                .GroupBy(x => x.LlTestCaseId)
+                .Select(g => g.OrderByDescending(x => x.StartedAtUtc).First())
+                .ToList();
+        }
+
+        return rows
+            .OrderBy(x => x.Status, StringComparer.Ordinal)
+            .ThenBy(x => x.TestCase?.FunctionName ?? "", StringComparer.Ordinal)
+            .ThenBy(x => x.TestCase?.Name ?? "", StringComparer.Ordinal)
+            .Select(MapRunDetailItem)
+            .ToList();
+    }
+
     public async Task<(IReadOnlyList<FailureAnalysisItem> Items, int TotalCount)> GetFailuresPagedAsync(
         Guid sdkProjectId,
         Guid? batchRunId = null,
@@ -223,22 +259,74 @@ public sealed class TestAnalyticsService : ITestAnalyticsService
         }
         catch { /* ignore */ }
 
-        return new FailureAnalysisItem
+        return MapRunDetailItem(r, regs);
+    }
+
+    private static FailureAnalysisItem MapRunDetailItem(Core.Entities.LlTestRun r)
+    {
+        var regs = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        try
         {
-            RunId = r.Id,
-            TestCaseId = r.LlTestCaseId,
-            CaseName = r.TestCase?.Name ?? "",
-            FunctionName = r.TestCase?.FunctionName ?? "",
-            SourceFile = r.TestCase?.SourceFile,
-            Status = r.Status,
-            FailureReason = r.FailureReason,
-            CompileSucceeded = r.CompileSucceeded,
-            CompileLogExcerpt = Truncate(r.CompileLog, 800),
-            AssertionResultsJson = r.AssertionResultsJson,
-            AccessTraceJson = Truncate(r.AccessTraceJson, 1200),
-            RelatedRegisters = regs.Count == 0 ? null : string.Join(", ", regs.Take(20)),
-            StartedAtUtc = r.StartedAtUtc
-        };
+            var trace = JsonSerializer.Deserialize<List<VirtualAccessRecord>>(r.AccessTraceJson ?? "[]") ?? new();
+            foreach (var t in trace)
+                if (!string.IsNullOrWhiteSpace(t.RegisterName))
+                    regs.Add(t.RegisterName);
+        }
+        catch { /* ignore */ }
+
+        return MapRunDetailItem(r, regs);
+    }
+
+    private static FailureAnalysisItem MapRunDetailItem(Core.Entities.LlTestRun r, HashSet<string> regs) => new()
+    {
+        RunId = r.Id,
+        TestCaseId = r.LlTestCaseId,
+        CaseName = r.TestCase?.Name ?? "",
+        FunctionName = r.TestCase?.FunctionName ?? "",
+        SourceFile = r.TestCase?.SourceFile,
+        Status = r.Status,
+        FailureReason = r.FailureReason,
+        CompileSucceeded = r.CompileSucceeded,
+        CompileLogExcerpt = Truncate(r.CompileLog, 800),
+        AssertionResultsJson = r.AssertionResultsJson,
+        AccessTraceJson = Truncate(r.AccessTraceJson, 16000),
+        RelatedRegisters = regs.Count == 0 ? null : string.Join(", ", regs.Take(20)),
+        StartedAtUtc = r.StartedAtUtc,
+        DurationMs = r.DurationMs,
+        ReturnValueText = r.ReturnValueText,
+        AssertionsPassed = r.AssertionsPassed,
+        ExecutionLogExcerpt = Truncate(r.ExecutionLog, 800),
+        ParametersJson = Truncate(r.TestCase?.ParametersJson, 4000),
+        InitialRegistersJson = Truncate(r.TestCase?.InitialRegistersJson, 2000),
+        RegisterWritesSummary = BuildRegisterWritesSummary(r.AccessTraceJson)
+    };
+
+    private static string? BuildRegisterWritesSummary(string? accessTraceJson)
+    {
+        if (string.IsNullOrWhiteSpace(accessTraceJson)) return null;
+        try
+        {
+            var recs = JsonSerializer.Deserialize<List<VirtualAccessRecord>>(accessTraceJson) ?? new();
+            var lines = new List<string>();
+            foreach (var t in recs.OrderBy(x => x.Sequence))
+            {
+                if (t.AccessKind is not (VirtualAccessKind.Write or VirtualAccessKind.SetBits
+                    or VirtualAccessKind.ClearBits or VirtualAccessKind.ModifyBits or VirtualAccessKind.WriteBitField))
+                    continue;
+                var kind = t.AccessKind.ToString();
+                var before = t.ValueBefore is uint b ? $"0x{b:X8}" : "—";
+                var after = t.ValueAfter is uint a ? $"0x{a:X8}" : "—";
+                var raw = t.RawValue is uint rv ? $"0x{rv:X8}" : "—";
+                var fn = string.IsNullOrWhiteSpace(t.LlFunctionName) ? "" : $" @ {t.LlFunctionName}";
+                var msg = string.IsNullOrWhiteSpace(t.Message) ? "" : $" ({t.Message})";
+                lines.Add($"{kind} {t.RegisterName}: {before} → {after} [写入={raw}]{fn}{msg}");
+            }
+            return lines.Count == 0 ? null : string.Join(Environment.NewLine, lines);
+        }
+        catch
+        {
+            return null;
+        }
     }
 
     private static string? Truncate(string? s, int max)

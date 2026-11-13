@@ -3,6 +3,7 @@ using System.Runtime.InteropServices;
 using System.Text.Json;
 using TAE32.LLVirtualTest.Core.Interfaces;
 using TAE32.LLVirtualTest.Core.Models;
+using TAE32.LLVirtualTest.Infrastructure.VirtualMcu;
 
 namespace TAE32.LLVirtualTest.Infrastructure.TestEngine;
 
@@ -129,7 +130,8 @@ internal sealed class NativeTestHost : IDisposable
         IVirtualMcuService mcu,
         Guid mcuId,
         string instanceName,
-        CancellationToken ct)
+        CancellationToken ct,
+        string? moduleName = null)
     {
         var regs = await mcu.GetRegistersAsync(mcuId, instanceName: instanceName, cancellationToken: ct);
         var withOff = regs
@@ -147,11 +149,12 @@ internal sealed class NativeTestHost : IDisposable
 
         // Larger pad: some LL paths touch adjacent/reserved offsets; AVE was taking down the UI process.
         const int minSize = 512 * 1024;
+        var structMin = HostPeripheralImageSizes.MinBytes(instanceName, moduleName);
 
         if (withOff.Count == 0)
         {
             var list = regs.ToList();
-            var size = Math.Max(minSize, list.Count * 4 + 256);
+            var size = Math.Max(Math.Max(minSize, structMin), list.Count * 4 + 256);
             var ptr = Marshal.AllocHGlobal(size);
             unsafe
             {
@@ -168,7 +171,7 @@ internal sealed class NativeTestHost : IDisposable
         }
 
         var maxOff = withOff.Max(x => x.Offset + Math.Max(4, x.WidthBits / 8));
-        var bufSize = Math.Max(minSize, maxOff + 1024);
+        var bufSize = Math.Max(Math.Max(minSize, structMin), maxOff + 1024);
         var basePtr = Marshal.AllocHGlobal(bufSize);
         unsafe
         {
@@ -181,6 +184,30 @@ internal sealed class NativeTestHost : IDisposable
             Marshal.WriteInt32(basePtr, r.Offset, unchecked((int)r.CurrentValue));
         }
         return (basePtr, bufSize, offsetMap);
+    }
+
+    /// <summary>BSR/BSRR writes on host RAM do not update DOR; mirror before sync (same as virtual GPIO).</summary>
+    public static void ApplyHostGpioBsrToDor(IntPtr periBase, IReadOnlyDictionary<int, string> offsetToMember)
+    {
+        var bsrOff = -1;
+        var dorOff = -1;
+        foreach (var (offset, member) in offsetToMember)
+        {
+            var m = member.ToUpperInvariant();
+            if (m is "BSR" or "BSRR") bsrOff = offset;
+            if (m is "DOR" or "ODR") dorOff = offset;
+        }
+
+        if (dorOff < 0) return;
+
+        if (bsrOff >= 0)
+        {
+            var bsr = unchecked((uint)Marshal.ReadInt32(periBase, bsrOff));
+            var dor = unchecked((uint)Marshal.ReadInt32(periBase, dorOff));
+            var merged = GpioBsrDorLogic.MergeBsrIntoDor(bsr, dor);
+            if (merged != dor)
+                Marshal.WriteInt32(periBase, dorOff, unchecked((int)merged));
+        }
     }
 
     public static async Task SyncBufferToVirtualMcuAsync(
@@ -199,12 +226,12 @@ internal sealed class NativeTestHost : IDisposable
         }
     }
 
-    public static byte[] PackArgs(IReadOnlyDictionary<string, uint> named)
+    public static byte[] PackArgs(IReadOnlyList<uint> values)
     {
         using var ms = new MemoryStream();
         using var bw = new BinaryWriter(ms);
-        foreach (var kv in named)
-            bw.Write(kv.Value);
+        foreach (var v in values)
+            bw.Write(v);
         bw.Write(0u);
         return ms.ToArray();
     }

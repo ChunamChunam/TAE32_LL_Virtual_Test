@@ -114,6 +114,16 @@ public sealed class FailureAnalysisItem
     public string? AccessTraceJson { get; set; }
     public string? RelatedRegisters { get; set; }
     public DateTime StartedAtUtc { get; set; }
+    public int DurationMs { get; set; }
+    public string? ReturnValueText { get; set; }
+    public bool AssertionsPassed { get; set; }
+    public string? ExecutionLogExcerpt { get; set; }
+    /// <summary>用例调用参数 JSON（含 prelude）。</summary>
+    public string? ParametersJson { get; set; }
+    /// <summary>运行前预置寄存器 JSON。</summary>
+    public string? InitialRegistersJson { get; set; }
+    /// <summary>可读：每次写/改位的值（before→after）。</summary>
+    public string? RegisterWritesSummary { get; set; }
 }
 
 public sealed class TestReportRequest

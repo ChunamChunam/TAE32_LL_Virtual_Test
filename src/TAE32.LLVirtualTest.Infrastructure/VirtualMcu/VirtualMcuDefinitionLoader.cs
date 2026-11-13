@@ -60,6 +60,10 @@ internal static class VirtualMcuDefinitionLoader
             var behavior = RegisterSemanticsEngine.ResolveBehavior(
                 r.AccessAttribute, options.DefaultUnknownAccessToReadWrite,
                 out var limAccess, out var noteAccess);
+            var moduleHint = r.Peripheral?.Name
+                             ?? r.PeripheralInstance?.ModuleName
+                             ?? InferModule(r.StructName, r.PeripheralInstance?.Name);
+            behavior = VirtualRegisterSemanticsOverrides.OverrideBehavior(moduleHint, r.MemberName, behavior);
 
             var reset = RegisterSemanticsEngine.ParseResetValue(r.ResetValue, out var limReset);
             var limitation = limAccess != SimulationLimitationKind.None ? limAccess : limReset;

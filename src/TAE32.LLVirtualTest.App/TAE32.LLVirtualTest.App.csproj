@@ -20,18 +20,22 @@
   </Target>
 
   <Target Name="BuildNativeRunnerCore" DependsOnTargets="BuildNativeRunner" BeforeTargets="CopyNativeRunner">
+    <!-- NativeRunner is net8.0; do not inherit net8.0-windows from this WPF project. -->
+    <PropertyGroup>
+      <_NrMsBuildProps>Configuration=$(Configuration);TargetFramework=net8.0;TargetFrameworks=</_NrMsBuildProps>
+    </PropertyGroup>
     <MSBuild Condition="'$(_NrRid)' != ''"
              Projects="$(_NativeRunnerProj)"
              Targets="Publish"
-             Properties="Configuration=$(Configuration);RuntimeIdentifier=$(_NrRid);SelfContained=$(_NrSelfContained);PublishProfile=;PublishDir=$([System.IO.Path]::GetFullPath('$(MSBuildThisFileDirectory)..\TAE32.LLVirtualTest.NativeRunner\bin\$(Configuration)\net8.0\$(_NrRid)\native-runner-publish\'))" />
+             Properties="$(_NrMsBuildProps);RuntimeIdentifier=$(_NrRid);SelfContained=$(_NrSelfContained);PublishProfile=;PublishDir=$([System.IO.Path]::GetFullPath('$(MSBuildThisFileDirectory)..\TAE32.LLVirtualTest.NativeRunner\bin\$(Configuration)\net8.0\$(_NrRid)\native-runner-publish\'))" />
     <MSBuild Condition="'$(_NrRid)' == ''"
              Projects="$(_NativeRunnerProj)"
              Targets="Build"
-             Properties="Configuration=$(Configuration)" />
+             Properties="$(_NrMsBuildProps)" />
   </Target>
 
   <!-- Copy out-of-process native harness runner beside the WPF app (AVE isolation). -->
-  <Target Name="CopyNativeRunner" AfterTargets="Build;Publish">
+  <Target Name="CopyNativeRunner" AfterTargets="Build;Publish" DependsOnTargets="BuildNativeRunnerCore">
     <PropertyGroup>
       <_NativeRunnerOut Condition="'$(_NrRid)' == ''">$([System.IO.Path]::GetFullPath('$(MSBuildThisFileDirectory)..\TAE32.LLVirtualTest.NativeRunner\bin\$(Configuration)\net8.0\'))</_NativeRunnerOut>
       <_NativeRunnerOut Condition="'$(_NrRid)' != ''">$([System.IO.Path]::GetFullPath('$(MSBuildThisFileDirectory)..\TAE32.LLVirtualTest.NativeRunner\bin\$(Configuration)\net8.0\$(_NrRid)\native-runner-publish\'))</_NativeRunnerOut>
@@ -68,6 +72,8 @@
     <UseWPF>true</UseWPF>
     <ApplicationManifest>app.manifest</ApplicationManifest>
     <ApplicationHighDpiMode>PerMonitorV2</ApplicationHighDpiMode>
+    <!-- libclang / SDK are win-x64; aligns with FolderProfile RID -->
+    <PlatformTarget>x64</PlatformTarget>
   </PropertyGroup>
 
   <!-- Single-file publish (FolderProfile): native clang + content beside exe -->

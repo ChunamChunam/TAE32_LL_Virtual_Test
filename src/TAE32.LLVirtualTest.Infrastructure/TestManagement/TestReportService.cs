@@ -43,7 +43,15 @@ public sealed class TestReportService : ITestReportService
                       ?? throw new InvalidOperationException("SDK 项目不存在");
         var stats = await _analytics.GetStatisticsAsync(request.SdkProjectId, request.BatchRunId, cancellationToken);
         var coverage = await _analytics.GetCoverageAsync(request.SdkProjectId, cancellationToken);
-        var failures = await _analytics.GetFailuresAsync(request.SdkProjectId, request.BatchRunId, 200, cancellationToken);
+        var runDetails = await _analytics.GetReportRunDetailsAsync(request.SdkProjectId, request.BatchRunId, cancellationToken);
+        var failures = runDetails
+            .Where(x => x.Status is nameof(LlTestRunStatus.Failed)
+                or nameof(LlTestRunStatus.Error)
+                or nameof(LlTestRunStatus.Timeout))
+            .ToList();
+        var passedDetails = runDetails
+            .Where(x => x.Status == nameof(LlTestRunStatus.Passed))
+            .ToList();
         TestBatchRun? batch = null;
         if (request.BatchRunId is Guid bid)
             batch = await db.TestBatchRuns.AsNoTracking().FirstOrDefaultAsync(x => x.Id == bid, cancellationToken);
@@ -68,21 +76,21 @@ public sealed class TestReportService : ITestReportService
             case TestReportFormat.Csv:
             case TestReportFormat.Excel:
                 path = Path.Combine(outDir, $"report_{stamp}.csv");
-                await File.WriteAllTextAsync(path, BuildCsv(project, batch, stats, failures), Encoding.UTF8, cancellationToken);
+                await File.WriteAllTextAsync(path, BuildCsv(project, batch, stats, runDetails), Encoding.UTF8, cancellationToken);
                 format = request.Format == TestReportFormat.Excel ? "Excel" : "Csv";
                 break;
             case TestReportFormat.Pdf:
                 // Lightweight printable HTML saved as .pdf.html (open in browser → 打印为 PDF).
                 path = Path.Combine(outDir, $"report_{stamp}.pdf.html");
                 await File.WriteAllTextAsync(path,
-                    BuildHtml(title, disclaimer, project, batch, stats, coverage, failures, printable: true),
+                    BuildHtml(title, disclaimer, project, batch, stats, coverage, runDetails, failures, passedDetails, printable: true),
                     Encoding.UTF8, cancellationToken);
                 format = "Pdf";
                 break;
             default:
                 path = Path.Combine(outDir, $"report_{stamp}.html");
                 await File.WriteAllTextAsync(path,
-                    BuildHtml(title, disclaimer, project, batch, stats, coverage, failures, printable: false),
+                    BuildHtml(title, disclaimer, project, batch, stats, coverage, runDetails, failures, passedDetails, printable: false),
                     Encoding.UTF8, cancellationToken);
                 format = "Html";
                 break;
@@ -205,13 +213,15 @@ public sealed class TestReportService : ITestReportService
         TestBatchRun? batch,
         TestStatistics stats,
         CoverageStats coverage,
+        IReadOnlyList<FailureAnalysisItem> runDetails,
         IReadOnlyList<FailureAnalysisItem> failures,
+        IReadOnlyList<FailureAnalysisItem> passedDetails,
         bool printable)
     {
         var sb = new StringBuilder();
         sb.AppendLine("<!DOCTYPE html><html><head><meta charset='utf-8'/>");
         sb.AppendLine($"<title>{Escape(title)}</title>");
-        sb.AppendLine("<style>body{font-family:Segoe UI,Arial,sans-serif;margin:24px;color:#1a1a1a}h1,h2{color:#0f766e}.warn{background:#fff7ed;border:1px solid #fdba74;padding:12px;margin:12px 0}table{border-collapse:collapse;width:100%;margin:12px 0}th,td{border:1px solid #ddd;padding:6px 8px;font-size:13px}th{background:#f3f4f6;text-align:left}.meta{color:#555}pre{background:#f8fafc;padding:8px;overflow:auto;font-size:12px}</style>");
+        sb.AppendLine("<style>body{font-family:Segoe UI,Arial,sans-serif;margin:24px;color:#1a1a1a}h1,h2{color:#0f766e}.warn{background:#fff7ed;border:1px solid #fdba74;padding:12px;margin:12px 0}table{border-collapse:collapse;width:100%;margin:12px 0}th,td{border:1px solid #ddd;padding:6px 8px;font-size:13px}th{background:#f3f4f6;text-align:left}.meta{color:#555}pre{background:#f8fafc;padding:8px;overflow:auto;font-size:12px}details{margin:8px 0;border:1px solid #e5e7eb;border-radius:6px;padding:4px 8px}details>summary{cursor:pointer;font-weight:600}.pass summary{color:#047857}.fail summary{color:#b45309}</style>");
         if (printable) sb.AppendLine("<style>@media print{body{margin:12px}}</style>");
         sb.AppendLine("</head><body>");
         sb.AppendLine($"<h1>{Escape(title)}</h1>");
@@ -244,42 +254,126 @@ public sealed class TestReportService : ITestReportService
         sb.AppendLine($"<li class='meta'>{Escape(coverage.Notes)}</li>");
         sb.AppendLine("</ul>");
 
-        sb.AppendLine("<h2>4. 失败用例清单</h2>");
-        if (failures.Count == 0) sb.AppendLine("<p>无失败/错误/超时记录（基于所选范围的真实运行数据）。</p>");
+        sb.AppendLine($"<h2>4. 执行结果汇总（{runDetails.Count} 条）</h2>");
+        sb.AppendLine("<p class='meta'>");
+        sb.AppendLine(batch is null
+            ? "范围：各用例最新一次运行。"
+            : "范围：当前批次内全部运行。");
+        sb.AppendLine($"Passed={passedDetails.Count}，失败/错误/超时={failures.Count}。</p>");
+        if (runDetails.Count == 0)
+            sb.AppendLine("<p>无运行记录。</p>");
         else
         {
-            sb.AppendLine("<table><tr><th>用例</th><th>函数</th><th>状态</th><th>失败原因</th><th>源码</th><th>相关寄存器</th></tr>");
-            foreach (var f in failures)
+            sb.AppendLine("<table><tr><th>用例</th><th>函数</th><th>状态</th><th>耗时(ms)</th><th>返回值</th><th>编译</th><th>断言</th><th>说明</th></tr>");
+            foreach (var r in runDetails)
             {
                 sb.AppendLine("<tr>");
-                sb.AppendLine($"<td>{Escape(f.CaseName)}</td><td>{Escape(f.FunctionName)}</td><td>{Escape(f.Status)}</td>");
-                sb.AppendLine($"<td>{Escape(f.FailureReason ?? "")}</td><td>{Escape(f.SourceFile ?? "")}</td><td>{Escape(f.RelatedRegisters ?? "")}</td>");
+                sb.AppendLine($"<td>{Escape(r.CaseName)}</td><td>{Escape(r.FunctionName)}</td><td>{Escape(r.Status)}</td>");
+                sb.AppendLine($"<td>{r.DurationMs}</td><td>{Escape(r.ReturnValueText ?? "")}</td>");
+                sb.AppendLine($"<td>{(r.CompileSucceeded ? "OK" : "Fail")}</td>");
+                sb.AppendLine($"<td>{(r.AssertionsPassed ? "OK" : "—")}</td>");
+                sb.AppendLine($"<td>{Escape(r.FailureReason ?? (r.Status == nameof(LlTestRunStatus.Passed) ? "通过" : ""))}</td>");
                 sb.AppendLine("</tr>");
             }
             sb.AppendLine("</table>");
-            sb.AppendLine("<h3>编译 / 断言摘录</h3>");
-            foreach (var f in failures.Take(20))
-            {
-                sb.AppendLine($"<h4>{Escape(f.CaseName)}</h4>");
-                if (!string.IsNullOrWhiteSpace(f.CompileLogExcerpt))
-                    sb.AppendLine($"<pre>{Escape(f.CompileLogExcerpt)}</pre>");
-                if (!string.IsNullOrWhiteSpace(f.AssertionResultsJson))
-                    sb.AppendLine($"<pre>{Escape(f.AssertionResultsJson)}</pre>");
-            }
         }
 
-        sb.AppendLine("<h2>5. 测试结论</h2>");
+        AppendRunDetailSection(sb, "5. 失败 / 错误 / 超时 — 详细记录", failures, cssClass: "fail", expand: true);
+        AppendRunDetailSection(sb, "6. 通过 — 详细测试记录", passedDetails, cssClass: "pass", expand: false);
+
+        sb.AppendLine("<h2>7. 测试结论</h2>");
         sb.AppendLine($"<p>在虚拟 MCU 环境下，选定范围内通过率 {stats.PassRate:F1}%。");
         sb.AppendLine("本结论仅反映软件模拟验证，不能替代板级硬件测试。</p>");
         sb.AppendLine("</body></html>");
         return sb.ToString();
     }
 
+    private static void AppendRunDetailSection(
+        StringBuilder sb,
+        string heading,
+        IReadOnlyList<FailureAnalysisItem> items,
+        string cssClass,
+        bool expand)
+    {
+        sb.AppendLine($"<h2>{Escape(heading)} ({items.Count})</h2>");
+        if (items.Count == 0)
+        {
+            sb.AppendLine("<p>无记录。</p>");
+            return;
+        }
+
+        foreach (var r in items)
+        {
+            var summary = $"{r.Status} — {r.FunctionName} — {r.CaseName} ({r.DurationMs} ms)";
+            sb.AppendLine($"<details class='{cssClass}'{(expand ? " open" : "")}>");
+            sb.AppendLine($"<summary>{Escape(summary)}</summary>");
+            sb.AppendLine("<ul>");
+            sb.AppendLine($"<li>RunId: {r.RunId}</li>");
+            sb.AppendLine($"<li>源码: {Escape(r.SourceFile ?? "—")}</li>");
+            sb.AppendLine($"<li>返回值: {Escape(r.ReturnValueText ?? "—")}</li>");
+            sb.AppendLine($"<li>相关寄存器: {Escape(r.RelatedRegisters ?? "—")}</li>");
+            if (!string.IsNullOrWhiteSpace(r.FailureReason))
+                sb.AppendLine($"<li>说明: {Escape(r.FailureReason)}</li>");
+            sb.AppendLine("</ul>");
+            if (!string.IsNullOrWhiteSpace(r.ParametersJson))
+            {
+                sb.AppendLine("<p><b>用例参数（传入 LL 的实参）</b></p>");
+                sb.AppendLine($"<pre>{Escape(FormatAssertionJsonForReport(r.ParametersJson))}</pre>");
+            }
+            if (!string.IsNullOrWhiteSpace(r.InitialRegistersJson)
+                && r.InitialRegistersJson != "[]")
+            {
+                sb.AppendLine("<p><b>初始寄存器（运行前预置写入）</b></p>");
+                sb.AppendLine($"<pre>{Escape(FormatAssertionJsonForReport(r.InitialRegistersJson))}</pre>");
+            }
+            if (!string.IsNullOrWhiteSpace(r.RegisterWritesSummary))
+            {
+                sb.AppendLine("<p><b>寄存器写入值一览</b></p>");
+                sb.AppendLine($"<pre>{Escape(r.RegisterWritesSummary)}</pre>");
+            }
+            if (!string.IsNullOrWhiteSpace(r.ExecutionLogExcerpt))
+            {
+                sb.AppendLine("<p><b>执行日志</b></p>");
+                sb.AppendLine($"<pre>{Escape(r.ExecutionLogExcerpt)}</pre>");
+            }
+            if (!string.IsNullOrWhiteSpace(r.CompileLogExcerpt) && !r.CompileSucceeded)
+            {
+                sb.AppendLine("<p><b>编译日志</b></p>");
+                sb.AppendLine($"<pre>{Escape(r.CompileLogExcerpt)}</pre>");
+            }
+            if (!string.IsNullOrWhiteSpace(r.AssertionResultsJson))
+            {
+                sb.AppendLine("<p><b>断言结果</b></p>");
+                sb.AppendLine($"<pre>{Escape(FormatAssertionJsonForReport(r.AssertionResultsJson))}</pre>");
+            }
+            if (!string.IsNullOrWhiteSpace(r.AccessTraceJson))
+            {
+                sb.AppendLine("<p><b>寄存器访问轨迹（摘录）</b></p>");
+                sb.AppendLine($"<pre>{Escape(r.AccessTraceJson)}</pre>");
+            }
+            sb.AppendLine("</details>");
+        }
+    }
+
+    private static string FormatAssertionJsonForReport(string? json)
+    {
+        if (string.IsNullOrWhiteSpace(json)) return "";
+        try
+        {
+            using var doc = JsonDocument.Parse(json);
+            return JsonSerializer.Serialize(doc, new JsonSerializerOptions { WriteIndented = true });
+        }
+        catch
+        {
+            return json;
+        }
+    }
+
     private static string BuildCsv(
         SdkProject project,
         TestBatchRun? batch,
         TestStatistics stats,
-        IReadOnlyList<FailureAnalysisItem> failures)
+        IReadOnlyList<FailureAnalysisItem> runDetails)
     {
         var sb = new StringBuilder();
         sb.AppendLine("Section,Key,Value");
@@ -297,11 +391,25 @@ public sealed class TestReportService : ITestReportService
         sb.AppendLine($"Stats,PassRate,{stats.PassRate:F2}");
         sb.AppendLine($"Stats,CompileFailRate,{stats.CompileFailRate:F2}");
         sb.AppendLine($"Stats,AverageDurationMs,{stats.AverageDurationMs:F0}");
-        sb.AppendLine("Failure,CaseName,FunctionName,Status,FailureReason,SourceFile,Registers");
-        foreach (var f in failures)
-            sb.AppendLine($"Failure,\"{EscapeCsv(f.CaseName)}\",\"{EscapeCsv(f.FunctionName)}\",{f.Status},\"{EscapeCsv(f.FailureReason ?? "")}\",\"{EscapeCsv(f.SourceFile ?? "")}\",\"{EscapeCsv(f.RelatedRegisters ?? "")}\"");
+        sb.AppendLine("RunDetail,CaseName,FunctionName,Status,DurationMs,ReturnValue,CompileOk,AssertionsOk,FailureReason,SourceFile,Registers,Parameters,InitialRegisters,RegisterWrites,AssertionResults,AccessTrace");
+        foreach (var r in runDetails)
+        {
+            var assertions = EscapeCsv(TruncateForCsv(r.AssertionResultsJson, 8000) ?? "");
+            var trace = EscapeCsv(TruncateForCsv(r.AccessTraceJson, 4000) ?? "");
+            var parameters = EscapeCsv(TruncateForCsv(r.ParametersJson, 2000) ?? "");
+            var initials = EscapeCsv(TruncateForCsv(r.InitialRegistersJson, 1000) ?? "");
+            var writes = EscapeCsv(TruncateForCsv(r.RegisterWritesSummary, 4000) ?? "");
+            sb.AppendLine(
+                $"RunDetail,\"{EscapeCsv(r.CaseName)}\",\"{EscapeCsv(r.FunctionName)}\",{r.Status},{r.DurationMs}," +
+                $"\"{EscapeCsv(r.ReturnValueText ?? "")}\",{r.CompileSucceeded},{r.AssertionsPassed}," +
+                $"\"{EscapeCsv(r.FailureReason ?? "")}\",\"{EscapeCsv(r.SourceFile ?? "")}\",\"{EscapeCsv(r.RelatedRegisters ?? "")}\"," +
+                $"\"{parameters}\",\"{initials}\",\"{writes}\",\"{assertions}\",\"{trace}\"");
+        }
         return sb.ToString();
     }
+
+    private static string? TruncateForCsv(string? s, int max)
+        => string.IsNullOrEmpty(s) ? s : s.Length <= max ? s : s[..max] + "…";
 
     private static string FmtPct(double? v) => v is null ? "N/A（无足够真实数据）" : $"{v:F1}%";
     private static string Escape(string s) => s.Replace("&", "&amp;").Replace("<", "&lt;").Replace(">", "&gt;").Replace("\"", "&quot;");

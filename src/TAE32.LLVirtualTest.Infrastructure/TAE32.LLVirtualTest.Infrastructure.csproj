@@ -27,6 +27,7 @@
 
   <ItemGroup>
     <InternalsVisibleTo Include="TAE32.LLVirtualTest.Tests" />
+    <InternalsVisibleTo Include="RerunNonPassed" />
   </ItemGroup>
 
   <ItemGroup>
