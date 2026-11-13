@@ -133,7 +133,7 @@ internal sealed class NativeTestHost : IDisposable
         CancellationToken ct,
         string? moduleName = null)
     {
-        var regs = await mcu.GetRegistersAsync(mcuId, instanceName: instanceName, cancellationToken: ct);
+        var regs = await mcu.GetRegistersAsync(mcuId, moduleName, instanceName, ct);
         var withOff = regs
             .Where(r => r.AbsoluteAddress is not null)
             .Select(r => new
@@ -186,28 +186,32 @@ internal sealed class NativeTestHost : IDisposable
         return (basePtr, bufSize, offsetMap);
     }
 
-    /// <summary>BSR/BSRR writes on host RAM do not update DOR; mirror before sync (same as virtual GPIO).</summary>
+    /// <summary>
+    /// BSR/BSRR writes on host RAM do not update data-out; mirror into DOR before sync.
+    /// TAE32: DOR = data output, ODR = open-drain config — never treat ODR as DOR when both exist.
+    /// </summary>
     public static void ApplyHostGpioBsrToDor(IntPtr periBase, IReadOnlyDictionary<int, string> offsetToMember)
     {
         var bsrOff = -1;
         var dorOff = -1;
+        var odrOff = -1;
         foreach (var (offset, member) in offsetToMember)
         {
             var m = member.ToUpperInvariant();
             if (m is "BSR" or "BSRR") bsrOff = offset;
-            if (m is "DOR" or "ODR") dorOff = offset;
+            else if (m == "DOR") dorOff = offset;
+            else if (m == "ODR") odrOff = offset;
         }
 
-        if (dorOff < 0) return;
+        // Prefer DOR; only fall back to ODR for STM32-style layouts without DOR.
+        var dataOutOff = dorOff >= 0 ? dorOff : odrOff;
+        if (dataOutOff < 0 || bsrOff < 0) return;
 
-        if (bsrOff >= 0)
-        {
-            var bsr = unchecked((uint)Marshal.ReadInt32(periBase, bsrOff));
-            var dor = unchecked((uint)Marshal.ReadInt32(periBase, dorOff));
-            var merged = GpioBsrDorLogic.MergeBsrIntoDor(bsr, dor);
-            if (merged != dor)
-                Marshal.WriteInt32(periBase, dorOff, unchecked((int)merged));
-        }
+        var bsr = unchecked((uint)Marshal.ReadInt32(periBase, bsrOff));
+        var dataOut = unchecked((uint)Marshal.ReadInt32(periBase, dataOutOff));
+        var merged = GpioBsrDorLogic.MergeBsrIntoDor(bsr, dataOut);
+        if (merged != dataOut)
+            Marshal.WriteInt32(periBase, dataOutOff, unchecked((int)merged));
     }
 
     public static async Task SyncBufferToVirtualMcuAsync(

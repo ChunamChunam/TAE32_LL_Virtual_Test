@@ -99,6 +99,33 @@ public sealed class CoverageStats
         "覆盖率仅基于数据库中已有真实数据；缺失解析/执行证据时对应项为 null，不伪造。";
 }
 
+/// <summary>报告页：所选批次将导出的内容预览（非全量，仅前若干条）。</summary>
+public sealed class BatchExportPreviewModel
+{
+    public Guid BatchRunId { get; set; }
+    public int RegisteredRunCount { get; set; }
+    public int RunsFoundInDb { get; set; }
+    public string Status { get; set; } = string.Empty;
+    public string ScopeKind { get; set; } = string.Empty;
+    public string? ScopeValue { get; set; }
+    public DateTime StartedAtUtc { get; set; }
+    public int PassedCount { get; set; }
+    public int FailedCount { get; set; }
+    public int ErrorCount { get; set; }
+    public int SkippedCount { get; set; }
+    public int TimeoutCount { get; set; }
+    public IReadOnlyList<BatchExportPreviewRow> PreviewRows { get; set; } = Array.Empty<BatchExportPreviewRow>();
+}
+
+public sealed class BatchExportPreviewRow
+{
+    public int Index { get; set; }
+    public string CaseName { get; set; } = string.Empty;
+    public string FunctionName { get; set; } = string.Empty;
+    public string Status { get; set; } = string.Empty;
+    public int DurationMs { get; set; }
+}
+
 public sealed class FailureAnalysisItem
 {
     public Guid RunId { get; set; }
@@ -131,6 +158,8 @@ public sealed class TestReportRequest
     public Guid SdkProjectId { get; set; }
     public Guid? BatchRunId { get; set; }
     public TestReportFormat Format { get; set; } = TestReportFormat.Html;
+    /// <summary>默认跟批次选择：有 BatchRunId 则导出该批全部运行；否则每用例最新。</summary>
+    public TestReportRunScope RunScope { get; set; } = TestReportRunScope.Auto;
     public string? OutputDirectory { get; set; }
     public string? Title { get; set; }
 }
@@ -141,6 +170,23 @@ public sealed class TestReportResult
     public string Format { get; set; } = string.Empty;
     public string FilePath { get; set; } = string.Empty;
     public string Message { get; set; } = string.Empty;
+    /// <summary>本次报告内嵌的运行明细条数（与汇总表一致）。</summary>
+    public int RunDetailCount { get; set; }
+    /// <summary>选中批次登记的 TotalCount（仅批次导出时有值）。</summary>
+    public int? BatchExpectedRunCount { get; set; }
+    public TestReportRunScope EffectiveRunScope { get; set; }
+}
+
+public enum TestReportRunScope
+{
+    /// <summary>有 BatchRunId 则用批次，否则每用例最新。</summary>
+    Auto,
+    /// <summary>忽略批次，导出项目内每个用例最新一次运行（推荐全量验收）。</summary>
+    ProjectLatestPerCase,
+    /// <summary>仅当前 BatchRunId 内的运行（需已选批次）。</summary>
+    SelectedBatchOnly,
+    /// <summary>项目内全部运行记录（含历史重复，体积大）。</summary>
+    ProjectAllRuns
 }
 
 public enum TestReportFormat

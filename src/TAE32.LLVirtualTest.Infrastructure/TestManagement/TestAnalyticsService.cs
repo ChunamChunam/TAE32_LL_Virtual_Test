@@ -10,6 +10,8 @@ namespace TAE32.LLVirtualTest.Infrastructure.TestManagement;
 
 public sealed class TestAnalyticsService : ITestAnalyticsService
 {
+    private const int BatchRunIdQueryChunk = 400;
+
     private readonly IDbContextFactory<AppDbContext> _dbFactory;
     public TestAnalyticsService(IDbContextFactory<AppDbContext> dbFactory) => _dbFactory = dbFactory;
 
@@ -148,19 +150,30 @@ public sealed class TestAnalyticsService : ITestAnalyticsService
     }
 
     public async Task<IReadOnlyList<FailureAnalysisItem>> GetReportRunDetailsAsync(
-        Guid sdkProjectId, Guid? batchRunId = null, CancellationToken ct = default)
+        Guid sdkProjectId,
+        Guid? batchRunId = null,
+        TestReportRunScope runScope = TestReportRunScope.ProjectLatestPerCase,
+        CancellationToken ct = default)
     {
         await using var db = await _dbFactory.CreateDbContextAsync(ct);
+        var effectiveScope = runScope;
+        if (effectiveScope == TestReportRunScope.Auto)
+            effectiveScope = batchRunId is Guid ? TestReportRunScope.SelectedBatchOnly : TestReportRunScope.ProjectLatestPerCase;
+
         List<Core.Entities.LlTestRun> rows;
-        if (batchRunId is Guid bid)
+        if (effectiveScope == TestReportRunScope.SelectedBatchOnly && batchRunId is Guid bid)
         {
             var batch = await db.TestBatchRuns.AsNoTracking().FirstOrDefaultAsync(x => x.Id == bid, ct);
             var ids = batch is null
                 ? new List<Guid>()
                 : JsonSerializer.Deserialize<List<Guid>>(batch.CaseRunIdsJson) ?? new();
+            rows = await LoadRunsByIdsInBatchOrderAsync(db, ids, ct);
+        }
+        else if (effectiveScope == TestReportRunScope.ProjectAllRuns)
+        {
             rows = await db.LlTestRuns.AsNoTracking()
                 .Include(x => x.TestCase)
-                .Where(x => ids.Contains(x.Id))
+                .Where(x => x.SdkProjectId == sdkProjectId)
                 .ToListAsync(ct);
         }
         else
@@ -181,6 +194,49 @@ public sealed class TestAnalyticsService : ITestAnalyticsService
             .ThenBy(x => x.TestCase?.Name ?? "", StringComparer.Ordinal)
             .Select(MapRunDetailItem)
             .ToList();
+    }
+
+    public async Task<BatchExportPreviewModel?> GetBatchExportPreviewAsync(
+        Guid batchRunId,
+        int maxPreviewRows = 40,
+        CancellationToken ct = default)
+    {
+        maxPreviewRows = Math.Clamp(maxPreviewRows, 1, 200);
+        await using var db = await _dbFactory.CreateDbContextAsync(ct);
+        var batch = await db.TestBatchRuns.AsNoTracking().FirstOrDefaultAsync(x => x.Id == batchRunId, ct);
+        if (batch is null) return null;
+
+        var ids = JsonSerializer.Deserialize<List<Guid>>(batch.CaseRunIdsJson) ?? new();
+        var previewIds = ids.Take(maxPreviewRows).ToList();
+        var rows = await LoadRunsByIdsInBatchOrderAsync(db, previewIds, ct);
+
+        var preview = rows.Select((r, i) => new BatchExportPreviewRow
+        {
+            Index = i + 1,
+            CaseName = r.TestCase?.Name ?? "",
+            FunctionName = r.TestCase?.FunctionName ?? "",
+            Status = r.Status,
+            DurationMs = r.DurationMs
+        }).ToList();
+
+        var found = ids.Count == 0 ? 0 : await CountRunsInDbAsync(db, ids, ct);
+
+        return new BatchExportPreviewModel
+        {
+            BatchRunId = batch.Id,
+            RegisteredRunCount = ids.Count,
+            RunsFoundInDb = found,
+            Status = batch.Status,
+            ScopeKind = batch.ScopeKind,
+            ScopeValue = batch.ScopeValue,
+            StartedAtUtc = batch.StartedAtUtc,
+            PassedCount = batch.PassedCount,
+            FailedCount = batch.FailedCount,
+            ErrorCount = batch.ErrorCount,
+            SkippedCount = batch.SkippedCount,
+            TimeoutCount = batch.TimeoutCount,
+            PreviewRows = preview
+        };
     }
 
     public async Task<(IReadOnlyList<FailureAnalysisItem> Items, int TotalCount)> GetFailuresPagedAsync(
@@ -331,4 +387,46 @@ public sealed class TestAnalyticsService : ITestAnalyticsService
 
     private static string? Truncate(string? s, int max)
         => string.IsNullOrEmpty(s) ? s : s.Length <= max ? s : s[..max] + "…";
+
+    private static async Task<int> CountRunsInDbAsync(AppDbContext db, IReadOnlyList<Guid> ids, CancellationToken ct)
+    {
+        var n = 0;
+        for (var offset = 0; offset < ids.Count; offset += BatchRunIdQueryChunk)
+        {
+            var chunk = ids.Skip(offset).Take(BatchRunIdQueryChunk).ToList();
+            n += await db.LlTestRuns.AsNoTracking().CountAsync(x => chunk.Contains(x.Id), ct);
+        }
+        return n;
+    }
+
+    /// <summary>Load all runs for a batch; chunk IN clauses for large batches (thousands).</summary>
+    private static async Task<List<Core.Entities.LlTestRun>> LoadRunsByIdsInBatchOrderAsync(
+        AppDbContext db,
+        IReadOnlyList<Guid> orderedRunIds,
+        CancellationToken ct)
+    {
+        if (orderedRunIds.Count == 0)
+            return new List<Core.Entities.LlTestRun>();
+
+        var byId = new Dictionary<Guid, Core.Entities.LlTestRun>(orderedRunIds.Count);
+        for (var offset = 0; offset < orderedRunIds.Count; offset += BatchRunIdQueryChunk)
+        {
+            var chunk = orderedRunIds.Skip(offset).Take(BatchRunIdQueryChunk).ToList();
+            var chunkRows = await db.LlTestRuns.AsNoTracking()
+                .Include(x => x.TestCase)
+                .Where(x => chunk.Contains(x.Id))
+                .ToListAsync(ct);
+            foreach (var row in chunkRows)
+                byId[row.Id] = row;
+        }
+
+        var ordered = new List<Core.Entities.LlTestRun>(orderedRunIds.Count);
+        foreach (var id in orderedRunIds)
+        {
+            if (byId.TryGetValue(id, out var row))
+                ordered.Add(row);
+        }
+
+        return ordered;
+    }
 }

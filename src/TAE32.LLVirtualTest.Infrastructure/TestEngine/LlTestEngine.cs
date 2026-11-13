@@ -217,6 +217,8 @@ public sealed class LlTestEngine : ILLTestEngine
 
             var periHint = edit.Parameters.FirstOrDefault(TestHarnessGenerator.IsPeripheralTypeDefPointer)?.ValueExpression
                            ?? defaultPeri;
+            var virtualInstance = await VirtualMcuInstanceResolver.ResolveAsync(
+                _mcu, mcuId!.Value, periHint, entity.PeripheralName, cancellationToken);
 
             var harness = TestHarnessGenerator.Generate(
                 entity.FunctionName,
@@ -283,13 +285,13 @@ public sealed class LlTestEngine : ILLTestEngine
                 using var host = new NativeTestHost();
                 host.Load(compile.OutputDllPath!);
                 var (ptr, size, map) = await NativeTestHost.AllocateAndFillAsync(
-                    _mcu, mcuId.Value, periHint, timeoutCts.Token, entity.PeripheralName);
+                    _mcu, mcuId.Value, virtualInstance, timeoutCts.Token, entity.PeripheralName);
                 try
                 {
                     var argValues = TestHarnessGenerator.BuildArgsValuesInHarnessOrder(
                         edit.Parameters, edit.PreludeCalls);
                     var blob = NativeTestHost.PackArgs(argValues);
-                    L($"原生执行 {entity.FunctionName} @ virtual {periHint} …");
+                    L($"原生执行 {entity.FunctionName} @ virtual {virtualInstance} (hint={periHint}) …");
                     ret = host.Execute(ptr, (uint)size, blob, out var nrc);
                     if (nrc != 0)
                         throw new InvalidOperationException($"harness tae32_run 返回 {nrc}");
@@ -302,7 +304,7 @@ public sealed class LlTestEngine : ILLTestEngine
                         SourceFile = entity.SourceFile,
                         Note = "native-harness-sync"
                     };
-                    await NativeTestHost.SyncBufferToVirtualMcuAsync(_mcu, mcuId.Value, periHint, ptr, map, ctx, timeoutCts.Token);
+                    await NativeTestHost.SyncBufferToVirtualMcuAsync(_mcu, mcuId.Value, virtualInstance, ptr, map, ctx, timeoutCts.Token);
                     run.ExecuteCompleted = true;
                     run.HardwareBehaviorSimulated = true;
                     stages.Add(new LlTestStageResult

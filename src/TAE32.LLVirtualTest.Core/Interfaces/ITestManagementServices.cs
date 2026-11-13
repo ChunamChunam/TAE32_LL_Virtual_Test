@@ -75,6 +75,13 @@ public interface ITestAnalyticsService
     Task<IReadOnlyList<FailureAnalysisItem>> GetReportRunDetailsAsync(
         Guid sdkProjectId,
         Guid? batchRunId = null,
+        TestReportRunScope runScope = TestReportRunScope.ProjectLatestPerCase,
+        CancellationToken ct = default);
+
+    /// <summary>报告页预览：批次登记条数 + 库中命中数 + 前若干条运行摘要（导出仍含全部）。</summary>
+    Task<BatchExportPreviewModel?> GetBatchExportPreviewAsync(
+        Guid batchRunId,
+        int maxPreviewRows = 40,
         CancellationToken ct = default);
 
     Task<(IReadOnlyList<FailureAnalysisItem> Items, int TotalCount)> GetFailuresPagedAsync(

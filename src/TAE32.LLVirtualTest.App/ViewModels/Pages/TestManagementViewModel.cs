@@ -1,7 +1,9 @@
 using System.Collections.ObjectModel;
+using System.ComponentModel;
 using System.Diagnostics;
 using System.IO;
 using System.Windows;
+using System.Windows.Data;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
 using TAE32.LLVirtualTest.App.Views.Dialogs;
@@ -77,6 +79,18 @@ public partial class TestManagementViewModel : ObservableObject
     [ObservableProperty] private bool _isBusy;
     [ObservableProperty] private string _busyOverlayText = string.Empty;
     [ObservableProperty] private string _selectedReportFormat = "Html";
+    public ObservableCollection<TestBatchRun> ExportBatchRows { get; } = new();
+    [ObservableProperty] private ICollectionView? _exportBatchTableView;
+    public ObservableCollection<string> ExportRunScopeOptions { get; } = new()
+    {
+        "当前选中批次",
+        "自动（已选批次→该批全部；未选→每用例最新）",
+        "全项目（每用例最新）",
+        "全项目（全部运行历史）"
+    };
+    [ObservableProperty] private string _selectedExportRunScope = "自动（已选批次→该批全部；未选→每用例最新）";
+    [ObservableProperty] private string _exportScopeHint =
+        "在下方表格选中一批次；默认「自动」会导出该批全部运行记录（条数与「总数」一致，无上限）。";
     [ObservableProperty] private string _availableCaseSearchText = string.Empty;
     [ObservableProperty] private int _availableCasePageIndex = 1;
     [ObservableProperty] private int _availableCasePageSize = 100;
@@ -93,6 +107,14 @@ public partial class TestManagementViewModel : ObservableObject
     [ObservableProperty] private string _historyPageInfo = string.Empty;
     [ObservableProperty] private bool _canHistoryPrev;
     [ObservableProperty] private bool _canHistoryNext;
+    [ObservableProperty] private string _exportBatchSearchText = string.Empty;
+    [ObservableProperty] private int _exportBatchPageIndex = 1;
+    [ObservableProperty] private int _exportBatchPageSize = 50;
+    [ObservableProperty] private int _exportBatchTotalCount;
+    [ObservableProperty] private int _exportBatchTotalPages = 1;
+    [ObservableProperty] private string _exportBatchPageInfo = string.Empty;
+    [ObservableProperty] private bool _canExportBatchPrev;
+    [ObservableProperty] private bool _canExportBatchNext;
     [ObservableProperty] private string _artifactSearchText = string.Empty;
     [ObservableProperty] private int _artifactPageIndex = 1;
     [ObservableProperty] private int _artifactPageSize = 50;
@@ -112,6 +134,7 @@ public partial class TestManagementViewModel : ObservableObject
         RunPeripheralCommand.NotifyCanExecuteChanged();
         SavePlanCommand.NotifyCanExecuteChanged();
         ExportReportCommand.NotifyCanExecuteChanged();
+        ExportSelectedBatchReportCommand.NotifyCanExecuteChanged();
         RefreshCommand.NotifyCanExecuteChanged();
     }
 
@@ -163,6 +186,7 @@ public partial class TestManagementViewModel : ObservableObject
         await ReloadStatsAsync();
         await ReloadFailuresAsync();
         await ReloadArtifactsAsync();
+        await ReloadExportBatchListAsync();
         StatusText = "测试管理已刷新（虚拟 MCU 数据）";
     }
 
@@ -276,6 +300,35 @@ public partial class TestManagementViewModel : ObservableObject
         if (HistoryPageIndex >= HistoryTotalPages) return;
         HistoryPageIndex++;
         await ReloadHistoryAsync();
+    }
+
+    [RelayCommand]
+    private async Task SearchExportBatchesAsync()
+    {
+        ExportBatchPageIndex = 1;
+        await ReloadExportBatchListAsync();
+    }
+
+    partial void OnExportBatchPageSizeChanged(int value)
+    {
+        ExportBatchPageIndex = 1;
+        _ = ReloadExportBatchListAsync();
+    }
+
+    [RelayCommand]
+    private async Task ExportBatchPreviousPageAsync()
+    {
+        if (ExportBatchPageIndex <= 1) return;
+        ExportBatchPageIndex--;
+        await ReloadExportBatchListAsync();
+    }
+
+    [RelayCommand]
+    private async Task ExportBatchNextPageAsync()
+    {
+        if (ExportBatchPageIndex >= ExportBatchTotalPages) return;
+        ExportBatchPageIndex++;
+        await ReloadExportBatchListAsync();
     }
 
     [RelayCommand]
@@ -522,6 +575,96 @@ public partial class TestManagementViewModel : ObservableObject
         });
     }
 
+    private static TestReportRunScope MapExportRunScope(string? label) => label switch
+    {
+        "当前选中批次" => TestReportRunScope.SelectedBatchOnly,
+        "全项目（全部运行历史）" => TestReportRunScope.ProjectAllRuns,
+        "自动（已选批次→该批全部；未选→每用例最新）" or "自动（跟批次选择）" => TestReportRunScope.Auto,
+        _ => TestReportRunScope.ProjectLatestPerCase
+    };
+
+    private TestReportRunScope ResolveEffectiveExportScope()
+    {
+        var scope = MapExportRunScope(SelectedExportRunScope);
+        return scope == TestReportRunScope.Auto
+            ? SelectedBatch is not null ? TestReportRunScope.SelectedBatchOnly : TestReportRunScope.ProjectLatestPerCase
+            : scope;
+    }
+
+    private void RefreshExportScopeHint()
+    {
+        var effective = ResolveEffectiveExportScope();
+        ExportScopeHint = effective switch
+        {
+            TestReportRunScope.SelectedBatchOnly when SelectedBatch is not null =>
+                $"将导出：{SelectedBatch.ScopeKind} · {SelectedBatch.Status} · 共 {SelectedBatch.TotalCount} 条。",
+            TestReportRunScope.SelectedBatchOnly =>
+                "请在下表选中一条批次。",
+            TestReportRunScope.ProjectAllRuns =>
+                "将导出本项目全部历史运行。",
+            _ =>
+                "未选批次时将导出全项目「每用例最新一次」；要整批导出请选中批次，范围用「当前选中批次」或「自动」。"
+        };
+        ExportReportCommand.NotifyCanExecuteChanged();
+        ExportSelectedBatchReportCommand.NotifyCanExecuteChanged();
+    }
+
+    private async Task ReloadExportBatchListAsync()
+    {
+        ExportBatchRows.Clear();
+        if (ActiveProjectId is not Guid pid)
+        {
+            ExportBatchTotalCount = 0;
+            ExportBatchTotalPages = 1;
+            ExportBatchPageInfo = "无项目";
+            CanExportBatchPrev = false;
+            CanExportBatchNext = false;
+            RebuildExportBatchTableView();
+            return;
+        }
+
+        var search = string.IsNullOrWhiteSpace(ExportBatchSearchText) ? null : ExportBatchSearchText.Trim();
+        var skip = Math.Max(0, (ExportBatchPageIndex - 1) * ExportBatchPageSize);
+        var (list, total) = await _batches.ListHistoryPagedAsync(pid, search, skip: skip, take: ExportBatchPageSize);
+        ExportBatchTotalCount = total;
+        ExportBatchTotalPages = Math.Max(1, (int)Math.Ceiling(total / (double)Math.Max(1, ExportBatchPageSize)));
+        if (ExportBatchPageIndex > ExportBatchTotalPages) ExportBatchPageIndex = ExportBatchTotalPages;
+        if (ExportBatchPageIndex < 1) ExportBatchPageIndex = 1;
+        var from = total == 0 ? 0 : skip + 1;
+        var to = total == 0 ? 0 : Math.Min(total, skip + list.Count);
+        ExportBatchPageInfo = $"共 {total} 条　第 {ExportBatchPageIndex}/{ExportBatchTotalPages} 页　{from}-{to}";
+        CanExportBatchPrev = ExportBatchPageIndex > 1;
+        CanExportBatchNext = ExportBatchPageIndex < ExportBatchTotalPages;
+
+        foreach (var b in list)
+            ExportBatchRows.Add(b);
+        RebuildExportBatchTableView();
+
+        var selectedId = SelectedBatch?.Id;
+        var onPage = selectedId is Guid sid ? ExportBatchRows.FirstOrDefault(x => x.Id == sid) : null;
+        if (onPage is not null)
+            SelectedBatch = onPage;
+        else if (SelectedBatch is null)
+            SelectedBatch = ExportBatchRows.FirstOrDefault();
+    }
+
+    private void RebuildExportBatchTableView()
+    {
+        var cvs = new CollectionViewSource { Source = ExportBatchRows };
+        // 不用 DataGrid 行分组（WPF 下表头与单元格易错位）；按类型排序实现视觉上的「分组」。
+        cvs.SortDescriptions.Add(new SortDescription(nameof(TestBatchRun.ScopeKind), ListSortDirection.Ascending));
+        cvs.SortDescriptions.Add(new SortDescription(nameof(TestBatchRun.StartedAtUtc), ListSortDirection.Descending));
+        ExportBatchTableView = cvs.View;
+    }
+
+    private bool CanExportReport()
+    {
+        if (IsBusy || ActiveProjectId is null) return false;
+        if (ResolveEffectiveExportScope() == TestReportRunScope.SelectedBatchOnly && SelectedBatch is null)
+            return false;
+        return true;
+    }
+
     private static string NormalizePeripheralFilter(string? value)
         => string.IsNullOrWhiteSpace(value) || value == "全部" || value == "(全部)"
             ? "(全部)"
@@ -552,25 +695,50 @@ public partial class TestManagementViewModel : ObservableObject
         StatusText = "正在取消批量执行…";
     }
 
-    [RelayCommand]
-    private async Task ExportReportAsync()
+    [RelayCommand(CanExecute = nameof(CanExportReport))]
+    private Task ExportReportAsync() => ExportReportCoreAsync(null);
+
+    [RelayCommand(CanExecute = nameof(CanExportSelectedBatchReport))]
+    private Task ExportSelectedBatchReportAsync()
+    {
+        SelectedExportRunScope = "当前选中批次";
+        return ExportReportCoreAsync(TestReportRunScope.SelectedBatchOnly);
+    }
+
+    private bool CanExportSelectedBatchReport()
+        => CanExportReport() && SelectedBatch is not null;
+
+    private async Task ExportReportCoreAsync(TestReportRunScope? forceScope)
     {
         if (ActiveProjectId is not Guid pid) return;
+        if (ResolveEffectiveExportScope() == TestReportRunScope.SelectedBatchOnly && SelectedBatch is null)
+        {
+            StatusText = "请先在「执行历史」选中一条批次。";
+            return;
+        }
         IsBusy = true;
         try
         {
+            var scope = forceScope ?? MapExportRunScope(SelectedExportRunScope);
             var fmt = SelectedReportFormat.ToLowerInvariant() switch
             {
                 "pdf" => TestReportFormat.Pdf,
                 "excel" or "csv" => TestReportFormat.Excel,
                 _ => TestReportFormat.Html
             };
+            var effectiveScope = scope == TestReportRunScope.Auto
+                ? SelectedBatch is not null ? TestReportRunScope.SelectedBatchOnly : TestReportRunScope.ProjectLatestPerCase
+                : scope;
+            var title = SelectedBatch is not null && effectiveScope == TestReportRunScope.SelectedBatchOnly
+                ? $"批次报告 {SelectedBatch.StartedAtUtc:yyyy-MM-dd HH:mm} · {SelectedBatch.TotalCount} 条 · {SelectedBatch.ScopeKind}"
+                : $"TAE32 LL Virtual Test — {SelectedPlan?.Name ?? "项目汇总"}";
             var result = await _reports.GenerateAsync(new TestReportRequest
             {
                 SdkProjectId = pid,
                 BatchRunId = SelectedBatch?.Id,
+                RunScope = scope,
                 Format = fmt,
-                Title = $"TAE32 LL Virtual Test — {SelectedPlan?.Name ?? "项目汇总"}"
+                Title = title
             });
             StatusText = result.Message;
             await ReloadArtifactsAsync();
@@ -1040,14 +1208,19 @@ public partial class TestManagementViewModel : ObservableObject
         foreach (var h in list)
             History.Add(h);
         SelectedBatch = History.FirstOrDefault(x => x.Id == selectedId) ?? History.FirstOrDefault();
+        await ReloadExportBatchListAsync();
+        RefreshExportScopeHint();
     }
 
     partial void OnSelectedBatchChanged(TestBatchRun? value)
     {
         FailurePageIndex = 1;
+        RefreshExportScopeHint();
         _ = ReloadStatsAsync();
         _ = ReloadFailuresAsync();
     }
+
+    partial void OnSelectedExportRunScopeChanged(string value) => RefreshExportScopeHint();
 
     private async Task ReloadStatsAsync()
     {

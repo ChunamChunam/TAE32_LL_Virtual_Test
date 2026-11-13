@@ -2,6 +2,20 @@
 #ifndef TAE32_LL_HOST_CMSIS_OVERRIDE_H
 #define TAE32_LL_HOST_CMSIS_OVERRIDE_H
 
+/* Host (x64) has no ARM barrier mnemonics; LL_EFLASH_OPDR_Refresh etc. call __DSB/__ISB. */
+#ifdef __DSB
+#undef __DSB
+#endif
+#ifdef __ISB
+#undef __ISB
+#endif
+#ifdef __DMB
+#undef __DMB
+#endif
+#define __DSB() do { } while (0)
+#define __ISB() do { } while (0)
+#define __DMB() do { } while (0)
+
 static inline void tae32_host_NVIC_SetPriorityGrouping(uint32_t PriorityGroup)
 {
     uint32_t reg_value;

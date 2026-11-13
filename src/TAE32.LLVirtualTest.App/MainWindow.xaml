@@ -5,6 +5,7 @@
         xmlns:pages="clr-namespace:TAE32.LLVirtualTest.App.ViewModels.Pages"
         xmlns:views="clr-namespace:TAE32.LLVirtualTest.App.Views.Pages"
         Title="TAE32 LL Virtual Test"
+        Icon="Assets/App.ico"
         Width="1280" Height="800"
         MinWidth="1024" MinHeight="640"
         WindowStyle="None"

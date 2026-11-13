@@ -167,6 +167,139 @@ public class TestManagementTests
     }
 
     [Fact]
+    public async Task Report_Export_SelectedBatch_Includes_All_Runs()
+    {
+        await using var seed = CreateDb();
+        var projectId = Guid.NewGuid();
+        seed.SdkProjects.Add(new SdkProject { Id = projectId, Name = "BatchExport", SdkRootPath = "x", Version = "2.0.0" });
+        var caseIds = Enumerable.Range(0, 3).Select(_ => Guid.NewGuid()).ToList();
+        foreach (var (i, id) in caseIds.Select((id, i) => (i, id)))
+        {
+            seed.LlTestCases.Add(new LlTestCase
+            {
+                Id = id,
+                SdkProjectId = projectId,
+                Name = $"c{i}",
+                FunctionName = $"LL_FN_{i}",
+                Status = "Ready"
+            });
+        }
+        var runIds = new List<Guid>();
+        foreach (var id in caseIds)
+        {
+            var rid = Guid.NewGuid();
+            runIds.Add(rid);
+            seed.LlTestRuns.Add(new LlTestRun
+            {
+                Id = rid,
+                SdkProjectId = projectId,
+                LlTestCaseId = id,
+                Status = nameof(LlTestRunStatus.Passed),
+                CompileSucceeded = true,
+                DurationMs = 10
+            });
+        }
+        var batchId = Guid.NewGuid();
+        seed.TestBatchRuns.Add(new TestBatchRun
+        {
+            Id = batchId,
+            SdkProjectId = projectId,
+            ScopeKind = "Listed",
+            Status = "Completed",
+            TotalCount = runIds.Count,
+            PassedCount = runIds.Count,
+            CaseRunIdsJson = System.Text.Json.JsonSerializer.Serialize(runIds)
+        });
+        await seed.SaveChangesAsync();
+
+        var factory = FactoryFrom(seed);
+        var analytics = new TestAnalyticsService(factory);
+        var reports = new TestReportService(factory, analytics);
+        var outDir = Path.Combine(Path.GetTempPath(), "tae32_batch_report_" + Guid.NewGuid().ToString("N"));
+        var result = await reports.GenerateAsync(new TestReportRequest
+        {
+            SdkProjectId = projectId,
+            BatchRunId = batchId,
+            RunScope = TestReportRunScope.SelectedBatchOnly,
+            Format = TestReportFormat.Html,
+            OutputDirectory = outDir
+        });
+
+        result.RunDetailCount.Should().Be(3);
+        var html = await File.ReadAllTextAsync(result.FilePath);
+        html.Should().Contain("执行结果汇总（3 条）");
+        html.Should().Contain("LL_FN_0");
+        html.Should().Contain("LL_FN_2");
+    }
+
+    [Fact]
+    public async Task Report_Export_LargeBatch_Includes_All_Runs()
+    {
+        await using var seed = CreateDb();
+        var projectId = Guid.NewGuid();
+        seed.SdkProjects.Add(new SdkProject { Id = projectId, Name = "BigBatch", SdkRootPath = "x", Version = "2.0.0" });
+        const int n = 450;
+        var caseIds = new List<Guid>(n);
+        var runIds = new List<Guid>(n);
+        for (var i = 0; i < n; i++)
+        {
+            var cid = Guid.NewGuid();
+            caseIds.Add(cid);
+            seed.LlTestCases.Add(new LlTestCase
+            {
+                Id = cid,
+                SdkProjectId = projectId,
+                Name = $"case_{i}",
+                FunctionName = $"LL_BIG_{i}",
+                Status = "Ready"
+            });
+            var rid = Guid.NewGuid();
+            runIds.Add(rid);
+            seed.LlTestRuns.Add(new LlTestRun
+            {
+                Id = rid,
+                SdkProjectId = projectId,
+                LlTestCaseId = cid,
+                Status = nameof(LlTestRunStatus.Passed),
+                CompileSucceeded = true,
+                DurationMs = 5
+            });
+        }
+        var batchId = Guid.NewGuid();
+        seed.TestBatchRuns.Add(new TestBatchRun
+        {
+            Id = batchId,
+            SdkProjectId = projectId,
+            ScopeKind = "Listed",
+            Status = "Completed",
+            TotalCount = n,
+            PassedCount = n,
+            CaseRunIdsJson = System.Text.Json.JsonSerializer.Serialize(runIds)
+        });
+        await seed.SaveChangesAsync();
+
+        var factory = FactoryFrom(seed);
+        var analytics = new TestAnalyticsService(factory);
+        var details = await analytics.GetReportRunDetailsAsync(
+            projectId, batchId, TestReportRunScope.SelectedBatchOnly);
+        details.Count.Should().Be(n);
+
+        var reports = new TestReportService(factory, analytics);
+        var result = await reports.GenerateAsync(new TestReportRequest
+        {
+            SdkProjectId = projectId,
+            BatchRunId = batchId,
+            RunScope = TestReportRunScope.SelectedBatchOnly,
+            Format = TestReportFormat.Csv,
+            OutputDirectory = Path.Combine(Path.GetTempPath(), "tae32_big_batch_" + Guid.NewGuid().ToString("N"))
+        });
+        result.RunDetailCount.Should().Be(n);
+        result.BatchExpectedRunCount.Should().Be(n);
+        var csv = await File.ReadAllTextAsync(result.FilePath);
+        csv.Split('\n', StringSplitOptions.RemoveEmptyEntries).Length.Should().BeGreaterThan(n);
+    }
+
+    [Fact]
     public async Task Maintenance_Backup_And_Diagnostics()
     {
         await using var seed = CreateDb();

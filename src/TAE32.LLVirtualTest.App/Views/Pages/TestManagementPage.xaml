@@ -151,6 +151,8 @@
             <WrapPanel DockPanel.Dock="Top" Margin="0,0,0,8">
               <Button Content="失败重跑" Command="{Binding RetryFailedCommand}"/>
               <Button Content="取消执行" Command="{Binding CancelBatchCommand}"/>
+              <Button Content="导出此批次报告" Command="{Binding ExportSelectedBatchReportCommand}" Margin="8,0,0,0" Padding="12,6"
+                      ToolTip="导出「执行历史」当前选中批次的全部运行记录（与「总数」一致，可上千条）"/>
               <TextBlock VerticalAlignment="Center" Margin="12,0,0,0" Foreground="{StaticResource BrushAccent}" Text="{Binding ProgressText}"/>
             </WrapPanel>
             <ProgressBar DockPanel.Dock="Top" Height="6" Minimum="0" Maximum="100" Value="{Binding ProgressPercent}"
@@ -484,79 +486,163 @@
 
       <TabItem Header="报告管理">
         <Border Margin="0,8,0,0" Style="{StaticResource AppCardBorderStyle}" Padding="10">
-          <DockPanel>
+          <DockPanel LastChildFill="True">
             <StackPanel DockPanel.Dock="Top" Margin="0,0,0,10">
               <TextBlock Text="导出报告（真实运行数据）" FontWeight="SemiBold" Foreground="{StaticResource BrushTextPrimary}"/>
-              <TextBlock Text="报告含：用例参数、初始寄存器预置、寄存器写入值一览（before→after）、断言与访问轨迹。通过用例折叠展示；失败默认展开。未选批次=各用例最新运行。虚拟 MCU，不等同真实硬件。"
-                         Foreground="{StaticResource BrushTextMuted}" Margin="0,4,0,8" TextWrapping="Wrap"/>
+              <TextBlock Text="{Binding ExportScopeHint}" Foreground="{StaticResource BrushTextMuted}" Margin="0,4,0,8"
+                         TextWrapping="Wrap"/>
               <StackPanel Orientation="Horizontal">
-                <ComboBox Width="120" SelectedValue="{Binding SelectedReportFormat}" SelectedValuePath="Content">
+                <ComboBox Width="100" SelectedValue="{Binding SelectedReportFormat}" SelectedValuePath="Content">
                   <ComboBoxItem Content="Html" IsSelected="True"/>
                   <ComboBoxItem Content="Pdf"/>
                   <ComboBoxItem Content="Excel"/>
                   <ComboBoxItem Content="Csv"/>
                 </ComboBox>
+                <ComboBox Width="260" Margin="8,0,0,0"
+                          ItemsSource="{Binding ExportRunScopeOptions}"
+                          SelectedItem="{Binding SelectedExportRunScope}"/>
                 <Button Content="导出报告" Command="{Binding ExportReportCommand}" Margin="8,0,0,0" Padding="12,6"/>
+                <TextBlock Text="虚拟 MCU，不等同真实硬件。" VerticalAlignment="Center"
+                           Foreground="{StaticResource BrushTextMuted}" FontSize="11" Margin="16,0,0,0"/>
               </StackPanel>
             </StackPanel>
-            <Border DockPanel.Dock="Top" Padding="0,0,0,6" Margin="0,0,0,2"
-                    BorderBrush="{StaticResource BrushBorder}" BorderThickness="0,0,0,1">
-              <Grid>
-                <Grid.ColumnDefinitions>
-                  <ColumnDefinition Width="*"/>
-                  <ColumnDefinition Width="Auto"/>
-                  <ColumnDefinition Width="Auto"/>
-                  <ColumnDefinition Width="Auto"/>
-                  <ColumnDefinition Width="Auto"/>
-                  <ColumnDefinition Width="Auto"/>
-                </Grid.ColumnDefinitions>
-                <TextBox Grid.Column="0" Text="{Binding ArtifactSearchText, UpdateSourceTrigger=PropertyChanged}"
-                         ToolTip="格式 / 标题 / 路径" Margin="0,0,8,0"/>
-                <Button Grid.Column="1" Style="{StaticResource GhostButtonStyle}" Content="查询" Margin="0,0,8,0"
-                        Command="{Binding SearchArtifactsCommand}"/>
-                <Button Grid.Column="2" Style="{StaticResource GhostButtonStyle}" Content="打开" Margin="0,0,8,0"
-                        Command="{Binding OpenArtifactCommand}" ToolTip="打开选中报告"/>
-                <Button Grid.Column="3" Content="删除" Margin="0,0,8,0" Padding="10,4"
-                        Command="{Binding DeleteArtifactSelectedCommand}"
-                        ToolTip="删除列表中当前选中的一条报告及文件"/>
-                <Button Grid.Column="4" Content="删除本页" Margin="0,0,8,0" Padding="10,4"
-                        Command="{Binding DeleteArtifactsPageCommand}"/>
-                <Button Grid.Column="5" Content="删除全部" Padding="10,4"
-                        Command="{Binding DeleteArtifactsAllCommand}"/>
-              </Grid>
-            </Border>
-            <Border DockPanel.Dock="Bottom" Style="{StaticResource GridPagerFooterStyle}" Margin="-10,-2,-10,-10"
-                    Padding="8,6" CornerRadius="0,0,8,8">
-              <DockPanel LastChildFill="True">
-                <StackPanel DockPanel.Dock="Right" Orientation="Horizontal" VerticalAlignment="Center">
-                  <Button Style="{StaticResource GhostButtonStyle}" Content="‹" Padding="8,2"
-                          Command="{Binding ArtifactPreviousPageCommand}" Margin="0,0,4,0"
-                          IsEnabled="{Binding CanArtifactPrev}"/>
-                  <Button Style="{StaticResource GhostButtonStyle}" Content="›" Padding="8,2"
-                          Command="{Binding ArtifactNextPageCommand}" IsEnabled="{Binding CanArtifactNext}"/>
-                </StackPanel>
-                <StackPanel DockPanel.Dock="Left" Orientation="Horizontal" VerticalAlignment="Center">
-                  <TextBlock Text="每页" Foreground="{StaticResource BrushTextMuted}" FontSize="11"
-                             VerticalAlignment="Center" Margin="0,0,6,0"/>
-                  <ComboBox Width="56" ItemsSource="{Binding AvailableCasePageSizeOptions}"
-                            SelectedItem="{Binding ArtifactPageSize}"/>
-                </StackPanel>
-                <TextBlock Text="{Binding ArtifactPageInfo}" Foreground="{StaticResource BrushTextMuted}" FontSize="11"
-                           VerticalAlignment="Center" Margin="10,0,8,0" TextTrimming="CharacterEllipsis"
-                           ToolTip="{Binding ArtifactPageInfo}"/>
-              </DockPanel>
-            </Border>
-            <DataGrid ItemsSource="{Binding Artifacts}" SelectedItem="{Binding SelectedArtifact}"
-                      AutoGenerateColumns="False" IsReadOnly="True" MouseDoubleClick="OnArtifactDoubleClick">
-              <DataGrid.Columns>
-                <DataGridTextColumn Header="格式" Binding="{Binding Format}" Width="70"/>
-                <DataGridTextColumn Header="标题" Binding="{Binding Title}" Width="*"
-                                    ElementStyle="{StaticResource DataGridEllipsisTextStyle}"/>
-                <DataGridTextColumn Header="路径" Binding="{Binding FilePath}" Width="2*"
-                                    ElementStyle="{StaticResource DataGridEllipsisTextStyle}"/>
-                <DataGridTextColumn Header="时间" Binding="{Binding CreatedAtUtc}" Width="140"/>
-              </DataGrid.Columns>
-            </DataGrid>
+
+            <Grid>
+              <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="*" MinWidth="280"/>
+                <ColumnDefinition Width="12"/>
+                <ColumnDefinition Width="1.15*" MinWidth="320"/>
+              </Grid.ColumnDefinitions>
+
+              <!-- 左：选择要导出的批次（分组） -->
+              <Border Grid.Column="0" Background="{StaticResource BrushBgCard}"
+                      BorderBrush="{StaticResource BrushBorder}" BorderThickness="1" CornerRadius="8" Padding="8">
+                <DockPanel LastChildFill="True">
+                  <TextBlock DockPanel.Dock="Top" Text="导出批次（按类型排序，同类型相邻）" FontWeight="SemiBold"
+                             Foreground="{StaticResource BrushTextPrimary}" Margin="0,0,0,6"/>
+                  <Border DockPanel.Dock="Top" Padding="0,0,0,6" Margin="0,0,0,2"
+                          BorderBrush="{StaticResource BrushBorder}" BorderThickness="0,0,0,1">
+                    <Grid>
+                      <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="*"/>
+                        <ColumnDefinition Width="Auto"/>
+                      </Grid.ColumnDefinitions>
+                      <TextBox Grid.Column="0" Text="{Binding ExportBatchSearchText, UpdateSourceTrigger=PropertyChanged}"
+                               ToolTip="状态 / 范围类型 / 范围值" Margin="0,0,6,0"/>
+                      <Button Grid.Column="1" Style="{StaticResource GhostButtonStyle}" Content="查询"
+                              Command="{Binding SearchExportBatchesCommand}"/>
+                    </Grid>
+                  </Border>
+                  <Border DockPanel.Dock="Bottom" Padding="0,6,0,0"
+                          BorderBrush="{StaticResource BrushBorder}" BorderThickness="0,1,0,0">
+                    <DockPanel LastChildFill="True">
+                      <StackPanel DockPanel.Dock="Right" Orientation="Horizontal" VerticalAlignment="Center">
+                        <Button Style="{StaticResource GhostButtonStyle}" Content="‹" Padding="8,2"
+                                Command="{Binding ExportBatchPreviousPageCommand}" Margin="0,0,4,0"
+                                IsEnabled="{Binding CanExportBatchPrev}"/>
+                        <Button Style="{StaticResource GhostButtonStyle}" Content="›" Padding="8,2"
+                                Command="{Binding ExportBatchNextPageCommand}" IsEnabled="{Binding CanExportBatchNext}"/>
+                      </StackPanel>
+                      <StackPanel DockPanel.Dock="Left" Orientation="Horizontal" VerticalAlignment="Center">
+                        <TextBlock Text="每页" Foreground="{StaticResource BrushTextMuted}" FontSize="11"
+                                   VerticalAlignment="Center" Margin="0,0,6,0"/>
+                        <ComboBox Width="56" ItemsSource="{Binding AvailableCasePageSizeOptions}"
+                                  SelectedItem="{Binding ExportBatchPageSize}"/>
+                      </StackPanel>
+                      <TextBlock Text="{Binding ExportBatchPageInfo}" Foreground="{StaticResource BrushTextMuted}" FontSize="11"
+                                 VerticalAlignment="Center" Margin="8,0,0,0" TextTrimming="CharacterEllipsis"
+                                 ToolTip="{Binding ExportBatchPageInfo}"/>
+                    </DockPanel>
+                  </Border>
+                  <DataGrid ItemsSource="{Binding ExportBatchTableView}" SelectedItem="{Binding SelectedBatch}"
+                            AutoGenerateColumns="False" IsReadOnly="True"
+                            HeadersVisibility="Column" GridLinesVisibility="Horizontal" SelectionMode="Single"
+                            CanUserResizeColumns="False" CanUserReorderColumns="False" RowHeaderWidth="0"
+                            HorizontalScrollBarVisibility="Auto">
+                    <DataGrid.Columns>
+                      <DataGridTextColumn Header="类型" Binding="{Binding ScopeKind}" Width="68"/>
+                      <DataGridTextColumn Header="范围值" Binding="{Binding ScopeValue}" Width="*"
+                                          MinWidth="72" ElementStyle="{StaticResource DataGridEllipsisTextStyle}"/>
+                      <DataGridTextColumn Header="开始" Width="108">
+                        <DataGridTextColumn.Binding>
+                          <Binding Path="StartedAtUtc" StringFormat="{}{0:MM-dd HH:mm}"/>
+                        </DataGridTextColumn.Binding>
+                      </DataGridTextColumn>
+                      <DataGridTextColumn Header="状态" Binding="{Binding Status}" Width="76"/>
+                      <DataGridTextColumn Header="总数" Binding="{Binding TotalCount}" Width="44"/>
+                      <DataGridTextColumn Header="过" Binding="{Binding PassedCount}" Width="36"/>
+                      <DataGridTextColumn Header="败" Binding="{Binding FailedCount}" Width="36"/>
+                    </DataGrid.Columns>
+                  </DataGrid>
+                </DockPanel>
+              </Border>
+
+              <!-- 右：已生成报告 -->
+              <Border Grid.Column="2" Background="{StaticResource BrushBgCard}"
+                      BorderBrush="{StaticResource BrushBorder}" BorderThickness="1" CornerRadius="8" Padding="8">
+                <DockPanel LastChildFill="True">
+                  <TextBlock DockPanel.Dock="Top" Text="已生成报告" FontWeight="SemiBold"
+                             Foreground="{StaticResource BrushTextPrimary}" Margin="0,0,0,6"/>
+                  <Border DockPanel.Dock="Top" Padding="0,0,0,6" Margin="0,0,0,2"
+                          BorderBrush="{StaticResource BrushBorder}" BorderThickness="0,0,0,1">
+                    <Grid>
+                      <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="*"/>
+                        <ColumnDefinition Width="Auto"/>
+                        <ColumnDefinition Width="Auto"/>
+                        <ColumnDefinition Width="Auto"/>
+                        <ColumnDefinition Width="Auto"/>
+                        <ColumnDefinition Width="Auto"/>
+                      </Grid.ColumnDefinitions>
+                      <TextBox Grid.Column="0" Text="{Binding ArtifactSearchText, UpdateSourceTrigger=PropertyChanged}"
+                               ToolTip="格式 / 标题 / 路径" Margin="0,0,6,0"/>
+                      <Button Grid.Column="1" Style="{StaticResource GhostButtonStyle}" Content="查询" Margin="0,0,6,0"
+                              Command="{Binding SearchArtifactsCommand}"/>
+                      <Button Grid.Column="2" Style="{StaticResource GhostButtonStyle}" Content="打开" Margin="0,0,6,0"
+                              Command="{Binding OpenArtifactCommand}" ToolTip="打开选中报告"/>
+                      <Button Grid.Column="3" Content="删除" Margin="0,0,6,0" Padding="8,4"
+                              Command="{Binding DeleteArtifactSelectedCommand}"/>
+                      <Button Grid.Column="4" Content="删本页" Margin="0,0,6,0" Padding="8,4"
+                              Command="{Binding DeleteArtifactsPageCommand}"/>
+                      <Button Grid.Column="5" Content="删全部" Padding="8,4"
+                              Command="{Binding DeleteArtifactsAllCommand}"/>
+                    </Grid>
+                  </Border>
+                  <Border DockPanel.Dock="Bottom" Padding="0,6,0,0"
+                          BorderBrush="{StaticResource BrushBorder}" BorderThickness="0,1,0,0">
+                    <DockPanel LastChildFill="True">
+                      <StackPanel DockPanel.Dock="Right" Orientation="Horizontal" VerticalAlignment="Center">
+                        <Button Style="{StaticResource GhostButtonStyle}" Content="‹" Padding="8,2"
+                                Command="{Binding ArtifactPreviousPageCommand}" Margin="0,0,4,0"
+                                IsEnabled="{Binding CanArtifactPrev}"/>
+                        <Button Style="{StaticResource GhostButtonStyle}" Content="›" Padding="8,2"
+                                Command="{Binding ArtifactNextPageCommand}" IsEnabled="{Binding CanArtifactNext}"/>
+                      </StackPanel>
+                      <StackPanel DockPanel.Dock="Left" Orientation="Horizontal" VerticalAlignment="Center">
+                        <TextBlock Text="每页" Foreground="{StaticResource BrushTextMuted}" FontSize="11"
+                                   VerticalAlignment="Center" Margin="0,0,6,0"/>
+                        <ComboBox Width="56" ItemsSource="{Binding AvailableCasePageSizeOptions}"
+                                  SelectedItem="{Binding ArtifactPageSize}"/>
+                      </StackPanel>
+                      <TextBlock Text="{Binding ArtifactPageInfo}" Foreground="{StaticResource BrushTextMuted}" FontSize="11"
+                                 VerticalAlignment="Center" Margin="8,0,0,0" TextTrimming="CharacterEllipsis"
+                                 ToolTip="{Binding ArtifactPageInfo}"/>
+                    </DockPanel>
+                  </Border>
+                  <DataGrid ItemsSource="{Binding Artifacts}" SelectedItem="{Binding SelectedArtifact}"
+                            AutoGenerateColumns="False" IsReadOnly="True" MouseDoubleClick="OnArtifactDoubleClick">
+                    <DataGrid.Columns>
+                      <DataGridTextColumn Header="格式" Binding="{Binding Format}" Width="56"/>
+                      <DataGridTextColumn Header="标题" Binding="{Binding Title}" Width="*"
+                                          ElementStyle="{StaticResource DataGridEllipsisTextStyle}"/>
+                      <DataGridTextColumn Header="路径" Binding="{Binding FilePath}" Width="*"
+                                          ElementStyle="{StaticResource DataGridEllipsisTextStyle}"/>
+                      <DataGridTextColumn Header="时间" Binding="{Binding CreatedAtUtc}" Width="118"/>
+                    </DataGrid.Columns>
+                  </DataGrid>
+                </DockPanel>
+              </Border>
+            </Grid>
           </DockPanel>
         </Border>
       </TabItem>

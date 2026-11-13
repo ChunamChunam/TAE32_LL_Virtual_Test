@@ -501,10 +501,24 @@ public sealed class LlTestCaseGenerator
     private static string InferDefaultInstance(string? peripheralName, string functionName)
     {
         if (!string.IsNullOrWhiteSpace(peripheralName))
-            return peripheralName!;
+            return MapModuleToDefaultInstance(peripheralName!);
         var m = Regex.Match(functionName, @"^LL_([A-Z0-9]+)_");
-        return m.Success ? m.Groups[1].Value : "PERI";
+        return m.Success ? MapModuleToDefaultInstance(m.Groups[1].Value) : "PERI";
     }
+
+    private static string MapModuleToDefaultInstance(string moduleOrInstance)
+        => moduleOrInstance.ToUpperInvariant() switch
+        {
+            "ADC" => "ADC0",
+            "GPIO" => "GPIOA",
+            "GPTMRX" => "TMR0",
+            "GPTMRY" => "TMR3",
+            "LPTMR" => "TMR6",
+            "BSTMR" => "TMR7",
+            "ADTMR" => "TMR9",
+            _ when moduleOrInstance.Any(char.IsDigit) => moduleOrInstance,
+            _ => moduleOrInstance
+        };
 
     private static LlTestCaseEditModel DraftShell(LlFunction fn, string name)
     {

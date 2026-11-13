@@ -311,6 +311,9 @@
     <Setter Property="AutoGenerateColumns" Value="False"/>
     <Setter Property="IsReadOnly" Value="True"/>
     <Setter Property="CanUserAddRows" Value="False"/>
+    <Setter Property="CanUserResizeColumns" Value="False"/>
+    <Setter Property="CanUserReorderColumns" Value="False"/>
+    <Setter Property="RowHeaderWidth" Value="0"/>
     <Setter Property="SelectionMode" Value="Single"/>
   </Style>
 

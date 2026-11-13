@@ -19,10 +19,31 @@ namespace TAE32.LLVirtualTest.App;
 public partial class App : Application
 {
     private ServiceProvider? _services;
+    private SingleInstanceGuard? _singleInstance;
 
     protected override async void OnStartup(StartupEventArgs e)
     {
         base.OnStartup(e);
+
+        _singleInstance = new SingleInstanceGuard();
+        if (!_singleInstance.IsPrimary)
+        {
+            _singleInstance.RequestActivatePrimary();
+            MessageBox.Show(
+                "程序已在运行，不能同时打开两个实例。\n已切换到现有窗口。",
+                "TAE32 LL Virtual Test",
+                MessageBoxButton.OK,
+                MessageBoxImage.Information);
+            _singleInstance.Dispose();
+            _singleInstance = null;
+            Shutdown();
+            return;
+        }
+
+        _singleInstance.BeginListenForActivate(() =>
+        {
+            Dispatcher.BeginInvoke(() => ActivateMainWindow());
+        });
 
         DispatcherUnhandledException += (_, args) =>
         {
@@ -104,8 +125,27 @@ public partial class App : Application
     protected override void OnExit(ExitEventArgs e)
     {
         _services?.Dispose();
+        _singleInstance?.Dispose();
+        _singleInstance = null;
         Log.CloseAndFlush();
         base.OnExit(e);
+    }
+
+    private static void ActivateMainWindow()
+    {
+        if (Current.MainWindow is not { } window) return;
+
+        if (!window.IsVisible)
+            window.Show();
+
+        if (window.WindowState == WindowState.Minimized)
+            window.WindowState = WindowState.Normal;
+
+        window.Activate();
+        // Briefly toggle Topmost to steal focus from the second-instance MessageBox / shell.
+        window.Topmost = true;
+        window.Topmost = false;
+        window.Focus();
     }
 
     private static void TryMigrateLegacyDatabaseFromWorkspace()

@@ -120,6 +120,8 @@ public static class TestHarnessGenerator
                 return sb.ToString();
             }
             sb.AppendLine($"  {step.FunctionName}({string.Join(", ", argsList)});");
+            // Host RAM has no BSR hardware side-effect; mirror before a later Read* sees DOR.
+            EmitHostGpioBsrToDorMirror(sb, periParam);
         }
 
         // Main call
@@ -143,6 +145,7 @@ public static class TestHarnessGenerator
             if (isVoid)
             {
                 sb.AppendLine($"  {functionName}({string.Join(", ", mainArgs)});");
+                EmitHostGpioBsrToDorMirror(sb, periParam);
                 sb.AppendLine("  if (out_ret) *out_ret = 0;");
             }
             else
@@ -375,6 +378,24 @@ public static class TestHarnessGenerator
         sb.AppendLine("    break; /* host: buffer release ack (virtual CAN) */");
         sb.AppendLine("  }");
         sb.AppendLine("  if (out_ret) *out_ret = 0;");
+    }
+
+    /// <summary>
+    /// TAE32 GPIO: BSR set/reset does not update DOR on host RAM. Mirror after writes so
+    /// subsequent ReadOutputPort / IsOutputPinSet see the correct data-out level.
+    /// </summary>
+    private static void EmitHostGpioBsrToDorMirror(StringBuilder sb, LlTestParameterValue? periParam)
+    {
+        if (periParam is null) return;
+        var typedefName = ExtractTypeDefName(periParam.Type);
+        if (!typedefName.Contains("GPIO", StringComparison.OrdinalIgnoreCase)) return;
+
+        sb.AppendLine("  /* host: BSR→DOR (BSn@0 / BRn@16); real silicon does this in HW */");
+        sb.AppendLine("  {");
+        sb.AppendLine("    uint32_t __bsr = PERIx->BSR;");
+        sb.AppendLine("    uint32_t __dor = PERIx->DOR;");
+        sb.AppendLine("    PERIx->DOR = (__dor | (__bsr & 0xFFFFu)) & ~((__bsr >> 16) & 0xFFFFu);");
+        sb.AppendLine("  }");
     }
 
     private static string ExtractTypeDefName(string type)

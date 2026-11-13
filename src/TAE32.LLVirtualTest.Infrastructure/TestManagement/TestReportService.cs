@@ -41,9 +41,12 @@ public sealed class TestReportService : ITestReportService
         await using var db = await _dbFactory.CreateDbContextAsync(cancellationToken);
         var project = await db.SdkProjects.AsNoTracking().FirstOrDefaultAsync(x => x.Id == request.SdkProjectId, cancellationToken)
                       ?? throw new InvalidOperationException("SDK 项目不存在");
-        var stats = await _analytics.GetStatisticsAsync(request.SdkProjectId, request.BatchRunId, cancellationToken);
+        var effectiveScope = ResolveEffectiveRunScope(request);
+        var statsBatchId = effectiveScope == TestReportRunScope.SelectedBatchOnly ? request.BatchRunId : ResolveStatsBatchId(request);
+        var stats = await _analytics.GetStatisticsAsync(request.SdkProjectId, statsBatchId, cancellationToken);
         var coverage = await _analytics.GetCoverageAsync(request.SdkProjectId, cancellationToken);
-        var runDetails = await _analytics.GetReportRunDetailsAsync(request.SdkProjectId, request.BatchRunId, cancellationToken);
+        var runDetails = await _analytics.GetReportRunDetailsAsync(
+            request.SdkProjectId, request.BatchRunId, effectiveScope, cancellationToken);
         var failures = runDetails
             .Where(x => x.Status is nameof(LlTestRunStatus.Failed)
                 or nameof(LlTestRunStatus.Error)
@@ -53,7 +56,7 @@ public sealed class TestReportService : ITestReportService
             .Where(x => x.Status == nameof(LlTestRunStatus.Passed))
             .ToList();
         TestBatchRun? batch = null;
-        if (request.BatchRunId is Guid bid)
+        if (effectiveScope == TestReportRunScope.SelectedBatchOnly && request.BatchRunId is Guid bid)
             batch = await db.TestBatchRuns.AsNoTracking().FirstOrDefaultAsync(x => x.Id == bid, cancellationToken);
 
         var outDir = string.IsNullOrWhiteSpace(request.OutputDirectory)
@@ -83,14 +86,14 @@ public sealed class TestReportService : ITestReportService
                 // Lightweight printable HTML saved as .pdf.html (open in browser → 打印为 PDF).
                 path = Path.Combine(outDir, $"report_{stamp}.pdf.html");
                 await File.WriteAllTextAsync(path,
-                    BuildHtml(title, disclaimer, project, batch, stats, coverage, runDetails, failures, passedDetails, printable: true),
+                    BuildHtml(title, disclaimer, project, batch, effectiveScope, stats, coverage, runDetails, failures, passedDetails, printable: true),
                     Encoding.UTF8, cancellationToken);
                 format = "Pdf";
                 break;
             default:
                 path = Path.Combine(outDir, $"report_{stamp}.html");
                 await File.WriteAllTextAsync(path,
-                    BuildHtml(title, disclaimer, project, batch, stats, coverage, runDetails, failures, passedDetails, printable: false),
+                    BuildHtml(title, disclaimer, project, batch, effectiveScope, stats, coverage, runDetails, failures, passedDetails, printable: false),
                     Encoding.UTF8, cancellationToken);
                 format = "Html";
                 break;
@@ -110,14 +113,22 @@ public sealed class TestReportService : ITestReportService
         db.TestReportArtifacts.Add(artifact);
         await db.SaveChangesAsync(cancellationToken);
 
+        var countMsg = runDetails.Count > 0
+            ? $"共 {runDetails.Count} 条运行明细（本报告无条数上限，与所选批次 CaseRunIds 一一对应）。"
+            : "未包含运行明细（请检查导出范围或批次是否为空）。";
+        if (batch is not null && batch.TotalCount > runDetails.Count)
+            countMsg += $" 提示：批次 TotalCount={batch.TotalCount}，实际载入 {runDetails.Count} 条（若有缺口，可能是部分 LlTestRun 已从库中删除）。";
         return new TestReportResult
         {
             ArtifactId = artifact.Id,
             Format = format,
             FilePath = path,
-            Message = format == "Pdf"
+            EffectiveRunScope = effectiveScope,
+            RunDetailCount = runDetails.Count,
+            BatchExpectedRunCount = batch?.TotalCount,
+            Message = (format == "Pdf"
                 ? $"已生成可打印 HTML（请用浏览器打开后“打印为 PDF”）：{path}"
-                : $"报告已生成：{path}"
+                : $"报告已生成：{path}") + " " + countMsg
         };
     }
 
@@ -211,6 +222,7 @@ public sealed class TestReportService : ITestReportService
         string disclaimer,
         SdkProject project,
         TestBatchRun? batch,
+        TestReportRunScope runScope,
         TestStatistics stats,
         CoverageStats coverage,
         IReadOnlyList<FailureAnalysisItem> runDetails,
@@ -256,10 +268,11 @@ public sealed class TestReportService : ITestReportService
 
         sb.AppendLine($"<h2>4. 执行结果汇总（{runDetails.Count} 条）</h2>");
         sb.AppendLine("<p class='meta'>");
-        sb.AppendLine(batch is null
-            ? "范围：各用例最新一次运行。"
-            : "范围：当前批次内全部运行。");
-        sb.AppendLine($"Passed={passedDetails.Count}，失败/错误/超时={failures.Count}。</p>");
+        sb.AppendLine(DescribeReportRunScope(runScope, runDetails.Count, batch));
+        sb.AppendLine($"Passed={passedDetails.Count}，失败/错误/超时={failures.Count}。");
+        if (batch is not null && batch.TotalCount > runDetails.Count)
+            sb.AppendLine($"<br/><b>注意：</b>批次登记 {batch.TotalCount} 次运行，本报告载入 {runDetails.Count} 条明细（无导出条数上限；缺口多为库中运行记录已删）。");
+        sb.AppendLine("</p>");
         if (runDetails.Count == 0)
             sb.AppendLine("<p>无运行记录。</p>");
         else
@@ -328,8 +341,15 @@ public sealed class TestReportService : ITestReportService
             }
             if (!string.IsNullOrWhiteSpace(r.RegisterWritesSummary))
             {
-                sb.AppendLine("<p><b>寄存器写入值一览</b></p>");
+                sb.AppendLine("<p><b>寄存器写入值一览</b>（运行前预置、原生 LL 执行后同步到虚拟 MCU）</p>");
                 sb.AppendLine($"<pre>{Escape(r.RegisterWritesSummary)}</pre>");
+            }
+            else if (string.IsNullOrWhiteSpace(r.AccessTraceJson) || r.AccessTraceJson.Trim() is "[]")
+            {
+                sb.AppendLine("<p><b>寄存器操作记录</b></p>");
+                sb.AppendLine("<p class='muted'>本次运行未记录寄存器访问。常见原因：① 草稿用例未配置「初始寄存器」；"
+                    + "② 断言仅含超时、未触发明细读写；③ 旧版运行中外设实例名与虚拟寄存器不一致（如 ADC vs ADC0）导致同步未写入。"
+                    + "请用最新版重新执行该用例；在虚拟 MCU 页的手动操作不会自动出现在此报告中。</p>");
             }
             if (!string.IsNullOrWhiteSpace(r.ExecutionLogExcerpt))
             {
@@ -410,6 +430,35 @@ public sealed class TestReportService : ITestReportService
 
     private static string? TruncateForCsv(string? s, int max)
         => string.IsNullOrEmpty(s) ? s : s.Length <= max ? s : s[..max] + "…";
+
+    private static TestReportRunScope ResolveEffectiveRunScope(TestReportRequest request)
+        => request.RunScope switch
+        {
+            TestReportRunScope.Auto when request.BatchRunId is Guid => TestReportRunScope.SelectedBatchOnly,
+            TestReportRunScope.Auto => TestReportRunScope.ProjectLatestPerCase,
+            _ => request.RunScope
+        };
+
+    private static Guid? ResolveStatsBatchId(TestReportRequest request)
+    {
+        var scope = ResolveEffectiveRunScope(request);
+        return scope == TestReportRunScope.SelectedBatchOnly ? request.BatchRunId : null;
+    }
+
+    private static string DescribeReportRunScope(TestReportRunScope scope, int rowCount, TestBatchRun? batch)
+    {
+        var scopeText = scope switch
+        {
+            TestReportRunScope.ProjectLatestPerCase => "全项目 · 每用例最新一次运行",
+            TestReportRunScope.ProjectAllRuns => "全项目 · 全部历史运行",
+            TestReportRunScope.SelectedBatchOnly => "仅当前批次",
+            _ => batch is null ? "各用例最新一次运行" : "跟当前选中批次"
+        };
+        var batchNote = batch is null
+            ? ""
+            : $"（批次 TotalCount={batch.TotalCount}，导出明细 {rowCount} 条）";
+        return $"范围：{scopeText}{batchNote}。汇总表与明细共 {rowCount} 条。";
+    }
 
     private static string FmtPct(double? v) => v is null ? "N/A（无足够真实数据）" : $"{v:F1}%";
     private static string Escape(string s) => s.Replace("&", "&amp;").Replace("<", "&lt;").Replace(">", "&gt;").Replace("\"", "&quot;");
