@@ -119,8 +119,9 @@ internal static class AssertionEvaluator
     {
         var limit = spec.TimeoutMs ?? 10000;
         var ok = elapsedMs <= limit;
-        return Result(spec, ok, $"<= {limit} ms", $"{elapsedMs} ms",
-            ok ? "未超时" : "执行超时");
+        // elapsedMs is native-execute duration (not compile wall time).
+        return Result(spec, ok, $"<= {limit} ms (native)", $"{elapsedMs} ms",
+            ok ? "未超时" : "原生执行超时");
     }
 
     private static LlTestAssertionResult Fail(LlTestAssertionSpec spec, string message)

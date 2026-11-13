@@ -4,6 +4,7 @@ using System.Diagnostics;
 using System.IO;
 using System.Windows;
 using System.Windows.Data;
+using System.Windows.Threading;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
 using TAE32.LLVirtualTest.App.Views.Dialogs;
@@ -194,15 +195,39 @@ public partial class TestManagementViewModel : ObservableObject
         if (string.IsNullOrWhiteSpace(PlanPeripheral))
             PlanPeripheral = "(全部)";
 
+        // Only load the active tab (+ shared plan list used by suite/run actions).
         await ReloadPlansAsync();
-        await ReloadSuitesAsync();
-        await ReloadCasesAsync();
-        await ReloadHistoryAsync();
-        await ReloadStatsAsync();
-        await ReloadFailuresAsync();
-        await ReloadArtifactsAsync();
-        await ReloadExportBatchListAsync();
+        await ReloadSectionAsync(SelectedSection);
         StatusText = "测试管理已刷新（虚拟 MCU 数据）";
+    }
+
+    partial void OnSelectedSectionChanged(string value) => _ = ReloadSectionAsync(value);
+
+    private async Task ReloadSectionAsync(string section)
+    {
+        switch (section)
+        {
+            case "测试计划":
+                await ReloadPlansAsync();
+                break;
+            case "测试套件":
+                await ReloadSuitesAsync();
+                await ReloadCasesAsync();
+                break;
+            case "执行历史":
+                await ReloadHistoryAsync();
+                break;
+            case "统计覆盖率":
+                await ReloadStatsAsync(includeCoverage: true);
+                break;
+            case "失败分析":
+                await ReloadFailuresAsync();
+                break;
+            case "报告管理":
+                await ReloadExportBatchListAsync();
+                await ReloadArtifactsAsync();
+                break;
+        }
     }
 
     [RelayCommand(CanExecute = nameof(CanExecuteWhileIdle))]
@@ -822,7 +847,7 @@ public partial class TestManagementViewModel : ObservableObject
                 ? SelectedBatch is not null ? TestReportRunScope.SelectedBatchOnly : TestReportRunScope.ProjectLatestPerCase
                 : scope;
             var title = SelectedBatch is not null && effectiveScope == TestReportRunScope.SelectedBatchOnly
-                ? $"批次报告 {SelectedBatch.StartedAtUtc:yyyy-MM-dd HH:mm} · {SelectedBatch.TotalCount} 条 · {SelectedBatch.ScopeKind}"
+                ? $"批次报告 {Converters.BeijingTime.Format(SelectedBatch.StartedAtUtc)} · {SelectedBatch.TotalCount} 条 · {SelectedBatch.ScopeKind}"
                 : $"TAE32 LL Virtual Test — {SelectedPlan?.Name ?? "项目汇总"}";
             var result = await _reports.GenerateAsync(new TestReportRequest
             {
@@ -1028,14 +1053,26 @@ public partial class TestManagementViewModel : ObservableObject
         _ = LoadSuiteCaseIdsAsync(value.Id);
     }
 
-    partial void OnSelectedFailureRowChanged(FailurePickItem? value)
+    partial void OnSelectedFailureRowChanged(FailurePickItem? value) => _ = LoadFailureDetailAsync(value);
+
+    private async Task LoadFailureDetailAsync(FailurePickItem? value)
     {
         if (value is null)
         {
             FailureDetail = string.Empty;
             return;
         }
-        var v = value.Item;
+
+        FailureDetail = "加载详情…";
+        var v = await _analytics.GetFailureDetailAsync(value.Item.RunId) ?? value.Item;
+        value.Item.CompileLogExcerpt = v.CompileLogExcerpt;
+        value.Item.AssertionResultsJson = v.AssertionResultsJson;
+        value.Item.AccessTraceJson = v.AccessTraceJson;
+        value.Item.RelatedRegisters = v.RelatedRegisters;
+        value.Item.ExecutionLogExcerpt = v.ExecutionLogExcerpt;
+        value.Item.ParametersJson = v.ParametersJson;
+        value.Item.InitialRegistersJson = v.InitialRegistersJson;
+        value.Item.RegisterWritesSummary = v.RegisterWritesSummary;
         FailureDetail =
             $"用例: {v.CaseName}\n函数: {v.FunctionName}\n源码: {v.SourceFile}\n状态: {v.Status}\n原因: {v.FailureReason}\n寄存器: {v.RelatedRegisters}\n\n--- 编译摘录 ---\n{v.CompileLogExcerpt}\n\n--- 断言 ---\n{v.AssertionResultsJson}\n\n--- 轨迹 ---\n{v.AccessTraceJson}";
     }
@@ -1181,15 +1218,28 @@ public partial class TestManagementViewModel : ObservableObject
         }
 
         _batchCts = new CancellationTokenSource();
+        TestBatchProgress? latest = null;
+        var flushScheduled = false;
+        void FlushProgress()
+        {
+            var p = latest;
+            if (p is null) return;
+            ProgressPercent = p.Percent;
+            ProgressText = $"{p.Completed}/{p.Total} {p.CurrentCaseName}";
+            StatusText = p.Message;
+            BusyOverlayText = $"执行中 {p.Completed}/{p.Total}：{p.CurrentCaseName}";
+        }
+
         var progress = new Progress<TestBatchProgress>(p =>
         {
+            latest = p;
+            if (flushScheduled) return;
+            flushScheduled = true;
             Application.Current.Dispatcher.BeginInvoke(() =>
             {
-                ProgressPercent = p.Percent;
-                ProgressText = $"{p.Completed}/{p.Total} {p.CurrentCaseName}";
-                StatusText = p.Message;
-                BusyOverlayText = $"执行中 {p.Completed}/{p.Total}：{p.CurrentCaseName}";
-            });
+                flushScheduled = false;
+                FlushProgress();
+            }, DispatcherPriority.Background);
         });
         try
         {
@@ -1199,8 +1249,12 @@ public partial class TestManagementViewModel : ObservableObject
                 : $"批次完成：{batch.Status} Passed={batch.PassedCount} Failed={batch.FailedCount} Error={batch.ErrorCount}（虚拟环境）";
             SelectedBatch = batch;
             await ReloadHistoryAsync();
-            await ReloadStatsAsync();
-            await ReloadFailuresAsync();
+            if (SelectedSection is "统计覆盖率")
+                await ReloadStatsAsync(includeCoverage: true);
+            else
+                await ReloadStatsAsync(includeCoverage: false);
+            if (SelectedSection is "失败分析")
+                await ReloadFailuresAsync();
         }
         catch (OperationCanceledException)
         {
@@ -1332,7 +1386,6 @@ public partial class TestManagementViewModel : ObservableObject
         foreach (var h in list)
             History.Add(h);
         SelectedBatch = History.FirstOrDefault(x => x.Id == selectedId) ?? History.FirstOrDefault();
-        await ReloadExportBatchListAsync();
         RefreshExportScopeHint();
     }
 
@@ -1340,13 +1393,18 @@ public partial class TestManagementViewModel : ObservableObject
     {
         FailurePageIndex = 1;
         RefreshExportScopeHint();
-        _ = ReloadStatsAsync();
-        _ = ReloadFailuresAsync();
+        // Only refresh data needed by the current tab (avoid coverage + failures on every selection).
+        if (SelectedSection is "统计覆盖率")
+            _ = ReloadStatsAsync(includeCoverage: true);
+        else if (SelectedSection is "失败分析")
+            _ = ReloadFailuresAsync();
+        else if (SelectedSection is "执行历史")
+            _ = ReloadStatsAsync(includeCoverage: false);
     }
 
     partial void OnSelectedExportRunScopeChanged(string value) => RefreshExportScopeHint();
 
-    private async Task ReloadStatsAsync()
+    private async Task ReloadStatsAsync(bool includeCoverage = true)
     {
         if (ActiveProjectId is not Guid pid) return;
         var s = await _analytics.GetStatisticsAsync(pid, SelectedBatch?.Id);
@@ -1354,6 +1412,8 @@ public partial class TestManagementViewModel : ObservableObject
         StatsScopeHint = SelectedBatch is null
             ? "全项目累计"
             : $"所选批次 · {SelectedBatch.Status} · {SelectedBatch.ScopeKind}";
+
+        if (!includeCoverage) return;
 
         var c = await _analytics.GetCoverageAsync(pid);
         Coverage = c;

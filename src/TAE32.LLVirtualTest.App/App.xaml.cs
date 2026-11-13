@@ -62,8 +62,22 @@ public partial class App : Application
             args.SetObserved();
         };
 
-        Directory.CreateDirectory(AppPaths.DataDirectory);
-        Directory.CreateDirectory(AppPaths.LogDirectory);
+        try
+        {
+            Directory.CreateDirectory(AppPaths.DataDirectory);
+            Directory.CreateDirectory(AppPaths.LogDirectory);
+        }
+        catch (Exception ex)
+        {
+            MessageBox.Show(
+                $"无法创建数据目录（请以管理员身份运行）：\n{AppPaths.DataDirectory}\n\n{ex.Message}",
+                "TAE32 LL Virtual Test",
+                MessageBoxButton.OK,
+                MessageBoxImage.Error);
+            Shutdown(-1);
+            return;
+        }
+
         SerilogConfigurator.Configure(AppPaths.LogDirectory);
         TryMigrateLegacyDatabaseFromWorkspace();
 
@@ -101,6 +115,14 @@ public partial class App : Application
             await using (var db = await dbFactory.CreateDbContextAsync())
             {
                 await db.Database.MigrateAsync();
+                // Idempotent indexes for list/filter hot paths (avoid waiting on a new migration for existing installs).
+                await db.Database.ExecuteSqlRawAsync(
+                    """
+                    CREATE INDEX IF NOT EXISTS "IX_LlTestRuns_SdkProjectId_StartedAtUtc"
+                    ON "LlTestRuns" ("SdkProjectId", "StartedAtUtc");
+                    CREATE INDEX IF NOT EXISTS "IX_LlTestRuns_SdkProjectId_Status"
+                    ON "LlTestRuns" ("SdkProjectId", "Status");
+                    """);
             }
 
             // Auto-create default project (if needed) and import ScanResults JSON into SQLite.
@@ -168,4 +190,5 @@ public partial class App : Application
             Log.Warning(ex, "Could not migrate legacy database from {Legacy}", legacy);
         }
     }
+
 }

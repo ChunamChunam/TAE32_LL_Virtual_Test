@@ -21,7 +21,8 @@ public static class DependencyInjection
             Directory.CreateDirectory(dir);
 
         services.AddDbContextFactory<AppDbContext>(options =>
-            options.UseSqlite($"Data Source={sqliteDbPath}"));
+            options.UseSqlite($"Data Source={sqliteDbPath};Cache=Shared")
+                .AddInterceptors(new SqlitePragmaInterceptor()));
 
         services.AddScoped(sp => sp.GetRequiredService<IDbContextFactory<AppDbContext>>().CreateDbContext());
 

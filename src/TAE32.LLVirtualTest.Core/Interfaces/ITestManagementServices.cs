@@ -103,6 +103,9 @@ public interface ITestAnalyticsService
         int take = 50,
         CancellationToken ct = default);
 
+    /// <summary>Load full failure detail (logs / traces) for the selected list row.</summary>
+    Task<FailureAnalysisItem?> GetFailureDetailAsync(Guid runId, CancellationToken ct = default);
+
     /// <summary>Delete LlTestRun rows (Failed / Error / Timeout) matching the failure-analysis filters.</summary>
     Task<int> DeleteFailureRunsFilteredAsync(
         Guid sdkProjectId,

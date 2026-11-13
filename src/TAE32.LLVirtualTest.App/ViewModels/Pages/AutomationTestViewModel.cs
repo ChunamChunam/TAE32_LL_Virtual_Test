@@ -2,6 +2,7 @@ using System.Collections.ObjectModel;
 using System.IO;
 using System.Text;
 using System.Windows;
+using System.Windows.Threading;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
 using Microsoft.Win32;
@@ -843,14 +844,19 @@ public partial class AutomationTestViewModel : ObservableObject
         foreach (var r in Runs) r.IsSelected = value;
     }
 
-    partial void OnSelectedRunItemChanged(RunPickItem? value)
+    partial void OnSelectedRunItemChanged(RunPickItem? value) => _ = LoadRunDetailAsync(value);
+
+    private async Task LoadRunDetailAsync(RunPickItem? value)
     {
-        var run = value?.Run;
-        if (run is null)
+        var listRun = value?.Run;
+        if (listRun is null)
         {
             ResultDetail = string.Empty;
             return;
         }
+
+        ResultDetail = "加载详情…";
+        var run = await _store.GetRunAsync(listRun.Id) ?? listRun;
 
         static string Flag(bool ok, string yes, string no) => ok ? yes : no;
         var sb = new StringBuilder();
@@ -894,18 +900,31 @@ public partial class AutomationTestViewModel : ObservableObject
         LogLines.Clear();
         var ct = _busyCts?.Token ?? CancellationToken.None;
         var runIndex = 0;
+        string? pendingLog = null;
+        var flushScheduled = false;
+        void FlushUi()
+        {
+            var m = pendingLog;
+            if (m is null) return;
+            if (m.StartsWith("运行用例", StringComparison.Ordinal))
+            {
+                runIndex = Math.Min(runIndex + 1, ids.Count);
+                SetBusyProgress(runIndex, $"执行中 {runIndex}/{ids.Count}（虚拟 MCU）…");
+            }
+            LogLines.Insert(0, $"[{DateTime.Now:HH:mm:ss}] {m}");
+            if (LogLines.Count > 300) LogLines.RemoveAt(LogLines.Count - 1);
+        }
+
         var progress = new Progress<string>(m =>
         {
-            Application.Current.Dispatcher.Invoke(() =>
+            pendingLog = m;
+            if (flushScheduled) return;
+            flushScheduled = true;
+            Application.Current.Dispatcher.BeginInvoke(() =>
             {
-                if (m.StartsWith("运行用例", StringComparison.Ordinal))
-                {
-                    runIndex = Math.Min(runIndex + 1, ids.Count);
-                    SetBusyProgress(runIndex, $"执行中 {runIndex}/{ids.Count}（虚拟 MCU）…");
-                }
-                LogLines.Insert(0, $"[{DateTime.Now:HH:mm:ss}] {m}");
-                if (LogLines.Count > 300) LogLines.RemoveAt(LogLines.Count - 1);
-            });
+                flushScheduled = false;
+                FlushUi();
+            }, DispatcherPriority.Background);
         });
         try
         {

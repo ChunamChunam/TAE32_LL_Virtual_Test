@@ -35,7 +35,7 @@
             <DataGrid.Columns>
               <DataGridTextColumn Header="名称" Binding="{Binding Name}" Width="1.4*"/>
               <DataGridTextColumn Header="状态" Binding="{Binding ScanStatus}" Width="80"/>
-              <DataGridTextColumn Header="最近导入" Binding="{Binding LastImportedAtUtc}" Width="130"/>
+              <DataGridTextColumn Header="最近导入" Binding="{Binding LastImportedAtUtc, Converter={StaticResource BeijingTime}}" Width="150"/>
             </DataGrid.Columns>
           </DataGrid>
         </DockPanel>

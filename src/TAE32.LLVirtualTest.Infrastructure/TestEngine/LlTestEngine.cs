@@ -280,6 +280,8 @@ public sealed class LlTestEngine : ILLTestEngine
 
             uint? ret = null;
             Exception? execEx = null;
+            // Timeout assertion must measure native execute (+ sync), not clang compile wall time.
+            var nativeSw = Stopwatch.StartNew();
             try
             {
                 using var host = new NativeTestHost();
@@ -327,8 +329,9 @@ public sealed class LlTestEngine : ILLTestEngine
             }
             catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested)
             {
+                nativeSw.Stop();
                 run.Status = nameof(LlTestRunStatus.Timeout);
-                run.FailureReason = $"执行超过 {timeout} ms";
+                run.FailureReason = $"原生执行超过 {timeout} ms";
                 stages.Add(new LlTestStageResult { Stage = LlTestExecutionStage.NativeExecute, Succeeded = false, Message = run.FailureReason });
                 return await FinishAsync(run, stages, execLog, sw, ret, Array.Empty<LlTestAssertionResult>(), Array.Empty<VirtualAccessRecord>());
             }
@@ -338,13 +341,18 @@ public sealed class LlTestEngine : ILLTestEngine
                 L("执行异常: " + ex.Message);
                 stages.Add(new LlTestStageResult { Stage = LlTestExecutionStage.NativeExecute, Succeeded = false, Message = ex.Message });
             }
+            finally
+            {
+                nativeSw.Stop();
+            }
 
             var trace = mcuId is Guid mid
                 ? await _mcu.GetAccessTraceAsync(mid, new VirtualAccessFilter { Take = 500 }, cancellationToken)
                 : Array.Empty<VirtualAccessRecord>();
 
             var assertions = await AssertionEvaluator.EvaluateAsync(
-                _mcu, mcuId ?? Guid.Empty, edit.Assertions, ret, trace, execEx, (int)sw.ElapsedMilliseconds, cancellationToken);
+                _mcu, mcuId ?? Guid.Empty, edit.Assertions, ret, trace, execEx,
+                (int)nativeSw.ElapsedMilliseconds, cancellationToken);
             run.AssertionsPassed = assertions.Count == 0 || assertions.All(a => a.Passed);
             stages.Add(new LlTestStageResult
             {

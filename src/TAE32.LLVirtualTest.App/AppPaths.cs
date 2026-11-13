@@ -7,7 +7,7 @@ public static class AppPaths
     /// <summary>Directory containing the running executable (publish folder or bin output).</summary>
     public static string InstallDirectory => Path.GetFullPath(AppContext.BaseDirectory);
 
-    /// <summary>App-local data: SQLite DB, logs, UI scale, default scan cache.</summary>
+    /// <summary>App-local data: SQLite DB, logs, UI scale, default scan cache (beside the exe).</summary>
     public static string DataDirectory => Path.Combine(InstallDirectory, "data");
 
     public static string LogDirectory => Path.Combine(DataDirectory, "logs");

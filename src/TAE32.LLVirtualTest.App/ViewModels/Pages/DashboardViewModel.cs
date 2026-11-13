@@ -36,7 +36,9 @@ public partial class DashboardViewModel : ObservableObject
         LlFunctionCount = s.LlFunctionCount;
         InlineFunctionCount = s.InlineFunctionCount;
         ScanStatusText = s.ScanStatusText;
-        LastImportText = s.LastImportedAtUtc?.ToLocalTime().ToString("yyyy-MM-dd HH:mm:ss") ?? "尚未导入";
+        LastImportText = s.LastImportedAtUtc is DateTime t
+            ? Converters.BeijingTime.Format(t)
+            : "尚未导入";
         UpdateLiveAndBaselineLines();
     }
 

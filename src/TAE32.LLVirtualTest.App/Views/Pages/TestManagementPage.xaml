@@ -265,7 +265,7 @@
                 <DataGridTextColumn Header="失败" Binding="{Binding FailedCount}" Width="50"/>
                 <DataGridTextColumn Header="错误" Binding="{Binding ErrorCount}" Width="50"/>
                 <DataGridTextColumn Header="编译失败" Binding="{Binding CompileFailCount}" Width="70"/>
-                <DataGridTextColumn Header="开始" Binding="{Binding StartedAtUtc}" Width="*"/>
+                <DataGridTextColumn Header="开始" Binding="{Binding StartedAtUtc, Converter={StaticResource BeijingTime}}" Width="150"/>
               </DataGrid.Columns>
             </DataGrid>
           </DockPanel>
@@ -615,11 +615,8 @@
                       <DataGridTextColumn Header="类型" Binding="{Binding ScopeKind}" Width="68"/>
                       <DataGridTextColumn Header="范围值" Binding="{Binding ScopeValue}" Width="*"
                                           MinWidth="72" ElementStyle="{StaticResource DataGridEllipsisTextStyle}"/>
-                      <DataGridTextColumn Header="开始" Width="108">
-                        <DataGridTextColumn.Binding>
-                          <Binding Path="StartedAtUtc" StringFormat="{}{0:MM-dd HH:mm}"/>
-                        </DataGridTextColumn.Binding>
-                      </DataGridTextColumn>
+                      <DataGridTextColumn Header="开始" Width="150"
+                                          Binding="{Binding StartedAtUtc, Converter={StaticResource BeijingTime}}"/>
                       <DataGridTextColumn Header="状态" Binding="{Binding Status}" Width="76"/>
                       <DataGridTextColumn Header="总数" Binding="{Binding TotalCount}" Width="44"/>
                       <DataGridTextColumn Header="过" Binding="{Binding PassedCount}" Width="36"/>
@@ -689,7 +686,7 @@
                                           ElementStyle="{StaticResource DataGridEllipsisTextStyle}"/>
                       <DataGridTextColumn Header="路径" Binding="{Binding FilePath}" Width="*"
                                           ElementStyle="{StaticResource DataGridEllipsisTextStyle}"/>
-                      <DataGridTextColumn Header="时间" Binding="{Binding CreatedAtUtc}" Width="118"/>
+                      <DataGridTextColumn Header="时间" Binding="{Binding CreatedAtUtc, Converter={StaticResource BeijingTime}}" Width="150"/>
                     </DataGrid.Columns>
                   </DataGrid>
                 </DockPanel>

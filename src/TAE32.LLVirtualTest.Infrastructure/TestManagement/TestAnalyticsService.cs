@@ -4,7 +4,6 @@ using TAE32.LLVirtualTest.Core.Enums;
 using TAE32.LLVirtualTest.Core.Interfaces;
 using TAE32.LLVirtualTest.Core.Models;
 using TAE32.LLVirtualTest.Infrastructure.Data;
-using TAE32.LLVirtualTest.Infrastructure.TestEngine;
 
 namespace TAE32.LLVirtualTest.Infrastructure.TestManagement;
 
@@ -84,43 +83,26 @@ public sealed class TestAnalyticsService : ITestAnalyticsService
             .Select(r => r.RegisterPath!)
             .Distinct()
             .CountAsync(ct);
-        // Touched registers: parse AccessTraceJson for member names is expensive; use runs with non-empty trace as proxy of "touched".
-        var traces = await db.LlTestRuns.AsNoTracking()
-            .Where(r => r.SdkProjectId == sdkProjectId && r.AccessTraceJson != null && r.AccessTraceJson != "[]")
-            .Select(r => r.AccessTraceJson!)
-            .Take(200)
-            .ToListAsync(ct);
-        var touched = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-        foreach (var json in traces)
-        {
-            try
-            {
-                var recs = JsonSerializer.Deserialize<List<VirtualAccessRecord>>(json);
-                if (recs is null) continue;
-                foreach (var r in recs)
-                    if (!string.IsNullOrWhiteSpace(r.RegisterName))
-                        touched.Add(r.RegisterName);
-            }
-            catch { /* ignore bad json */ }
-        }
-        cov.RegisterAccessCoverageDenomination = "解析得到的寄存器引用名 vs 运行轨迹中出现的寄存器名（抽样最多 200 次运行）";
+        // Cheap proxy: runs that stored a non-empty access trace (avoid parsing large JSON on every refresh).
+        var runsWithTrace = await db.LlTestRuns.AsNoTracking()
+            .CountAsync(r => r.SdkProjectId == sdkProjectId
+                             && r.AccessTraceJson != null
+                             && r.AccessTraceJson.Length > 2, ct);
+        cov.RegisterAccessCoverageDenomination =
+            "解析得到的寄存器引用名 vs 含非空访问轨迹的运行次数（代理指标，避免全量反序列化）";
         cov.RegistersReferencedInParse = regsReferenced;
-        cov.RegistersTouchedInRuns = touched.Count;
-        cov.RegisterAccessCoveragePercent = regsReferenced == 0 ? null : Math.Min(100, touched.Count * 100.0 / regsReferenced);
+        cov.RegistersTouchedInRuns = runsWithTrace;
+        cov.RegisterAccessCoveragePercent = regsReferenced == 0
+            ? null
+            : Math.Min(100, runsWithTrace * 100.0 / regsReferenced);
 
         var bitFieldsTotal = await db.RegisterFields.AsNoTracking()
             .CountAsync(f => f.RegisterDefinition!.SdkProjectId == sdkProjectId, ct);
-        var assertedBits = 0;
-        var assertionJsons = await db.LlTestCases.AsNoTracking()
-            .Where(c => c.SdkProjectId == sdkProjectId)
-            .Select(c => c.AssertionsJson)
-            .ToListAsync(ct);
-        foreach (var aj in assertionJsons)
-        {
-            var specs = LlTestJson.DeserializeAssertions(aj);
-            assertedBits += specs.Count(s => s.Kind == LlAssertionKind.BitField && !string.IsNullOrWhiteSpace(s.BitFieldName));
-        }
-        cov.BitFieldCoverageDenomination = "寄存器位域定义总数 vs 用例中 BitField 断言条数（非唯一位域名）";
+        // Approximate: cases whose AssertionsJson mentions BitField (no full deserialize).
+        var assertedBits = await db.LlTestCases.AsNoTracking()
+            .CountAsync(c => c.SdkProjectId == sdkProjectId
+                             && c.AssertionsJson.Contains("BitField"), ct);
+        cov.BitFieldCoverageDenomination = "寄存器位域定义总数 vs 含 BitField 断言的用例数（近似口径）";
         cov.BitFieldsTotal = bitFieldsTotal;
         cov.BitFieldsAsserted = assertedBits;
         cov.BitFieldCoveragePercent = bitFieldsTotal == 0 ? null : Math.Min(100, assertedBits * 100.0 / bitFieldsTotal);
@@ -252,8 +234,51 @@ public sealed class TestAnalyticsService : ITestAnalyticsService
         var total = await q.CountAsync(ct);
         take = Math.Max(1, take);
         skip = Math.Max(0, skip);
-        var rows = await q.OrderByDescending(x => x.StartedAtUtc).Skip(skip).Take(take).ToListAsync(ct);
-        return (rows.Select(MapFailureItem).ToList(), total);
+        // List rows: skip CompileLog / AccessTraceJson blobs (load via GetFailureDetailAsync).
+        var rows = await q.OrderByDescending(x => x.StartedAtUtc)
+            .Skip(skip).Take(take)
+            .Select(x => new
+            {
+                x.Id,
+                x.LlTestCaseId,
+                CaseName = x.TestCase != null ? x.TestCase.Name : "",
+                FunctionName = x.TestCase != null ? x.TestCase.FunctionName : "",
+                SourceFile = x.TestCase != null ? x.TestCase.SourceFile : null,
+                x.Status,
+                x.FailureReason,
+                x.CompileSucceeded,
+                x.StartedAtUtc,
+                x.DurationMs,
+                x.ReturnValueText,
+                x.AssertionsPassed
+            })
+            .ToListAsync(ct);
+
+        var items = rows.Select(x => new FailureAnalysisItem
+        {
+            RunId = x.Id,
+            TestCaseId = x.LlTestCaseId,
+            CaseName = x.CaseName ?? "",
+            FunctionName = x.FunctionName ?? "",
+            SourceFile = x.SourceFile,
+            Status = x.Status,
+            FailureReason = x.FailureReason,
+            CompileSucceeded = x.CompileSucceeded,
+            StartedAtUtc = x.StartedAtUtc,
+            DurationMs = x.DurationMs,
+            ReturnValueText = x.ReturnValueText,
+            AssertionsPassed = x.AssertionsPassed
+        }).ToList();
+        return (items, total);
+    }
+
+    public async Task<FailureAnalysisItem?> GetFailureDetailAsync(Guid runId, CancellationToken ct = default)
+    {
+        await using var db = await _dbFactory.CreateDbContextAsync(ct);
+        var row = await db.LlTestRuns.AsNoTracking()
+            .Include(x => x.TestCase)
+            .FirstOrDefaultAsync(x => x.Id == runId, ct);
+        return row is null ? null : MapFailureItem(row);
     }
 
     public async Task<int> DeleteFailureRunsFilteredAsync(
@@ -277,7 +302,6 @@ public sealed class TestAnalyticsService : ITestAnalyticsService
         CancellationToken ct)
     {
         IQueryable<Core.Entities.LlTestRun> q = db.LlTestRuns.AsNoTracking()
-            .Include(x => x.TestCase)
             .Where(x => x.SdkProjectId == sdkProjectId
                         && (x.Status == nameof(LlTestRunStatus.Failed)
                             || x.Status == nameof(LlTestRunStatus.Error)

@@ -352,6 +352,8 @@ public sealed class AppDbContext : DbContext
             e.Property(x => x.Status).HasMaxLength(32);
             e.Property(x => x.CompilerPath).HasMaxLength(1000);
             e.HasIndex(x => x.LlTestCaseId);
+            e.HasIndex(x => new { x.SdkProjectId, x.StartedAtUtc });
+            e.HasIndex(x => new { x.SdkProjectId, x.Status });
             e.HasOne(x => x.SdkProject).WithMany().HasForeignKey(x => x.SdkProjectId).OnDelete(DeleteBehavior.Cascade);
             e.HasOne(x => x.TestCase).WithMany(c => c.Runs).HasForeignKey(x => x.LlTestCaseId).OnDelete(DeleteBehavior.Cascade);
         });
