@@ -61,6 +61,21 @@ public partial class TestManagementViewModel : ObservableObject
     [ObservableProperty] private string _planChip = "TAE32G58xx";
     [ObservableProperty] private string _planPeripheral = "(全部)";
     [ObservableProperty] private string _planTestType = "VirtualMcu";
+    [ObservableProperty] private string _planSearchText = string.Empty;
+    [ObservableProperty] private int _planPageIndex = 1;
+    [ObservableProperty] private int _planPageSize = 50;
+    [ObservableProperty] private int _planTotalCount;
+    [ObservableProperty] private int _planTotalPages = 1;
+    [ObservableProperty] private string _planPageInfo = string.Empty;
+    [ObservableProperty] private bool _canPlanPrev;
+    [ObservableProperty] private bool _canPlanNext;
+    public ObservableCollection<string> PlanStatusFilterOptions { get; } = new()
+    {
+        "全部状态",
+        "仅活动",
+        "仅归档"
+    };
+    [ObservableProperty] private string _selectedPlanStatusFilter = "全部状态";
     [ObservableProperty] private string _suiteName = string.Empty;
     [ObservableProperty] private string _suitePeripheral = "(全部)";
     [ObservableProperty] private TestStatistics _statistics = new();
@@ -206,7 +221,52 @@ public partial class TestManagementViewModel : ObservableObject
     {
         if (SelectedPlan is null) return;
         await _plans.ArchiveAsync(SelectedPlan.Id);
+        StatusText = $"已归档计划：{SelectedPlan.Name}";
         await ReloadPlansAsync();
+    }
+
+    [RelayCommand]
+    private async Task RestorePlanAsync()
+    {
+        if (SelectedPlan is null) return;
+        await _plans.RestoreAsync(SelectedPlan.Id);
+        StatusText = $"已恢复计划为活动：{SelectedPlan.Name}";
+        await ReloadPlansAsync();
+    }
+
+    [RelayCommand]
+    private async Task SearchPlansAsync()
+    {
+        PlanPageIndex = 1;
+        await ReloadPlansAsync();
+    }
+
+    [RelayCommand]
+    private async Task PlanPreviousPageAsync()
+    {
+        if (PlanPageIndex <= 1) return;
+        PlanPageIndex--;
+        await ReloadPlansAsync();
+    }
+
+    [RelayCommand]
+    private async Task PlanNextPageAsync()
+    {
+        if (PlanPageIndex >= PlanTotalPages) return;
+        PlanPageIndex++;
+        await ReloadPlansAsync();
+    }
+
+    partial void OnPlanPageSizeChanged(int value)
+    {
+        PlanPageIndex = 1;
+        _ = ReloadPlansAsync();
+    }
+
+    partial void OnSelectedPlanStatusFilterChanged(string value)
+    {
+        PlanPageIndex = 1;
+        _ = ReloadPlansAsync();
     }
 
     [RelayCommand]
@@ -674,13 +734,45 @@ public partial class TestManagementViewModel : ObservableObject
         => string.IsNullOrWhiteSpace(value) || value == "全部" || value == "(全部)";
 
     [RelayCommand]
-    private async Task RetryFailedAsync()
+    private Task RetryNonPassedAsync() => RetryFromSelectedBatchAsync("NonPassed", "非通过重跑");
+
+    [RelayCommand]
+    private Task RetryAssertionFailedAsync() => RetryFromSelectedBatchAsync("Failed", "仅断言失败");
+
+    [RelayCommand]
+    private Task RetryErrorsAsync() => RetryFromSelectedBatchAsync("Error", "仅错误");
+
+    /// <summary>Back-compat alias used by older bindings; same as non-passed retry.</summary>
+    [RelayCommand]
+    private Task RetryFailedAsync() => RetryNonPassedAsync();
+
+    private async Task RetryFromSelectedBatchAsync(string retryMode, string label)
     {
-        if (ActiveProjectId is not Guid pid || SelectedBatch is null) return;
+        if (ActiveProjectId is not Guid pid || SelectedBatch is null)
+        {
+            StatusText = "请先在执行历史中选中一个批次";
+            return;
+        }
+
+        if (string.Equals(SelectedBatch.Status, "Running", StringComparison.OrdinalIgnoreCase))
+        {
+            StatusText = "源批次仍在 Running，无法重跑";
+            return;
+        }
+
+        var nonPassHint = SelectedBatch.FailedCount
+                          + SelectedBatch.ErrorCount
+                          + SelectedBatch.SkippedCount
+                          + SelectedBatch.TimeoutCount
+                          + SelectedBatch.CancelledCount;
+        StatusText = $"{label}：源批次 {SelectedBatch.ScopeKind}（非通过合计约 {nonPassHint}，以实际筛选为准）…";
+
         await RunBatchInternalAsync(new TestBatchRunRequest
         {
             SdkProjectId = pid,
             ScopeKind = "FailedRetry",
+            ScopeValue = retryMode,
+            RetryMode = retryMode,
             RetryFailedOnly = true,
             SourceBatchRunId = SelectedBatch.Id,
             TestPlanId = SelectedBatch.TestPlanId,
@@ -1102,7 +1194,9 @@ public partial class TestManagementViewModel : ObservableObject
         try
         {
             var batch = await _batches.RunAsync(request, progress, _batchCts.Token);
-            StatusText = $"批次完成：{batch.Status} Passed={batch.PassedCount} Failed={batch.FailedCount} Error={batch.ErrorCount}（虚拟环境）";
+            StatusText = batch.TotalCount == 0 && request.SourceBatchRunId is not null
+                ? $"重跑未选中任何用例（模式={request.RetryMode ?? "NonPassed"}）。请确认已选中含非通过结果的源批次。"
+                : $"批次完成：{batch.Status} Passed={batch.PassedCount} Failed={batch.FailedCount} Error={batch.ErrorCount}（虚拟环境）";
             SelectedBatch = batch;
             await ReloadHistoryAsync();
             await ReloadStatsAsync();
@@ -1129,11 +1223,41 @@ public partial class TestManagementViewModel : ObservableObject
 
     private async Task ReloadPlansAsync()
     {
-        if (ActiveProjectId is not Guid pid) return;
+        if (ActiveProjectId is not Guid pid)
+        {
+            Plans.Clear();
+            PlanTotalCount = 0;
+            PlanTotalPages = 1;
+            PlanPageInfo = "无项目";
+            CanPlanPrev = false;
+            CanPlanNext = false;
+            return;
+        }
+
+        var search = string.IsNullOrWhiteSpace(PlanSearchText) ? null : PlanSearchText.Trim();
+        var status = SelectedPlanStatusFilter switch
+        {
+            "仅活动" => "Active",
+            "仅归档" => "Archived",
+            _ => null // 全部状态：含历史归档
+        };
+        var skip = Math.Max(0, (PlanPageIndex - 1) * PlanPageSize);
+        var (list, total) = await _plans.ListPagedAsync(pid, search, status, skip, PlanPageSize);
+        PlanTotalCount = total;
+        PlanTotalPages = Math.Max(1, (int)Math.Ceiling(total / (double)Math.Max(1, PlanPageSize)));
+        if (PlanPageIndex > PlanTotalPages) PlanPageIndex = PlanTotalPages;
+        if (PlanPageIndex < 1) PlanPageIndex = 1;
+        var from = total == 0 ? 0 : skip + 1;
+        var to = total == 0 ? 0 : Math.Min(total, skip + list.Count);
+        PlanPageInfo = $"共 {total} 条　第 {PlanPageIndex}/{PlanTotalPages} 页　{from}-{to}";
+        CanPlanPrev = PlanPageIndex > 1;
+        CanPlanNext = PlanPageIndex < PlanTotalPages;
+
+        var selectedId = SelectedPlan?.Id;
         Plans.Clear();
-        foreach (var p in await _plans.ListAsync(pid, includeArchived: true))
+        foreach (var p in list)
             Plans.Add(p);
-        SelectedPlan ??= Plans.FirstOrDefault();
+        SelectedPlan = Plans.FirstOrDefault(x => x.Id == selectedId) ?? Plans.FirstOrDefault();
     }
 
     private async Task ReloadSuitesAsync()

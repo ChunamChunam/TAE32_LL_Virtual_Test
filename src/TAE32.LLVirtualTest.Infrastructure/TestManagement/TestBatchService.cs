@@ -222,19 +222,31 @@ public sealed class TestBatchService : ITestBatchService
 
         await using var db = await _dbFactory.CreateDbContextAsync(ct);
 
-        if (request.RetryFailedOnly && request.SourceBatchRunId is Guid srcId)
+        var retryMode = NormalizeRetryMode(request);
+        if (retryMode is not null && request.SourceBatchRunId is Guid srcId)
         {
             var src = await db.TestBatchRuns.AsNoTracking().FirstOrDefaultAsync(x => x.Id == srcId, ct)
                       ?? throw new InvalidOperationException("源批次不存在");
             var runIds = JsonSerializer.Deserialize<List<Guid>>(src.CaseRunIdsJson) ?? new();
-            return await db.LlTestRuns.AsNoTracking()
-                .Where(r => runIds.Contains(r.Id)
-                            && (r.Status == nameof(LlTestRunStatus.Failed)
-                                || r.Status == nameof(LlTestRunStatus.Error)
-                                || r.Status == nameof(LlTestRunStatus.Timeout)))
-                .Select(r => r.LlTestCaseId)
+            if (runIds.Count == 0)
+                return new List<Guid>();
+
+            // Chunk IN-lists for SQLite parameter limits on large plan batches.
+            var matched = new List<(Guid CaseId, string Status)>();
+            foreach (var chunk in Chunk(runIds, 400))
+            {
+                var part = await db.LlTestRuns.AsNoTracking()
+                    .Where(r => chunk.Contains(r.Id))
+                    .Select(r => new { r.LlTestCaseId, r.Status })
+                    .ToListAsync(ct);
+                matched.AddRange(part.Select(x => (x.LlTestCaseId, x.Status)));
+            }
+
+            return matched
+                .Where(x => MatchesRetryMode(x.Status, retryMode))
+                .Select(x => x.CaseId)
                 .Distinct()
-                .ToListAsync(ct);
+                .ToList();
         }
 
         if (request.TestSuiteId is Guid suiteId)
@@ -294,6 +306,52 @@ public sealed class TestBatchService : ITestBatchService
             case LlTestRunStatus.Skipped: batch.SkippedCount++; break;
             case LlTestRunStatus.Timeout: batch.TimeoutCount++; break;
             case LlTestRunStatus.Cancelled: batch.CancelledCount++; break;
+        }
+    }
+
+    /// <summary>Returns normalized retry mode, or null when this request is not a retry.</summary>
+    private static string? NormalizeRetryMode(TestBatchRunRequest request)
+    {
+        if (!string.IsNullOrWhiteSpace(request.RetryMode))
+            return request.RetryMode.Trim();
+        if (request.RetryFailedOnly)
+            return "NonPassed";
+        return null;
+    }
+
+    private static bool MatchesRetryMode(string status, string mode)
+    {
+        if (string.Equals(mode, "NonPassed", StringComparison.OrdinalIgnoreCase))
+            return !string.Equals(status, nameof(LlTestRunStatus.Passed), StringComparison.OrdinalIgnoreCase)
+                   && !string.Equals(status, nameof(LlTestRunStatus.Pending), StringComparison.OrdinalIgnoreCase)
+                   && !string.Equals(status, nameof(LlTestRunStatus.Compiling), StringComparison.OrdinalIgnoreCase)
+                   && !string.Equals(status, nameof(LlTestRunStatus.Running), StringComparison.OrdinalIgnoreCase);
+
+        if (string.Equals(mode, "Failed", StringComparison.OrdinalIgnoreCase))
+            return string.Equals(status, nameof(LlTestRunStatus.Failed), StringComparison.OrdinalIgnoreCase);
+
+        if (string.Equals(mode, "Error", StringComparison.OrdinalIgnoreCase))
+            return string.Equals(status, nameof(LlTestRunStatus.Error), StringComparison.OrdinalIgnoreCase);
+
+        if (string.Equals(mode, "Timeout", StringComparison.OrdinalIgnoreCase))
+            return string.Equals(status, nameof(LlTestRunStatus.Timeout), StringComparison.OrdinalIgnoreCase);
+
+        if (string.Equals(mode, "Skipped", StringComparison.OrdinalIgnoreCase))
+            return string.Equals(status, nameof(LlTestRunStatus.Skipped), StringComparison.OrdinalIgnoreCase);
+
+        // Unknown mode → treat as NonPassed
+        return !string.Equals(status, nameof(LlTestRunStatus.Passed), StringComparison.OrdinalIgnoreCase);
+    }
+
+    private static IEnumerable<List<T>> Chunk<T>(IReadOnlyList<T> source, int size)
+    {
+        for (var i = 0; i < source.Count; i += size)
+        {
+            var take = Math.Min(size, source.Count - i);
+            var list = new List<T>(take);
+            for (var j = 0; j < take; j++)
+                list.Add(source[i + j]);
+            yield return list;
         }
     }
 }

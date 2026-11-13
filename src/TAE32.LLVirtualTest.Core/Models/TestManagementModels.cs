@@ -37,7 +37,18 @@ public sealed class TestBatchRunRequest
     public string ScopeKind { get; set; } = "Listed";
     public string? ScopeValue { get; set; }
     public IReadOnlyList<Guid>? ExplicitCaseIds { get; set; }
+
+    /// <summary>
+    /// Legacy flag: when true and <see cref="RetryMode"/> is empty, behaves as <c>NonPassed</c>.
+    /// </summary>
     public bool RetryFailedOnly { get; set; }
+
+    /// <summary>
+    /// Retry filter for <see cref="SourceBatchRunId"/> batches:
+    /// <c>NonPassed</c> (default) / <c>Failed</c> / <c>Error</c> / <c>Timeout</c> / <c>Skipped</c>.
+    /// </summary>
+    public string? RetryMode { get; set; }
+
     public Guid? SourceBatchRunId { get; set; }
 }
 

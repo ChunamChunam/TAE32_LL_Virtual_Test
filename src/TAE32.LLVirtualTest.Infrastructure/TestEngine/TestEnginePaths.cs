@@ -4,16 +4,10 @@ internal static class TestEnginePaths
 {
     public static string HostSdkIncludeDirectory()
     {
+        // Do not use Assembly.Location — empty under single-file publish (IL3000).
         var roots = new List<string> { AppContext.BaseDirectory };
-        var loc = typeof(TestEnginePaths).Assembly.Location;
-        if (!string.IsNullOrEmpty(loc))
-        {
-            var asmDir = Path.GetDirectoryName(loc);
-            if (!string.IsNullOrEmpty(asmDir))
-                roots.Add(asmDir);
-        }
 
-        foreach (var baseDir in roots.Distinct(StringComparer.OrdinalIgnoreCase))
+        foreach (var baseDir in roots)
         {
             foreach (var rel in new[] { "HostSdk", Path.Combine("TestEngine", "HostSdk") })
             {
@@ -23,8 +17,8 @@ internal static class TestEnginePaths
             }
         }
 
-        var walk = roots[0];
-        for (var i = 0; i < 6; i++)
+        var walk = AppContext.BaseDirectory;
+        for (var i = 0; i < 8; i++)
         {
             foreach (var rel in new[] { "HostSdk", Path.Combine("TestEngine", "HostSdk") })
             {
@@ -33,12 +27,18 @@ internal static class TestEnginePaths
                     return candidate;
             }
 
-            walk = Path.GetDirectoryName(walk) ?? walk;
+            // Infrastructure project source layout (dev): .../src/TAE32.LLVirtualTest.Infrastructure/TestEngine/HostSdk
+            var infraHost = Path.Combine(walk, "src", "TAE32.LLVirtualTest.Infrastructure", "TestEngine", "HostSdk");
+            if (Directory.Exists(infraHost))
+                return infraHost;
+
+            var parent = Path.GetDirectoryName(walk);
+            if (string.IsNullOrEmpty(parent) || string.Equals(parent, walk, StringComparison.OrdinalIgnoreCase))
+                break;
+            walk = parent;
         }
 
         var fallback = Path.Combine(AppContext.BaseDirectory, "HostSdk");
-
-        // Development tree (TestEngine/HostSdk beside source)
         var dev = Path.GetFullPath(Path.Combine(
             AppContext.BaseDirectory,
             "..", "..", "..", "TestEngine", "HostSdk"));

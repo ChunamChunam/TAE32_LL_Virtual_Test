@@ -1,0 +1,8 @@
+<Project>
+  <PropertyGroup>
+    <!-- Fail the build on any compiler/analyzer warning. -->
+    <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
+    <!-- Keep IL trim/single-file analysis noisy-but-fatal when applicable. -->
+    <WarningsAsErrors>$(WarningsAsErrors);IL3000;IL3001;IL3002;IL3003</WarningsAsErrors>
+  </PropertyGroup>
+</Project>

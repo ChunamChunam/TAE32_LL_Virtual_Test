@@ -6,10 +6,21 @@ namespace TAE32.LLVirtualTest.Core.Interfaces;
 public interface ITestPlanStore
 {
     Task<IReadOnlyList<TestPlan>> ListAsync(Guid sdkProjectId, bool includeArchived = false, CancellationToken ct = default);
+
+    /// <param name="statusFilter">null/"全部"=Active+Archived; "Active"; "Archived".</param>
+    Task<(IReadOnlyList<TestPlan> Items, int TotalCount)> ListPagedAsync(
+        Guid sdkProjectId,
+        string? searchText = null,
+        string? statusFilter = null,
+        int skip = 0,
+        int take = 50,
+        CancellationToken ct = default);
+
     Task<TestPlan?> GetAsync(Guid id, CancellationToken ct = default);
     Task<TestPlan> UpsertAsync(TestPlanEditModel model, CancellationToken ct = default);
     Task<TestPlan> DuplicateAsync(Guid id, CancellationToken ct = default);
     Task ArchiveAsync(Guid id, CancellationToken ct = default);
+    Task RestoreAsync(Guid id, CancellationToken ct = default);
     Task DeleteAsync(Guid id, CancellationToken ct = default);
 }
 
