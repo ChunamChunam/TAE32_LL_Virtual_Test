@@ -1,5 +1,5 @@
 ﻿{
-  "generated_at": "2026-11-13T02:20:53Z",
+  "generated_at": "2026-11-16T03:13:07Z",
   "extraction_policy": "提取 __STATIC_INLINE / static inline / inline / 普通声明 / 函数宏；区分声明与定义",
   "function_count_total": 6879,
   "function_count_inline_definition": 3628,

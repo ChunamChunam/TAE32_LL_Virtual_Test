@@ -11,11 +11,19 @@
     <Border Grid.Row="0" Style="{StaticResource AppCardBorderStyle}" Margin="0,0,0,6">
       <DockPanel>
         <StackPanel DockPanel.Dock="Right" Orientation="Horizontal">
-          <Button Content="深度解析" Command="{Binding DeepParseCommand}"/>
+          <Button Content="本页全选" Style="{StaticResource GhostButtonStyle}" Command="{Binding SelectPageCommand}" Margin="0,0,8,0"/>
+          <Button Content="清空勾选" Style="{StaticResource GhostButtonStyle}" Command="{Binding ClearAllSelectionCommand}" Margin="0,0,8,0"/>
+          <Button Content="解析勾选" Command="{Binding DeepParseSelectedCommand}" Margin="0,0,8,0"
+                  ToolTip="深度解析已勾选函数；若未勾选则解析当前高亮行"/>
+          <Button Content="深度解析全部" Command="{Binding DeepParseCommand}"
+                  ToolTip="解析当前 SDK 全部 LL 头文件（耗时较长）"/>
         </StackPanel>
         <StackPanel>
           <TextBlock Text="LL 函数库" FontSize="20" FontWeight="SemiBold" Foreground="{StaticResource BrushTextPrimary}"/>
-          <TextBlock Margin="0,4,0,0" Foreground="{StaticResource BrushAccent}" Text="{Binding ParseSummaryText}" TextWrapping="Wrap"/>
+          <StackPanel Orientation="Horizontal" Margin="0,4,0,0">
+            <TextBlock Foreground="{StaticResource BrushAccent}" Text="{Binding ParseSummaryText}" TextWrapping="Wrap"/>
+            <TextBlock Margin="16,0,0,0" Foreground="{StaticResource BrushTextMuted}" Text="{Binding CheckedCountText}"/>
+          </StackPanel>
         </StackPanel>
       </DockPanel>
     </Border>
@@ -46,7 +54,11 @@
                         ItemsSource="{Binding FormFilters}" SelectedItem="{Binding SelectedForm}"/>
               <Button Grid.Column="4" Style="{StaticResource GhostButtonStyle}" Content="查询" Command="{Binding SearchCommand}"/>
             </Grid>
-            <TextBlock Grid.Row="1" Margin="0,6,0,0" Foreground="{StaticResource BrushTextMuted}" Text="{Binding PageInfoText}"/>
+            <DockPanel Grid.Row="1" Margin="0,6,0,0">
+              <CheckBox DockPanel.Dock="Right" Content="页全选" IsChecked="{Binding IsAllOnPageSelected}"
+                        VerticalAlignment="Center" Margin="12,0,0,0"/>
+              <TextBlock Foreground="{StaticResource BrushTextMuted}" Text="{Binding PageInfoText}" VerticalAlignment="Center"/>
+            </DockPanel>
           </Grid>
         </Border>
         <Border DockPanel.Dock="Bottom" Style="{StaticResource GridPagerFooterStyle}">
@@ -66,8 +78,16 @@
                        VerticalAlignment="Center" Margin="8,0,0,0"/>
           </DockPanel>
         </Border>
-        <DataGrid ItemsSource="{Binding Items}" SelectedItem="{Binding SelectedFunction}">
+        <DataGrid ItemsSource="{Binding Items}" SelectedItem="{Binding SelectedItem}">
           <DataGrid.Columns>
+            <DataGridTemplateColumn Header="" Width="36">
+              <DataGridTemplateColumn.CellTemplate>
+                <DataTemplate>
+                  <CheckBox IsChecked="{Binding IsSelected, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"
+                            HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                </DataTemplate>
+              </DataGridTemplateColumn.CellTemplate>
+            </DataGridTemplateColumn>
             <DataGridTextColumn Header="函数名" Binding="{Binding FunctionName}" Width="1.6*"/>
             <DataGridTextColumn Header="芯片" Binding="{Binding ChipName}" Width="88"/>
             <DataGridTextColumn Header="外设" Binding="{Binding PeripheralName}" Width="72"/>

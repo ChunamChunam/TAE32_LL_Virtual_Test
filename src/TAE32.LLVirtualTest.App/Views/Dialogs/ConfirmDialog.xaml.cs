@@ -17,10 +17,7 @@ public partial class ConfirmDialog : Window
         bool dangerConfirm = true,
         Window? owner = null)
     {
-        var dlg = new ConfirmDialog
-        {
-            Owner = owner ?? Application.Current.MainWindow as Window
-        };
+        var dlg = new ConfirmDialog();
         dlg.TitleText.Text = title;
         dlg.MessageText.Text = message;
         dlg.ConfirmButton.Content = confirmLabel;
@@ -28,6 +25,23 @@ public partial class ConfirmDialog : Window
         if (!dangerConfirm)
             dlg.ConfirmButton.Background = Application.Current.TryFindResource("BrushAccent") as System.Windows.Media.Brush
                                            ?? dlg.ConfirmButton.Background;
+
+        try
+        {
+            var candidate = owner ?? Application.Current?.MainWindow;
+            if (candidate is not null
+                && !ReferenceEquals(candidate, dlg)
+                && candidate.IsLoaded
+                && candidate.IsVisible)
+            {
+                dlg.Owner = candidate;
+            }
+        }
+        catch
+        {
+            /* leave Owner unset */
+        }
+
         return dlg.ShowDialog() == true;
     }
 

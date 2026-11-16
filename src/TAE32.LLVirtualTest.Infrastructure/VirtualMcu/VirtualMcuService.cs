@@ -158,6 +158,11 @@ public sealed class VirtualMcuService : IVirtualMcuService
         CancellationToken cancellationToken = default)
         => Task.FromResult(Get(mcuId).Write(instanceOrStruct, memberName, value, context));
 
+    public Task<VirtualAccessResultDto> SeedRegisterAsync(
+        Guid mcuId, string instanceOrStruct, string memberName, uint value, VirtualAccessContext? context = null,
+        CancellationToken cancellationToken = default)
+        => Task.FromResult(Get(mcuId).SeedRegister(instanceOrStruct, memberName, value, context));
+
     public Task<VirtualAccessResultDto> WriteByAddressAsync(
         Guid mcuId, uint address, uint value, int widthBits = 32, VirtualAccessContext? context = null,
         CancellationToken cancellationToken = default)

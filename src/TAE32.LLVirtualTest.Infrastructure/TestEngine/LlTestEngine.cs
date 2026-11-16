@@ -198,7 +198,8 @@ public sealed class LlTestEngine : ILLTestEngine
             foreach (var init in edit.InitialRegisters)
             {
                 var v = TestHarnessGenerator.ParseUIntExpression(init.ValueHex);
-                await _mcu.WriteAsync(mcuId.Value, init.InstanceName, init.MemberName, v,
+                // Seed bypasses W1C (DISR/ISR etc.): normal Write would clear bits we intend to preload.
+                await _mcu.SeedRegisterAsync(mcuId.Value, init.InstanceName, init.MemberName, v,
                     new VirtualAccessContext { LlFunctionName = "(init)", Note = "测试初始寄存器" }, cancellationToken);
             }
 
@@ -353,12 +354,23 @@ public sealed class LlTestEngine : ILLTestEngine
             var assertions = await AssertionEvaluator.EvaluateAsync(
                 _mcu, mcuId ?? Guid.Empty, edit.Assertions, ret, trace, execEx,
                 (int)nativeSw.ElapsedMilliseconds, cancellationToken);
-            run.AssertionsPassed = assertions.Count == 0 || assertions.All(a => a.Passed);
+
+            // Timeout is recorded but alone never counts as semantic Pass
+            // (DISR=0 / empty preload can make buggy LL also "succeed" on Timeout-only drafts).
+            var hasSemanticAssert = assertions.Any(a => a.Kind != LlAssertionKind.Timeout);
+            var timeoutOnly = assertions.Count == 0 || !hasSemanticAssert;
+            var allAssertOk = assertions.Count > 0 && assertions.All(a => a.Passed);
+            run.AssertionsPassed = allAssertOk && hasSemanticAssert;
+
             stages.Add(new LlTestStageResult
             {
                 Stage = LlTestExecutionStage.Assert,
-                Succeeded = run.AssertionsPassed,
-                Message = run.AssertionsPassed ? "断言全部通过（虚拟环境）" : "存在失败断言（虚拟环境）"
+                Succeeded = run.AssertionsPassed || (timeoutOnly && allAssertOk),
+                Message = timeoutOnly && allAssertOk
+                    ? "仅超时断言通过（无语义断言，不计 Passed）"
+                    : run.AssertionsPassed
+                        ? "断言全部通过（虚拟环境）"
+                        : "存在失败断言（虚拟环境）"
             });
 
             if (execEx is not null && LlNativeEligibility.IsHostAddressFault(execEx))
@@ -372,10 +384,16 @@ public sealed class LlTestEngine : ILLTestEngine
                 run.Status = nameof(LlTestRunStatus.Error);
                 run.FailureReason = execEx.Message;
             }
-            else if (!run.AssertionsPassed)
+            else if (!allAssertOk)
             {
                 run.Status = nameof(LlTestRunStatus.Failed);
                 run.FailureReason = string.Join("; ", assertions.Where(a => !a.Passed).Select(a => a.Message));
+            }
+            else if (timeoutOnly)
+            {
+                run.Status = nameof(LlTestRunStatus.Skipped);
+                run.FailureReason =
+                    "仅超时断言通过，无返回值/寄存器等语义校验，不计 Passed。请重新生成用例（read-check / write-check）。";
             }
             else
             {

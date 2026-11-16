@@ -67,6 +67,18 @@ public interface IVirtualMcuService
         VirtualAccessContext? context = null,
         CancellationToken cancellationToken = default);
 
+    /// <summary>
+    /// Test-only: set register storage directly, bypassing W1C/W0C hardware write semantics.
+    /// Used for InitialRegisters preload (e.g. seed DISR flags before IsActiveFlag).
+    /// </summary>
+    Task<VirtualAccessResultDto> SeedRegisterAsync(
+        Guid mcuId,
+        string instanceOrStruct,
+        string memberName,
+        uint value,
+        VirtualAccessContext? context = null,
+        CancellationToken cancellationToken = default);
+
     Task<VirtualAccessResultDto> WriteByAddressAsync(
         Guid mcuId,
         uint address,

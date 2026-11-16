@@ -47,8 +47,18 @@ public partial class App : Application
 
         DispatcherUnhandledException += (_, args) =>
         {
-            Log.Error(args.Exception, "Dispatcher unhandled exception");
-            MessageDialog.Show("TAE32 LL Virtual Test", args.Exception.Message);
+            Log.Error(args.Exception, "Dispatcher unhandled exception: {Detail}", args.Exception.ToString());
+            try
+            {
+                var detail = string.IsNullOrWhiteSpace(args.Exception.Message)
+                    ? args.Exception.ToString()
+                    : args.Exception.Message;
+                MessageDialog.Show("TAE32 LL Virtual Test", detail);
+            }
+            catch (Exception showEx)
+            {
+                Log.Error(showEx, "Failed to show exception dialog");
+            }
             args.Handled = true;
         };
         AppDomain.CurrentDomain.UnhandledException += (_, args) =>

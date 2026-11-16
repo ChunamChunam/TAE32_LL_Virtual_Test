@@ -37,6 +37,7 @@ public partial class AutomationTestViewModel : ObservableObject
     public ObservableCollection<int> FunctionPageSizeOptions { get; } = new() { 50, 100, 200, 300 };
 
     [ObservableProperty] private string _selectedPeripheral = "(全部)";
+    [ObservableProperty] private string _functionSearchText = string.Empty;
     [ObservableProperty] private FunctionPickItem? _selectedFunctionItem;
     [ObservableProperty] private CasePickItem? _selectedCaseItem;
     [ObservableProperty] private RunPickItem? _selectedRunItem;
@@ -311,9 +312,11 @@ public partial class AutomationTestViewModel : ObservableObject
         try
         {
             var peri = SelectedPeripheral == "(全部)" ? null : SelectedPeripheral;
+            var search = string.IsNullOrWhiteSpace(FunctionSearchText) ? null : FunctionSearchText.Trim();
             var take = Math.Max(FunctionTotalCount, 1);
             var all = await _data.GetFunctionsAsync(
                 sdkProjectId: pid,
+                search: search,
                 peripheralName: peri,
                 form: InlineForm,
                 skip: 0,
@@ -678,6 +681,13 @@ public partial class AutomationTestViewModel : ObservableObject
     }
 
     [RelayCommand]
+    private async Task SearchFunctionsAsync()
+    {
+        FunctionPageIndex = 1;
+        await ReloadFunctionsAsync();
+    }
+
+    [RelayCommand]
     private async Task SearchCasesAsync()
     {
         CasePageIndex = 1;
@@ -1002,9 +1012,10 @@ public partial class AutomationTestViewModel : ObservableObject
         }
 
         var peri = SelectedPeripheral == "(全部)" ? null : SelectedPeripheral;
+        var search = string.IsNullOrWhiteSpace(FunctionSearchText) ? null : FunctionSearchText.Trim();
         // Only real inline LL definitions (baseline: 3628). Paginate so "(全部)" is not truncated to ADC-only.
         FunctionTotalCount = await _data.CountFunctionsAsync(
-            sdkProjectId: pid, peripheralName: peri, form: InlineForm);
+            sdkProjectId: pid, search: search, peripheralName: peri, form: InlineForm);
         FunctionTotalPages = Math.Max(1, (int)Math.Ceiling(FunctionTotalCount / (double)FunctionPageSize));
         if (FunctionPageIndex > FunctionTotalPages) FunctionPageIndex = FunctionTotalPages;
         if (FunctionPageIndex < 1) FunctionPageIndex = 1;
@@ -1012,6 +1023,7 @@ public partial class AutomationTestViewModel : ObservableObject
         var skip = (FunctionPageIndex - 1) * FunctionPageSize;
         var list = await _data.GetFunctionsAsync(
             sdkProjectId: pid,
+            search: search,
             peripheralName: peri,
             form: InlineForm,
             skip: skip,

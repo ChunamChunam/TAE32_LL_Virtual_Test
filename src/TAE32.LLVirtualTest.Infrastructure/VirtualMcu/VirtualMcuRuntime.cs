@@ -267,6 +267,37 @@ internal sealed class VirtualMcuRuntime
         }
     }
 
+    /// <summary>Direct storage write for test preload (ignores W1C clear-on-write).</summary>
+    public VirtualAccessResultDto SeedRegister(string instanceOrStruct, string member, uint value, VirtualAccessContext? ctx)
+    {
+        lock (_gate)
+        {
+            EnsureAlive();
+            if (!_space.TryGetSlot(instanceOrStruct, member, out var slot) || slot is null)
+                return NotFound(VirtualAccessKind.Write, instanceOrStruct, member, ctx);
+
+            var before = slot.CurrentValue;
+            var next = value & RegisterSemanticsEngine.WidthMask(slot.WidthBits);
+            slot.CurrentValue = next;
+            var message = "测试预置寄存器（直接写入存储，绕过 W1C/W0C）";
+            var okResult = slot.Limitation == SimulationLimitationKind.None
+                ? VirtualAccessResult.Ok
+                : VirtualAccessResult.LimitationApplied;
+            var rec = _trace.Add(Id, VirtualAccessKind.Write, slot, slot.AbsoluteAddress, value, before, next,
+                okResult, ctx, message, slot.Limitation);
+            return new VirtualAccessResultDto
+            {
+                Result = okResult,
+                Value = next,
+                ValueBefore = before,
+                ValueAfter = next,
+                Message = message,
+                Record = rec,
+                Limitation = slot.Limitation
+            };
+        }
+    }
+
     public VirtualAccessResultDto WriteByAddress(uint address, uint value, int widthBits, VirtualAccessContext? ctx)
     {
         lock (_gate)

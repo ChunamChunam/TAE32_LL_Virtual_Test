@@ -52,9 +52,14 @@ internal static class AssertionEvaluator
         if (reg is null) return Fail(spec, "寄存器不存在于虚拟 MCU");
         var expected = TestHarnessGenerator.ParseUIntExpression(spec.ExpectedHex ?? spec.ExpectedExpression);
         var mask = spec.ExpectedMask ?? 0xFFFFFFFFu;
-        var ok = (reg.CurrentValue & mask) == (expected & mask);
-        return Result(spec, ok, $"0x{(expected & mask):X8}", $"0x{(reg.CurrentValue & mask):X8}",
-            ok ? "寄存器值匹配（虚拟环境）" : "寄存器值不匹配（虚拟环境）");
+        var actualMasked = reg.CurrentValue & mask;
+        var expectedMasked = expected & mask;
+        var ok = actualMasked == expectedMasked;
+        var detail = string.IsNullOrWhiteSpace(spec.RuleSourceDetail) ? "" : $"；{spec.RuleSourceDetail}";
+        return Result(spec, ok, $"0x{expectedMasked:X8}", $"0x{actualMasked:X8}",
+            ok
+                ? "寄存器值匹配（虚拟环境）"
+                : $"寄存器断言失败：期望 0x{expectedMasked:X}，实际 0x{actualMasked:X}（掩码 0x{mask:X}）{detail}");
     }
 
     private static async Task<LlTestAssertionResult> EvalBitField(

@@ -14,9 +14,11 @@ public partial class LlFunctionLibraryViewModel : ObservableObject
     private readonly IAppDataService _data;
     private readonly ILLFunctionParser _parser;
     private readonly ISdkProjectService _projects;
+    private readonly HashSet<Guid> _checkedIds = new();
     private bool _suppressFilterReload;
+    private bool _suppressAllSelectedSync;
 
-    public ObservableCollection<LlFunction> Items { get; } = new();
+    public ObservableCollection<LlFunctionRowItem> Items { get; } = new();
     public ObservableCollection<string> PeripheralFilters { get; } = new();
     public ObservableCollection<string> ChipFilters { get; } = new();
     public ObservableCollection<string> FormFilters { get; } = new() { "(全部)", "inline_definition", "function_macro", "declaration" };
@@ -26,14 +28,16 @@ public partial class LlFunctionLibraryViewModel : ObservableObject
     [ObservableProperty] private string? _selectedPeripheral;
     [ObservableProperty] private string? _selectedChip;
     [ObservableProperty] private string? _selectedForm = "(全部)";
-    [ObservableProperty] private LlFunction? _selectedFunction;
+    [ObservableProperty] private LlFunctionRowItem? _selectedItem;
     [ObservableProperty] private int _totalCount;
     [ObservableProperty] private int _pageIndex = 1;
     [ObservableProperty] private int _pageSize = 100;
     [ObservableProperty] private int _totalPages = 1;
     [ObservableProperty] private string _pageInfoText = string.Empty;
+    [ObservableProperty] private string _checkedCountText = "已勾选 0";
     [ObservableProperty] private bool _canGoPrevious;
     [ObservableProperty] private bool _canGoNext;
+    [ObservableProperty] private bool _isAllOnPageSelected;
     [ObservableProperty] private string _detailSignature = "尚未解析";
     [ObservableProperty] private string _detailParameters = "尚未解析";
     [ObservableProperty] private string _detailReturn = "尚未解析";
@@ -74,19 +78,19 @@ public partial class LlFunctionLibraryViewModel : ObservableObject
         }
 
         IsParsing = true;
-        DeepParseCommand.NotifyCanExecuteChanged();
-        ParseSummaryText = "深度解析进行中…";
+        NotifyParseCommands();
+        ParseSummaryText = "深度解析全部进行中…";
         try
         {
-            // Full SDK parse is CPU-bound (Clang); keep UI responsive.
             var projectId = project.Id;
             var summary = await Task.Run(async () => await _parser.ParseAsync(projectId));
             ParseSummaryText =
-                $"解析完成：匹配 {summary.FunctionsMatched}/{summary.FunctionsParsed}，头文件 {summary.HeadersSucceeded}/{summary.HeadersAttempted}，诊断 {summary.DiagnosticCount}"
+                $"全部解析完成：匹配 {summary.FunctionsMatched}/{summary.FunctionsParsed}，头文件 {summary.HeadersSucceeded}/{summary.HeadersAttempted}，诊断 {summary.DiagnosticCount}"
                 + (summary.UsedParseBridge ? "（使用 Parse Bridge）" : "");
-            await LoadPageAsync();
-            if (SelectedFunction is not null)
-                await LoadDetailAsync(SelectedFunction.Id);
+            var keepId = SelectedItem?.Function.Id;
+            await LoadPageAsync(preserveSelectedId: keepId);
+            if (SelectedItem is not null)
+                await LoadDetailAsync(SelectedItem.Function.Id);
         }
         catch (Exception ex)
         {
@@ -95,11 +99,94 @@ public partial class LlFunctionLibraryViewModel : ObservableObject
         finally
         {
             IsParsing = false;
-            DeepParseCommand.NotifyCanExecuteChanged();
+            NotifyParseCommands();
+        }
+    }
+
+    [RelayCommand(CanExecute = nameof(CanDeepParseSelected))]
+    private async Task DeepParseSelectedAsync()
+    {
+        var ids = GetCheckedOrHighlightedIds();
+        if (ids.Count == 0)
+        {
+            ParseSummaryText = "请勾选函数，或先点选一行再解析";
+            return;
+        }
+
+        IsParsing = true;
+        NotifyParseCommands();
+        var ok = 0;
+        var fail = 0;
+        try
+        {
+            for (var i = 0; i < ids.Count; i++)
+            {
+                var id = ids[i];
+                var name = Items.FirstOrDefault(x => x.Function.Id == id)?.Function.FunctionName ?? id.ToString("N")[..8];
+                ParseSummaryText = $"正在解析勾选 {i + 1}/{ids.Count}：{name}…";
+                try
+                {
+                    var summary = await Task.Run(async () => await _parser.ParseOneAsync(id));
+                    if (summary.FunctionsMatched > 0) ok++;
+                    else fail++;
+                }
+                catch
+                {
+                    fail++;
+                }
+            }
+
+            ParseSummaryText = $"勾选解析完成：成功 {ok}，未匹配/失败 {fail}，合计 {ids.Count}";
+            var keepId = SelectedItem?.Function.Id ?? ids[0];
+            await LoadPageAsync(preserveSelectedId: keepId);
+            if (SelectedItem is not null)
+                await LoadDetailAsync(SelectedItem.Function.Id);
+        }
+        catch (Exception ex)
+        {
+            ParseSummaryText = $"勾选解析失败：{ex.Message}";
+        }
+        finally
+        {
+            IsParsing = false;
+            NotifyParseCommands();
         }
     }
 
     private bool CanDeepParse() => !IsParsing;
+    private bool CanDeepParseSelected() => !IsParsing && (_checkedIds.Count > 0 || SelectedItem is not null);
+
+    private void NotifyParseCommands()
+    {
+        DeepParseCommand.NotifyCanExecuteChanged();
+        DeepParseSelectedCommand.NotifyCanExecuteChanged();
+    }
+
+    [RelayCommand]
+    private void SelectPage()
+    {
+        foreach (var item in Items)
+            item.IsSelected = true;
+        SyncCheckedUi();
+    }
+
+    [RelayCommand]
+    private void ClearPageSelection()
+    {
+        foreach (var item in Items)
+            item.IsSelected = false;
+        SyncCheckedUi();
+    }
+
+    [RelayCommand]
+    private void ClearAllSelection()
+    {
+        _checkedIds.Clear();
+        foreach (var item in Items)
+            item.IsSelected = false;
+        SyncCheckedUi();
+        ParseSummaryText = "已清空勾选";
+    }
 
     [RelayCommand]
     private async Task SearchAsync()
@@ -164,6 +251,14 @@ public partial class LlFunctionLibraryViewModel : ObservableObject
         _ = ResetAndReloadAsync();
     }
 
+    partial void OnIsAllOnPageSelectedChanged(bool value)
+    {
+        if (_suppressAllSelectedSync) return;
+        foreach (var item in Items)
+            item.IsSelected = value;
+        SyncCheckedUi(updateAllFlag: false);
+    }
+
     partial void OnCanGoPreviousChanged(bool value) => PreviousPageCommand.NotifyCanExecuteChanged();
     partial void OnCanGoNextChanged(bool value) => NextPageCommand.NotifyCanExecuteChanged();
 
@@ -205,7 +300,7 @@ public partial class LlFunctionLibraryViewModel : ObservableObject
         }
     }
 
-    private async Task LoadPageAsync()
+    private async Task LoadPageAsync(Guid? preserveSelectedId = null)
     {
         var peri = SelectedPeripheral is null or "(全部)" ? null : SelectedPeripheral;
         var chip = SelectedChip is null or "(全部)" ? null : SelectedChip;
@@ -228,25 +323,61 @@ public partial class LlFunctionLibraryViewModel : ObservableObject
 
         Items.Clear();
         foreach (var f in list)
-            Items.Add(f);
+        {
+            var row = new LlFunctionRowItem(f)
+            {
+                IsSelected = _checkedIds.Contains(f.Id)
+            };
+            row.SelectionChanged += OnRowSelectionChanged;
+            Items.Add(row);
+        }
 
         var from = TotalCount == 0 ? 0 : skip + 1;
         var to = Math.Min(skip + Items.Count, TotalCount);
         PageInfoText = $"匹配总数: {TotalCount}　第 {PageIndex}/{TotalPages} 页　显示 {from}-{to}";
         CanGoPrevious = PageIndex > 1;
         CanGoNext = PageIndex < TotalPages;
-        SelectedFunction = Items.FirstOrDefault();
+        SyncCheckedUi();
+
+        SelectedItem = preserveSelectedId is Guid id
+            ? Items.FirstOrDefault(x => x.Function.Id == id) ?? Items.FirstOrDefault()
+            : Items.FirstOrDefault();
     }
 
-    partial void OnSelectedFunctionChanged(LlFunction? value)
+    partial void OnSelectedItemChanged(LlFunctionRowItem? value)
     {
+        NotifyParseCommands();
         if (value is null)
         {
             ClearDetail();
             return;
         }
 
-        _ = LoadDetailAsync(value.Id);
+        _ = LoadDetailAsync(value.Function.Id);
+    }
+
+    private void OnRowSelectionChanged(LlFunctionRowItem item)
+    {
+        if (item.IsSelected) _checkedIds.Add(item.Function.Id);
+        else _checkedIds.Remove(item.Function.Id);
+        SyncCheckedUi();
+        NotifyParseCommands();
+    }
+
+    private void SyncCheckedUi(bool updateAllFlag = true)
+    {
+        CheckedCountText = $"已勾选 {_checkedIds.Count}";
+        if (!updateAllFlag) return;
+        _suppressAllSelectedSync = true;
+        IsAllOnPageSelected = Items.Count > 0 && Items.All(x => x.IsSelected);
+        _suppressAllSelectedSync = false;
+    }
+
+    private List<Guid> GetCheckedOrHighlightedIds()
+    {
+        if (_checkedIds.Count > 0)
+            return _checkedIds.ToList();
+        return SelectedItem is not null ? new List<Guid> { SelectedItem.Function.Id } : new List<Guid>();
     }
 
     private async Task LoadDetailAsync(Guid id)
@@ -309,4 +440,33 @@ public partial class LlFunctionLibraryViewModel : ObservableObject
     }
 
     private static string? NullIfEmpty(string? s) => string.IsNullOrWhiteSpace(s) ? null : s.Trim();
+}
+
+public sealed class LlFunctionRowItem : ObservableObject
+{
+    private bool _isSelected;
+
+    public LlFunctionRowItem(LlFunction function) => Function = function;
+
+    public LlFunction Function { get; }
+
+    public string FunctionName => Function.FunctionName;
+    public string? ChipName => Function.ChipName;
+    public string? PeripheralName => Function.PeripheralName;
+    public string? Form => Function.Form;
+    public string? ParseStatus => Function.ParseStatus;
+    public string? FilePath => Function.FilePath;
+    public int StartLine => Function.StartLine;
+
+    public bool IsSelected
+    {
+        get => _isSelected;
+        set
+        {
+            if (SetProperty(ref _isSelected, value))
+                SelectionChanged?.Invoke(this);
+        }
+    }
+
+    public event Action<LlFunctionRowItem>? SelectionChanged;
 }

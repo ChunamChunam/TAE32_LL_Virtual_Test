@@ -54,6 +54,18 @@
           <StackPanel DockPanel.Dock="Top" Margin="0,0,0,6">
             <TextBlock Text="LL 函数" FontWeight="SemiBold" Foreground="{StaticResource BrushTextPrimary}"/>
             <ComboBox Margin="0,6,0,0" ItemsSource="{Binding PeripheralFilters}" SelectedItem="{Binding SelectedPeripheral}"/>
+            <DockPanel Margin="0,6,0,0">
+              <Button DockPanel.Dock="Right" Style="{StaticResource GhostButtonStyle}" Content="查询"
+                      Command="{Binding SearchFunctionsCommand}" Margin="6,0,0,0" Padding="8,4"
+                      VerticalAlignment="Center"/>
+              <TextBox Text="{Binding FunctionSearchText, UpdateSourceTrigger=PropertyChanged}"
+                       ToolTip="按函数名/文件名筛选；回车或点查询"
+                       VerticalContentAlignment="Center">
+                <TextBox.InputBindings>
+                  <KeyBinding Key="Return" Command="{Binding SearchFunctionsCommand}"/>
+                </TextBox.InputBindings>
+              </TextBox>
+            </DockPanel>
             <Grid Margin="0,8,0,4">
               <Grid.RowDefinitions>
                 <RowDefinition Height="Auto"/>

@@ -156,7 +156,9 @@ public sealed class LlFunctionParseService : ILLFunctionParser
             }
         }
 
-        await PersistResultsAsync(sdkProjectId, matchedResults, diagnostics, env.ClangVersion, cancellationToken);
+        await PersistResultsAsync(
+            sdkProjectId, matchedResults, diagnostics, env.ClangVersion,
+            clearFunctionIds: null, cancellationToken);
 
         return new LlParseSummary
         {
@@ -173,16 +175,224 @@ public sealed class LlFunctionParseService : ILLFunctionParser
         };
     }
 
+    public async Task<LlParseSummary> ParseOneAsync(Guid llFunctionId, CancellationToken cancellationToken = default)
+    {
+        string sdkRootPath;
+        Guid sdkProjectId;
+        string functionName;
+        string? filePath;
+        int startLine;
+        string? form;
+
+        await using (var db = await _dbFactory.CreateDbContextAsync(cancellationToken))
+        {
+            var fn = await db.LlFunctions.AsNoTracking()
+                .FirstOrDefaultAsync(x => x.Id == llFunctionId, cancellationToken);
+            if (fn is null)
+            {
+                return new LlParseSummary
+                {
+                    Message = "LL 函数不存在"
+                };
+            }
+
+            var project = await db.SdkProjects.AsNoTracking()
+                .FirstOrDefaultAsync(x => x.Id == fn.SdkProjectId, cancellationToken);
+            if (project is null)
+            {
+                return new LlParseSummary
+                {
+                    SdkProjectId = fn.SdkProjectId,
+                    Message = "SDK project not found"
+                };
+            }
+
+            sdkProjectId = fn.SdkProjectId;
+            sdkRootPath = project.SdkRootPath;
+            functionName = fn.FunctionName;
+            filePath = fn.FilePath;
+            startLine = fn.StartLine;
+            form = fn.Form;
+        }
+
+        var bridgeRoot = Path.Combine(Path.GetTempPath(), "tae32_ll_parse_bridge", sdkProjectId.ToString("N"));
+        var env = ClangEnvironment.Resolve(sdkRootPath, bridgeRoot);
+        var diagnostics = new List<LlParseDiagnostic>();
+
+        if (env.RequiresParseBridge)
+        {
+            var bridge = new ParseBridgeBuilder().Build(env.LlRoot, env.BridgeRoot, sdkProjectId);
+            diagnostics.AddRange(bridge.Diagnostics);
+        }
+
+        var headerFileName = string.IsNullOrWhiteSpace(filePath)
+            ? null
+            : Path.GetFileName(filePath.Replace('/', Path.DirectorySeparatorChar));
+        if (string.IsNullOrWhiteSpace(headerFileName))
+        {
+            return new LlParseSummary
+            {
+                SdkProjectId = sdkProjectId,
+                Message = $"函数 {functionName} 无有效 FilePath"
+            };
+        }
+
+        string? headerPath = null;
+        try
+        {
+            headerPath = Directory.EnumerateFiles(env.LlRoot, headerFileName, SearchOption.TopDirectoryOnly)
+                .FirstOrDefault();
+        }
+        catch
+        {
+            /* ignore */
+        }
+
+        if (headerPath is null || !File.Exists(headerPath))
+        {
+            return new LlParseSummary
+            {
+                SdkProjectId = sdkProjectId,
+                HeadersAttempted = 1,
+                Message = $"未在 SDK LL 目录找到头文件 {headerFileName}（函数 {functionName}）"
+            };
+        }
+
+        List<FunctionMatchRow> matchRows;
+        await using (var db = await _dbFactory.CreateDbContextAsync(cancellationToken))
+        {
+            // Same-header rows for AST matching; only target id is persisted.
+            matchRows = await db.LlFunctions.AsNoTracking()
+                .Where(x => x.SdkProjectId == sdkProjectId)
+                .Select(x => new FunctionMatchRow(x.Id, x.NaturalKey, x.FunctionName, x.FilePath, x.StartLine, x.Form))
+                .ToListAsync(cancellationToken);
+        }
+
+        var clangArgs = env.BuildClangArgs();
+        var matchedResults = new List<(Guid FunctionId, LlAstFunctionResult Ast)>();
+        var parsed = 0;
+        var matched = 0;
+        var unmatched = 0;
+        var headersOk = 0;
+        var relPath = NormalizeRelative(headerPath, env.LlRoot);
+
+        using var session = new ClangAstSession();
+        var wrapperDir = Path.Combine(bridgeRoot, "wrappers");
+        Directory.CreateDirectory(wrapperDir);
+
+        try
+        {
+            var wrapper = ClangAstSession.CreateWrapperFile(wrapperDir, headerFileName);
+            var parseResult = session.ParseHeader(wrapper, clangArgs, headerFileName);
+
+            if (parseResult.ClangDiagnostics.Count > 0)
+            {
+                foreach (var msg in parseResult.ClangDiagnostics.Take(20))
+                {
+                    diagnostics.Add(new LlParseDiagnostic
+                    {
+                        SdkProjectId = sdkProjectId,
+                        LlFunctionId = llFunctionId,
+                        Severity = LlParseDiagnosticSeverity.Warning.ToString(),
+                        Category = LlParseDiagnosticCategory.Clang.ToString(),
+                        Message = msg.Length > 1900 ? msg[..1900] : msg,
+                        FilePath = relPath
+                    });
+                }
+            }
+
+            var extractor = new LlFunctionAstExtractor(sdkProjectId, relPath, headerFileName, headerPath);
+            var astFunctions = extractor.Extract(parseResult);
+            headersOk = 1;
+
+            var targetAst = astFunctions.FirstOrDefault(a =>
+                string.Equals(a.FunctionName, functionName, StringComparison.Ordinal)
+                && (a.StartLine == startLine
+                    || string.Equals(a.Form, form, StringComparison.Ordinal)
+                    || form == "inline_definition"));
+
+            // Prefer exact name + line; fall back to name-only in this header.
+            targetAst ??= astFunctions.FirstOrDefault(a =>
+                string.Equals(a.FunctionName, functionName, StringComparison.Ordinal));
+
+            if (targetAst is null)
+            {
+                unmatched = 1;
+                diagnostics.Add(new LlParseDiagnostic
+                {
+                    SdkProjectId = sdkProjectId,
+                    LlFunctionId = llFunctionId,
+                    Severity = LlParseDiagnosticSeverity.Error.ToString(),
+                    Category = LlParseDiagnosticCategory.Match.ToString(),
+                    Message = $"头文件 AST 中未找到函数 {functionName}（DB 行 {startLine}）",
+                    FilePath = relPath,
+                    Line = startLine
+                });
+            }
+            else
+            {
+                parsed = 1;
+                if (!TryMatchFunction(matchRows, headerFileName, targetAst, out var matchedId)
+                    || matchedId != llFunctionId)
+                {
+                    // Force bind to the requested row when name matches this header.
+                    matchedId = llFunctionId;
+                }
+
+                matched = 1;
+                matchedResults.Add((matchedId, targetAst));
+            }
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "ParseOne failed for {Header} / {Fn}", headerPath, functionName);
+            diagnostics.Add(new LlParseDiagnostic
+            {
+                SdkProjectId = sdkProjectId,
+                LlFunctionId = llFunctionId,
+                Severity = LlParseDiagnosticSeverity.Error.ToString(),
+                Category = LlParseDiagnosticCategory.Clang.ToString(),
+                Message = $"ParseOne failed: {headerFileName} / {functionName}",
+                FilePath = relPath,
+                Detail = ex.Message
+            });
+        }
+
+        await PersistResultsAsync(
+            sdkProjectId, matchedResults, diagnostics, env.ClangVersion,
+            clearFunctionIds: new[] { llFunctionId }, cancellationToken);
+
+        return new LlParseSummary
+        {
+            SdkProjectId = sdkProjectId,
+            HeadersAttempted = 1,
+            HeadersSucceeded = headersOk,
+            FunctionsParsed = parsed,
+            FunctionsMatched = matched,
+            FunctionsUnmatched = unmatched,
+            DiagnosticCount = diagnostics.Count,
+            UsedParseBridge = env.RequiresParseBridge,
+            ClangVersion = env.ClangVersion,
+            Message = matched > 0
+                ? $"单函数解析完成：{functionName}"
+                : $"单函数解析未匹配：{functionName}"
+        };
+    }
+
     private async Task PersistResultsAsync(
         Guid sdkProjectId,
         List<(Guid FunctionId, LlAstFunctionResult Ast)> matchedResults,
         List<LlParseDiagnostic> diagnostics,
         string clangVersion,
+        IReadOnlyList<Guid>? clearFunctionIds,
         CancellationToken cancellationToken)
     {
         await using var db = await _dbFactory.CreateDbContextAsync(cancellationToken);
 
-        await ClearPreviousParseDataAsync(db, sdkProjectId, cancellationToken);
+        if (clearFunctionIds is null)
+            await ClearPreviousParseDataAsync(db, sdkProjectId, cancellationToken);
+        else
+            await ClearFunctionsParseDataAsync(db, clearFunctionIds, cancellationToken);
         db.ChangeTracker.Clear();
 
         // Parent fields via ExecuteUpdate (no tracked Modified entities → no false concurrency).
@@ -331,17 +541,7 @@ public sealed class LlFunctionParseService : ILLFunctionParser
         if (funcIds.Count == 0)
             return;
 
-        // Chunk IN clauses for SQLite parameter limits.
-        foreach (var chunk in funcIds.Chunk(400))
-        {
-            var ids = chunk.ToArray();
-            await db.LlFunctionParameters.Where(x => ids.Contains(x.LlFunctionId)).ExecuteDeleteAsync(ct);
-            await db.LlFunctionOperations.Where(x => ids.Contains(x.LlFunctionId)).ExecuteDeleteAsync(ct);
-            await db.LlFunctionCalls.Where(x => ids.Contains(x.LlFunctionId)).ExecuteDeleteAsync(ct);
-            await db.LlRegisterAccesses.Where(x => ids.Contains(x.LlFunctionId)).ExecuteDeleteAsync(ct);
-            await db.LlRegisterReferences.Where(x => ids.Contains(x.LlFunctionId)).ExecuteDeleteAsync(ct);
-        }
-
+        await ClearFunctionsParseDataAsync(db, funcIds, ct);
         await db.LlParseDiagnostics.Where(x => x.SdkProjectId == sdkProjectId).ExecuteDeleteAsync(ct);
 
         await db.LlFunctions.Where(x => x.SdkProjectId == sdkProjectId).ExecuteUpdateAsync(s => s
@@ -356,6 +556,25 @@ public sealed class LlFunctionParseService : ILLFunctionParser
             .SetProperty(f => f.EndColumn, (int?)null)
             .SetProperty(f => f.BodyStartLine, (int?)null)
             .SetProperty(f => f.BodyEndLine, (int?)null), ct);
+    }
+
+    /// <summary>Clear child parse rows for specific functions only (single-function reparse).</summary>
+    private static async Task ClearFunctionsParseDataAsync(
+        AppDbContext db, IReadOnlyList<Guid> funcIds, CancellationToken ct)
+    {
+        if (funcIds.Count == 0) return;
+
+        foreach (var chunk in funcIds.Chunk(400))
+        {
+            var ids = chunk.ToArray();
+            await db.LlFunctionParameters.Where(x => ids.Contains(x.LlFunctionId)).ExecuteDeleteAsync(ct);
+            await db.LlFunctionOperations.Where(x => ids.Contains(x.LlFunctionId)).ExecuteDeleteAsync(ct);
+            await db.LlFunctionCalls.Where(x => ids.Contains(x.LlFunctionId)).ExecuteDeleteAsync(ct);
+            await db.LlRegisterAccesses.Where(x => ids.Contains(x.LlFunctionId)).ExecuteDeleteAsync(ct);
+            await db.LlRegisterReferences.Where(x => ids.Contains(x.LlFunctionId)).ExecuteDeleteAsync(ct);
+            await db.LlParseDiagnostics.Where(x => x.LlFunctionId != null && ids.Contains(x.LlFunctionId.Value))
+                .ExecuteDeleteAsync(ct);
+        }
     }
 
     private static bool TryMatchFunction(
