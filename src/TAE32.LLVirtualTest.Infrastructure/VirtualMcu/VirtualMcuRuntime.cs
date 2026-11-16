@@ -464,7 +464,7 @@ internal sealed class VirtualMcuRuntime
         uint? raw = null)
     {
         var before = slot.CurrentValue;
-        if (!RegisterSemanticsEngine.TryApplyWrite(slot.Behavior, before, value, slot.WritableMask,
+        if (!RegisterSemanticsEngine.TryApplyWrite(slot.Behavior, slot.Fields, before, value, slot.WritableMask,
                 RegisterSemanticsEngine.WidthMask(slot.WidthBits), out var next, out var result, out var message))
         {
             var recFail = _trace.Add(Id, kind, slot, slot.AbsoluteAddress, raw ?? value, before, before,

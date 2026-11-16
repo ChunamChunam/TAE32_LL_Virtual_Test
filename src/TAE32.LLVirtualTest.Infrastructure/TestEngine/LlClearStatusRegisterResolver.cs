@@ -1,7 +1,9 @@
 namespace TAE32.LLVirtualTest.Infrastructure.TestEngine;
 
 /// <summary>
-/// Maps LL Clear* functions to the status register they touch (from SDK inline bodies, not guessed per chip).
+/// Maps LL Clear* functions to the status register they touch (from SDK inline bodies / module conventions).
+/// Prefer WRITE_REG body parsing in LlTestCaseGenerator; this is a fallback only.
+/// flagMask must be the target flag bits — never force 0xFFFF whole-register clear expectations.
 /// </summary>
 internal static class LlClearStatusRegisterResolver
 {
@@ -18,13 +20,14 @@ internal static class LlClearStatusRegisterResolver
             || fn.Contains("ClearFlag_FULx", StringComparison.OrdinalIgnoreCase))
         {
             memberName = "DISR";
+            flagMask = 1u;
             return true;
         }
 
         if (fn.Contains("DMA_Clear", StringComparison.OrdinalIgnoreCase))
         {
             memberName = "FISR";
-            flagMask = 0xFFFFu;
+            flagMask = 1u;
             return true;
         }
 
@@ -32,7 +35,7 @@ internal static class LlClearStatusRegisterResolver
             && fn.Contains("ClearFlag", StringComparison.OrdinalIgnoreCase))
         {
             memberName = "ISR";
-            flagMask = 0xFFFFu;
+            flagMask = 1u;
             return true;
         }
 
@@ -40,6 +43,7 @@ internal static class LlClearStatusRegisterResolver
             && fn.Contains("ClearIntPending", StringComparison.OrdinalIgnoreCase))
         {
             memberName = "ISR";
+            flagMask = 1u;
             return true;
         }
 
@@ -47,7 +51,7 @@ internal static class LlClearStatusRegisterResolver
             && fn.Contains("Clear", StringComparison.OrdinalIgnoreCase))
         {
             memberName = "ISR";
-            flagMask = 0xFFFFu;
+            flagMask = 1u;
             return true;
         }
 
@@ -56,7 +60,16 @@ internal static class LlClearStatusRegisterResolver
             && fn.Contains("Clear", StringComparison.OrdinalIgnoreCase))
         {
             memberName = "ISR";
-            flagMask = 0xFFFFu;
+            // WWDG EWIF = bit0; do not use 0xFFFF (that caused false Failed expecting whole ISR==0).
+            flagMask = 1u;
+            return true;
+        }
+
+        if (peri.Contains("IWDG", StringComparison.OrdinalIgnoreCase)
+            && fn.Contains("Clear", StringComparison.OrdinalIgnoreCase))
+        {
+            memberName = "SR";
+            flagMask = 1u;
             return true;
         }
 

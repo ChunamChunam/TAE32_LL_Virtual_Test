@@ -7,6 +7,8 @@ public enum RegisterAccessAttributeKind
     Rw,
     W1c,
     W0c,
+    W1s,
+    Toggle,
     Rc,
     Reserved,
     Unknown

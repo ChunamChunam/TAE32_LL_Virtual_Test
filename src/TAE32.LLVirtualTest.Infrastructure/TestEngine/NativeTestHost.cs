@@ -214,6 +214,22 @@ internal sealed class NativeTestHost : IDisposable
             Marshal.WriteInt32(periBase, dataOutOff, unchecked((int)merged));
     }
 
+    /// <summary>Capture peripheral image words before native execute (for delta sync).</summary>
+    public static Dictionary<int, uint> SnapshotBuffer(
+        IntPtr periBase,
+        IReadOnlyDictionary<int, string> offsetToMember)
+    {
+        var map = new Dictionary<int, uint>(offsetToMember.Count);
+        foreach (var offset in offsetToMember.Keys)
+            map[offset] = unchecked((uint)Marshal.ReadInt32(periBase, offset));
+        return map;
+    }
+
+    /// <summary>
+    /// Sync harness RAM → virtual MCU. Only members whose buffer word changed since
+    /// <paramref name="beforeExecute"/> are written and attributed to the LL function.
+    /// Unchanged slots are skipped so native-harness-sync is not recorded as LL access.
+    /// </summary>
     public static async Task SyncBufferToVirtualMcuAsync(
         IVirtualMcuService mcu,
         Guid mcuId,
@@ -221,11 +237,19 @@ internal sealed class NativeTestHost : IDisposable
         IntPtr periBase,
         Dictionary<int, string> offsetToMember,
         VirtualAccessContext ctx,
-        CancellationToken ct)
+        CancellationToken ct,
+        IReadOnlyDictionary<int, uint>? beforeExecute = null)
     {
         foreach (var (offset, member) in offsetToMember)
         {
             var value = unchecked((uint)Marshal.ReadInt32(periBase, offset));
+            if (beforeExecute is not null
+                && beforeExecute.TryGetValue(offset, out var before)
+                && before == value)
+            {
+                continue;
+            }
+
             await mcu.WriteAsync(mcuId, instanceName, member, value, ctx, ct);
         }
     }

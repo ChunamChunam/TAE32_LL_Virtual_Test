@@ -89,6 +89,53 @@
 
 ---
 
+## [LRN-20261116-readbit-then-pos] insight
+**Logged**: 2026-11-16T14:25:00+08:00
+**Category**: insight
+**Summary**: Many Get APIs use `(READ_BIT(reg->MEM, Xxx_Msk) >> Xxx_Pos)` (WWDG/IWDG/UART…), not `READ_BIT_SHIFT`. Generator only matched READ_BIT_SHIFT / bool READ_BIT / READ_REG → timeout-only draft → Skipped.
+**Action**: Treat `READ_BIT(..._Msk) >> ..._Pos` same as READ_BIT_SHIFT for read-check; regenerate Get cases after fix.
+
+---
+
+## [LRN-20261116-w1c-clearflag] correction
+**Logged**: 2026-11-16T14:40:00+08:00
+**Category**: correction
+**Summary**: LL_WWDG_ClearFlag_EWIF failed because legacy clear-check used flagMask=0xFFFF + Expected=0 (whole ISR). Virtual W1C correctly produced 0xFFFE from 0xFFFF write 1. SVD marks EWIF read-write; W1C inferred from ClearFlag WRITE_REG idiom + host override. Same pattern across ADC/CMP/IWDG/DAC/TMR/HRPWM/UART ClearFlag.
+**Action**: Bit-level W1C model; clear asserts = (actual&flag)==0 AND preserve ~flag; delta sync so only changed regs attributed to LL; regenerate ClearFlag cases.
+
+---
+
+## [LRN-20261116-get-expected-from-initial] correction
+**Logged**: 2026-11-16T14:55:00+08:00
+**Category**: correction
+**Summary**: GetPrescaler Failed: expected=1 but PSCR preload 0xA5A55A59 → LL returned 0x5A59. Generator invented sample=1 separately from preserve-contaminated preload; DB mask could be wrong vs header 0xFFFF.
+**Action**: For all Get/Read: expected=(initial&mask)>>pos from SAME initial; prefer body #define Mask/Pos; multi samples min/one/mid/max; gen-time consistency check. Affects all READ_BIT>>Pos getters.
+
+---
+
+## [LRN-20261116-modify-cmsis-expected] correction
+**Logged**: 2026-11-16T15:10:00+08:00
+**Category**: correction
+**Summary**: SetPrescaler Failed: expected 0xA5A55A5F (=initial|7) vs correct 0xA5A50007. Cause: clearMask from wrong/narrow DB/trusted mask so preserve leaked into field; OR-style expectation. CMSIS needs (initial&~clearMask)|setMask with clearMask from body+chip.h 0xFFFF.
+**Action**: TryBuildModifyRegWriteCasesAsync: body Mask/Pos from chip.h; multi samples; full/field/preserve asserts; gen-time CMSIS check. Same for all MODIFY_REG Set* across peripherals.
+
+---
+
+## [LRN-20261116-chip-header-address] best_practice
+**Logged**: 2026-11-16T15:20:00+08:00
+**Category**: best_practice
+**Summary**: User requires all register absolute addresses from chip headers, not stale DB. Virtual MCU now loads ChipHeaderAddressCatalog (BASE from chip.h + (@ offset) from chip_struct.h) and overrides slot AbsoluteAddress.
+**Action**: Prefer chip.h for Mask/Pos (generator) and BASE+offset (VirtualMcuDefinitionLoader).
+
+---
+
+## [LRN-20261116-bitfield-stale-db-mask] correction
+**Logged**: 2026-11-16T15:25:00+08:00
+**Category**: correction
+**Summary**: SetPrescaler BitField Expected=6/7/7 while Actual=65534/32767/65535. Root: BitField used DB RegisterField.Mask=0x7 (3-bit) → param&0x7; RegisterValue already used chip clearMask=0xFFFF. 0x7 came from stale DB field metadata, not SDK.
+**Action**: BitField Expected=(setMask&clearMask)>>pos with ExpectedMask=clearMask; EvalBitField extracts via ExpectedMask from CurrentValue; loader overrides field Mask from chip.h.
+
+---
 
 
 

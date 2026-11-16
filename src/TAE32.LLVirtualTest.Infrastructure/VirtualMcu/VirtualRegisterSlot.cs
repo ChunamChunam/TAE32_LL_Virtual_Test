@@ -9,7 +9,7 @@ internal sealed class VirtualBitFieldSlot
     public int BitPosition { get; init; }
     public int BitWidth { get; init; }
     public uint Mask { get; init; }
-    public string AccessAttribute { get; init; } = "Unknown";
+    public string AccessAttribute { get; set; } = "Unknown";
 }
 
 internal sealed class VirtualRegisterSlot

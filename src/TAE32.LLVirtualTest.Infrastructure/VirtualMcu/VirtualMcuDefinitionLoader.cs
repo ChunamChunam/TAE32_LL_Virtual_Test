@@ -53,6 +53,19 @@ internal static class VirtualMcuDefinitionLoader
             .OrderBy(r => r.StructName).ThenBy(r => r.OffsetBytes ?? int.MaxValue).ThenBy(r => r.MemberName)
             .ToListAsync(cancellationToken);
 
+        // Authoritative addresses from tae32g58xx_chip.h / chip_struct.h (override stale DB values).
+        string? sdkRoot = null;
+        var projectId = options.SdkProjectId ?? chip?.SdkProjectId;
+        if (projectId is Guid spid)
+        {
+            sdkRoot = await db.SdkProjects.AsNoTracking()
+                .Where(p => p.Id == spid)
+                .Select(p => p.SdkRootPath)
+                .FirstOrDefaultAsync(cancellationToken);
+        }
+
+        var chipAddresses = ChipHeaderAddressCatalog.TryLoad(sdkRoot);
+
         var slots = new List<VirtualRegisterSlot>(rows.Count);
         foreach (var r in rows)
         {
@@ -71,28 +84,89 @@ internal static class VirtualMcuDefinitionLoader
             if (limReset != SimulationLimitationKind.None && string.IsNullOrEmpty(note))
                 note = "复位值缺失，按 0";
 
-            uint? addr = r.AbsoluteAddress;
-            if (addr is null
-                && r.PeripheralInstance?.BaseAddress is uint bas
-                && r.OffsetBytes is int off)
+            var instanceNameHint = r.PeripheralInstance?.Name
+                                   ?? (r.StructName.EndsWith("_Type", StringComparison.Ordinal)
+                                       ? r.StructName[..^5]
+                                       : null);
+
+            uint? addr = null;
+            if (chipAddresses is not null
+                && chipAddresses.TryResolveAbsolute(
+                    instanceNameHint, r.StructName, r.MemberName,
+                    out var chipAbs, out var chipBase, out var chipOff))
             {
-                addr = bas + (uint)off;
+                addr = chipAbs;
+                // Keep DB/instance in sync mentally: chip header wins.
+                if (r.PeripheralInstance is not null
+                    && r.PeripheralInstance.BaseAddress != chipBase)
+                {
+                    // Do not mutate tracked entity (AsNoTracking); only slot address matters.
+                }
+
+                if (r.AbsoluteAddress is uint dbAbs && dbAbs != chipAbs)
+                {
+                    note = string.IsNullOrEmpty(note)
+                        ? $"地址以 chip.h 为准：0x{chipAbs:X8}=BASE 0x{chipBase:X8}+0x{chipOff:X}（DB 曾为 0x{dbAbs:X8}）"
+                        : note + $"；地址覆盖为 chip.h 0x{chipAbs:X8}";
+                }
+                else if (string.IsNullOrEmpty(note))
+                {
+                    note = $"地址来自 chip.h：0x{chipAbs:X8}";
+                }
             }
+            else
+            {
+                addr = r.AbsoluteAddress;
+                if (addr is null
+                    && r.PeripheralInstance?.BaseAddress is uint bas
+                    && r.OffsetBytes is int off)
+                {
+                    addr = bas + (uint)off;
+                }
+            }
+
             if (addr is null)
             {
                 if (limitation == SimulationLimitationKind.None)
                     limitation = SimulationLimitationKind.MissingAbsoluteAddress;
                 if (string.IsNullOrEmpty(note))
-                    note = "无绝对地址：仅支持按名称访问";
+                    note = "无绝对地址：仅支持按名称访问（chip.h 未解析到 BASE+offset）";
             }
 
             var fields = r.Fields
-                .Where(f => f.BitPosition is int && f.BitWidth is int and > 0)
+                .Where(f => f.BitPosition is int || f.Mask is not null || !string.IsNullOrWhiteSpace(f.MskMacroName))
                 .Select(f =>
                 {
-                    var pos = f.BitPosition!.Value;
-                    var bw = f.BitWidth!.Value;
-                    var mask = f.Mask ?? (bw >= 32 ? 0xFFFFFFFFu : ((1u << bw) - 1u) << pos);
+                    var pos = f.BitPosition ?? 0;
+                    var bw = f.BitWidth ?? 0;
+                    var mask = f.Mask ?? (bw > 0
+                        ? (bw >= 32 ? 0xFFFFFFFFu : ((1u << bw) - 1u) << pos)
+                        : 0u);
+
+                    // Prefer chip.h literals over stale DB Mask/BitWidth (e.g. PSC wrongly stored as 0x7).
+                    if (chipAddresses is not null
+                        && chipAddresses.TryResolveFieldMaskPos(
+                            instanceNameHint, r.MemberName, f.Name, f.MskMacroName,
+                            out var chipMask, out var chipPos)
+                        && chipMask != 0)
+                    {
+                        mask = chipMask;
+                        pos = chipPos;
+                        bw = CountMaskWidth(chipMask >> chipPos);
+                    }
+                    else if (mask != 0 && bw <= 0)
+                    {
+                        var p = pos;
+                        var shifted = mask >> p;
+                        bw = 0;
+                        while (shifted != 0 && bw < 32)
+                        {
+                            shifted >>= 1;
+                            bw++;
+                        }
+                    }
+
+                    if (mask == 0 || bw <= 0) return null;
                     return new VirtualBitFieldSlot
                     {
                         Name = f.Name,
@@ -102,6 +176,8 @@ internal static class VirtualMcuDefinitionLoader
                         AccessAttribute = f.AccessAttribute
                     };
                 })
+                .Where(f => f is not null)
+                .Select(f => f!)
                 .OrderBy(f => f.BitPosition)
                 .ToList();
 
@@ -157,6 +233,7 @@ internal static class VirtualMcuDefinitionLoader
                 CurrentValue = reset & widthMask
             };
             slot.Fields.AddRange(fields);
+            VirtualRegisterSemanticsOverrides.ApplyFieldInheritance(slot);
             slots.Add(slot);
         }
 
@@ -221,6 +298,17 @@ internal static class VirtualMcuDefinitionLoader
         if (!string.Equals(s.AccessAttribute, "Unknown", StringComparison.OrdinalIgnoreCase))
             score += 5;
         return score;
+    }
+
+    private static int CountMaskWidth(uint shiftedMask)
+    {
+        var w = 0;
+        while (shiftedMask != 0 && w < 32)
+        {
+            shiftedMask >>= 1;
+            w++;
+        }
+        return w;
     }
 
     private static string? InferModule(string structName, string? instanceName)

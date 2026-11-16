@@ -1,5 +1,5 @@
 ﻿{
-  "generated_at": "2026-11-16T03:13:07Z",
+  "generated_at": "2026-11-16T06:07:53Z",
   "discovery_policy": "仅依据 LL 目录内源码证据；不以 SDK 包名单独推断全部芯片型号",
   "chips": [
     {

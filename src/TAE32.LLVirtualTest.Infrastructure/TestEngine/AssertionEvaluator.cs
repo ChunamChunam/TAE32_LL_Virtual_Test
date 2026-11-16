@@ -69,13 +69,63 @@ internal static class AssertionEvaluator
             || string.IsNullOrWhiteSpace(spec.BitFieldName))
             return Fail(spec, "位域断言缺少字段");
         var reg = await mcu.GetRegisterAsync(mcuId, spec.InstanceName!, spec.MemberName!, ct);
-        var field = reg?.Fields.FirstOrDefault(f =>
+        if (reg is null) return Fail(spec, "寄存器不存在于虚拟 MCU");
+        var field = reg.Fields.FirstOrDefault(f =>
             f.Name.Equals(spec.BitFieldName, StringComparison.OrdinalIgnoreCase));
-        if (field is null) return Fail(spec, "位域不存在");
+
         var expected = TestHarnessGenerator.ParseUIntExpression(spec.ExpectedHex ?? spec.ExpectedExpression);
-        var ok = field.Value == expected;
-        return Result(spec, ok, expected.ToString(), field.Value.ToString(),
-            ok ? "位域匹配" : "位域不匹配");
+
+        // Prefer assertion FieldMask (chip-resolved ExpectedMask) over possibly-stale DB field.Mask.
+        uint fieldMask;
+        int pos;
+        if (spec.ExpectedMask is uint m && m != 0)
+        {
+            fieldMask = m;
+            pos = field?.BitPosition ?? CountTrailingZeros(m);
+        }
+        else if (field is not null && field.Mask != 0)
+        {
+            fieldMask = field.Mask;
+            pos = field.BitPosition;
+        }
+        else
+            return Fail(spec, "位域不存在且断言未提供 FieldMask");
+
+        var actual = (reg.CurrentValue & fieldMask) >> pos;
+        var width = CountMaskWidth(fieldMask >> pos);
+        var ok = actual == expected;
+        var detail =
+            $"FieldMask=0x{fieldMask:X} Pos={pos} Width={width} " +
+            $"BitFieldExpected=0x{expected:X} BitFieldActual=0x{actual:X} " +
+            $"Reg=0x{reg.CurrentValue:X}" +
+            (field is not null && field.Mask != fieldMask
+                ? $"；slot.Mask=0x{field.Mask:X}已忽略"
+                : "");
+        return Result(spec, ok, $"0x{expected:X}", $"0x{actual:X}",
+            ok ? $"位域匹配；{detail}" : $"位域不匹配；{detail}");
+    }
+
+    private static int CountTrailingZeros(uint mask)
+    {
+        if (mask == 0) return 0;
+        var pos = 0;
+        while ((mask & 1u) == 0 && pos < 31)
+        {
+            mask >>= 1;
+            pos++;
+        }
+        return pos;
+    }
+
+    private static int CountMaskWidth(uint shiftedMask)
+    {
+        var w = 0;
+        while (shiftedMask != 0 && w < 32)
+        {
+            shiftedMask >>= 1;
+            w++;
+        }
+        return w;
     }
 
     private static LlTestAssertionResult EvalAccessOrder(LlTestAssertionSpec spec, IReadOnlyList<VirtualAccessRecord> trace)
@@ -85,6 +135,7 @@ internal static class AssertionEvaluator
         var actual = trace
             .Where(t => t.AccessKind is VirtualAccessKind.Write or VirtualAccessKind.Read
                 or VirtualAccessKind.SetBits or VirtualAccessKind.ClearBits)
+            .Where(IsLlAttributedAccess)
             .OrderBy(t => t.Sequence)
             .Select(t => t.RegisterName)
             .ToList();
@@ -127,6 +178,23 @@ internal static class AssertionEvaluator
         // elapsedMs is native-execute duration (not compile wall time).
         return Result(spec, ok, $"<= {limit} ms (native)", $"{elapsedMs} ms",
             ok ? "未超时" : "原生执行超时");
+    }
+
+    /// <summary>
+    /// Exclude test preload / unchanged harness sync noise from "LL access order" checks.
+    /// </summary>
+    private static bool IsLlAttributedAccess(VirtualAccessRecord t)
+    {
+        if (string.Equals(t.LlFunctionName, "(init)", StringComparison.OrdinalIgnoreCase))
+            return false;
+        if (!string.IsNullOrEmpty(t.Message)
+            && t.Message.Contains("测试预置", StringComparison.Ordinal))
+            return false;
+        // AccessTraceStore stores context.Note into Message when no other message is set.
+        if (!string.IsNullOrEmpty(t.Message)
+            && t.Message.Equals("native-harness-sync", StringComparison.OrdinalIgnoreCase))
+            return false;
+        return true;
     }
 
     private static LlTestAssertionResult Fail(LlTestAssertionSpec spec, string message)

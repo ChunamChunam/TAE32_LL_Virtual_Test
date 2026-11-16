@@ -89,7 +89,6 @@ public partial class App : Application
         }
 
         SerilogConfigurator.Configure(AppPaths.LogDirectory);
-        TryMigrateLegacyDatabaseFromWorkspace();
 
         var services = new ServiceCollection();
         services.AddLogging(b =>
@@ -112,13 +111,11 @@ public partial class App : Application
         services.AddSingleton<AutomationTestViewModel>();
         services.AddTransient<TestManagementViewModel>();
         services.AddSingleton<SettingsViewModel>();
-        services.AddSingleton<StartupScanImportService>();
         services.AddSingleton<MainViewModel>();
         services.AddSingleton<MainWindow>();
 
         _services = services.BuildServiceProvider();
 
-        string? autoImportSummary = null;
         try
         {
             var dbFactory = _services.GetRequiredService<IDbContextFactory<AppDbContext>>();
@@ -134,23 +131,16 @@ public partial class App : Application
                     ON "LlTestRuns" ("SdkProjectId", "Status");
                     """);
             }
-
-            // Auto-create default project (if needed) and import ScanResults JSON into SQLite.
-            var startupImport = _services.GetRequiredService<StartupScanImportService>();
-            autoImportSummary = await startupImport.EnsureProjectAndImportAsync();
-            Log.Information("Startup auto-import: {Summary}", autoImportSummary);
         }
         catch (Exception ex)
         {
-            Log.Error(ex, "Database initialization / auto-import failed");
-            MessageDialog.Show("TAE32 LL Virtual Test", $"数据库初始化或自动导入失败：{ex.Message}");
+            Log.Error(ex, "Database initialization failed");
+            MessageDialog.Show("TAE32 LL Virtual Test", $"数据库初始化失败：{ex.Message}");
             Shutdown(-1);
             return;
         }
 
         var window = _services.GetRequiredService<MainWindow>();
-        if (!string.IsNullOrWhiteSpace(autoImportSummary))
-            window.Tag = autoImportSummary;
         window.Show();
     }
 
@@ -178,27 +168,6 @@ public partial class App : Application
         window.Topmost = true;
         window.Topmost = false;
         window.Focus();
-    }
-
-    private static void TryMigrateLegacyDatabaseFromWorkspace()
-    {
-        var target = AppPaths.DatabasePath;
-        if (File.Exists(target)) return;
-
-        var legacy = Path.Combine(AppPaths.WorkspaceRoot, "data", "tae32_ll_virtual_test.db");
-        if (!File.Exists(legacy)) return;
-        if (string.Equals(Path.GetFullPath(legacy), Path.GetFullPath(target), StringComparison.OrdinalIgnoreCase))
-            return;
-
-        try
-        {
-            File.Copy(legacy, target);
-            Log.Information("Migrated SQLite database from {Legacy} to {Target}", legacy, target);
-        }
-        catch (Exception ex)
-        {
-            Log.Warning(ex, "Could not migrate legacy database from {Legacy}", legacy);
-        }
     }
 
 }

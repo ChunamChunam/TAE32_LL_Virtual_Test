@@ -1,5 +1,5 @@
 ﻿{
-  "generated_at": "2026-11-16T03:13:07Z",
+  "generated_at": "2026-11-16T06:07:53Z",
   "discovery_policy": "综合 @brief/@defgroup/实例宏/TypeDef/LL_ 前缀/文件名；禁止仅用文件名定论",
   "peripheral_count": 23,
   "peripherals": [
@@ -284,10 +284,10 @@
         "SDKContent/Tai-Action.TAE32G58xx_DFP.2.0.0 ReleaseV2.0.0/SDK/Drivers/TAE32G58xx_Driver/LL/tae32g58xx_ll_gptmrx.h"
       ],
       "LL函数数量": 152,
-      "LL函数数量_全形式": 359,
+      "LL函数数量_全形式": 355,
       "LL函数数量明细": {
         "inline_definition": 152,
-        "function_macro": 206,
+        "function_macro": 202,
         "declaration": 1
       },
       "外设实例": [
@@ -444,10 +444,10 @@
       "相关文件": [
         "SDKContent/Tai-Action.TAE32G58xx_DFP.2.0.0 ReleaseV2.0.0/SDK/Drivers/TAE32G58xx_Driver/LL/tae32g58xx_ll_lptmr.h"
       ],
-      "LL函数数量": 70,
-      "LL函数数量_全形式": 154,
+      "LL函数数量": 69,
+      "LL函数数量_全形式": 153,
       "LL函数数量明细": {
-        "inline_definition": 70,
+        "inline_definition": 69,
         "function_macro": 83,
         "declaration": 1
       },
@@ -547,11 +547,11 @@
       "相关文件": [
         "SDKContent/Tai-Action.TAE32G58xx_DFP.2.0.0 ReleaseV2.0.0/SDK/Drivers/TAE32G58xx_Driver/LL/tae32g58xx_ll_sysctrl.h"
       ],
-      "LL函数数量": 188,
-      "LL函数数量_全形式": 275,
+      "LL函数数量": 196,
+      "LL函数数量_全形式": 299,
       "LL函数数量明细": {
-        "inline_definition": 188,
-        "function_macro": 86,
+        "inline_definition": 196,
+        "function_macro": 102,
         "declaration": 1
       },
       "外设实例": [

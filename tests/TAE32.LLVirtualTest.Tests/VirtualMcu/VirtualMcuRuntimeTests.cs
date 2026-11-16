@@ -36,6 +36,54 @@ public class RegisterSemanticsEngineTests
         result.Should().Be(VirtualAccessResult.Ok);
     }
 
+    [Theory]
+    [InlineData(0xFFFFu, 0x0001u, 0x0001u, 0xFFFEu)]
+    [InlineData(0xFFFFu, 0x0000u, 0x0001u, 0xFFFFu)]
+    [InlineData(0x0001u, 0x0001u, 0x0001u, 0x0000u)]
+    [InlineData(0x0003u, 0x0001u, 0x0001u, 0x0002u)]
+    public void Write1Clear_BitWise_Table(uint current, uint written, uint w1cMask, uint expected)
+    {
+        // new = old & ~(written & w1cMask) — never zero the whole register unless all bits cleared.
+        var masks = new RegisterSemanticsEngine.BitAccessMasks(
+            Rw: 0, Ro: 0, Wo: 0, W1c: w1cMask, W0c: 0, W1s: 0, Toggle: 0,
+            Reserved: ~w1cMask, Unmapped: 0);
+        RegisterSemanticsEngine.TryApplyWriteBitLevel(
+                current, written, masks, widthMask: 0xFFFF, out var next, out _, out _)
+            .Should().BeTrue();
+        next.Should().Be(expected);
+    }
+
+    [Fact]
+    public void Write1Clear_WriteZero_DoesNotClear()
+    {
+        RegisterSemanticsEngine.TryApplyWrite(
+            VirtualRegisterBehavior.Write1Clear, current: 0xFFFF, written: 0,
+            writableMask: 0xFFFF, widthMask: 0xFFFF, out var next, out _, out _)
+            .Should().BeTrue();
+        next.Should().Be(0xFFFFu);
+    }
+
+    [Fact]
+    public void Mixed_W1c_And_Rw_Fields_Independent()
+    {
+        var fields = new List<VirtualBitFieldSlot>
+        {
+            new() { Name = "EWIF", BitPosition = 0, BitWidth = 1, Mask = 0x1, AccessAttribute = "W1c" },
+            new() { Name = "CTRL", BitPosition = 8, BitWidth = 1, Mask = 0x100, AccessAttribute = "Rw" }
+        };
+        // current: EWIF=1, CTRL=1, spare bits set
+        const uint current = 0xFFFF;
+        // write: clear EWIF (bit0=1), set CTRL=0
+        const uint written = 0x0001;
+        RegisterSemanticsEngine.TryApplyWrite(
+            VirtualRegisterBehavior.ReadWrite, fields, current, written,
+            writableMask: 0xFFFF, widthMask: 0xFFFF, out var next, out _, out _)
+            .Should().BeTrue();
+        // EWIF cleared; CTRL is RW but written bit8=0 → CTRL cleared; other non-field bits reserved/kept
+        (next & 0x1u).Should().Be(0u);
+        (next & 0x100u).Should().Be(0u); // RW assign from written
+    }
+
     [Fact]
     public void Write0Clear_ClearsZeroBits()
     {
@@ -153,6 +201,26 @@ public class VirtualMcuRuntimeTests
 
         rt.Write("UART0", "ICR", 0x0F, null).ValueAfter.Should().Be(0xF0u);
         rt.Write("UART0", "SR", 0xF0, null).ValueAfter.Should().Be(0xF0u);
+    }
+
+    [Fact]
+    public void WwdgIsr_W1C_From_FFFF_Write_1_Becomes_FFFE()
+    {
+        var rt = CreateRuntime(Slot("WWDG", "ISR", VirtualRegisterBehavior.Write1Clear, reset: 0,
+            access: "W1c", fields: ("EWIF", 0, 1)));
+        VirtualRegisterSemanticsOverrides.ApplyFieldInheritance(
+            rt.Space.Slots.First(s => s.MemberName == "ISR"));
+
+        rt.SeedRegister("WWDG", "ISR", 0xFFFF, new VirtualAccessContext { LlFunctionName = "(init)" });
+        var w = rt.Write("WWDG", "ISR", 0x0001, new VirtualAccessContext
+        {
+            LlFunctionName = "LL_WWDG_ClearFlag_EWIF",
+            Note = "ll-native-write"
+        });
+        w.ValueAfter.Should().Be(0xFFFEu);
+        (w.ValueAfter!.Value & 0x1u).Should().Be(0u);
+        (w.ValueAfter!.Value & ~0x1u).Should().Be(0xFFFEu);
+        w.Record!.RawValue.Should().Be(0x0001u);
     }
 
     [Fact]

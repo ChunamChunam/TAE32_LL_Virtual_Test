@@ -42,6 +42,10 @@ public enum VirtualRegisterBehavior
     Write1Clear,
     /// <summary>Write-0-to-clear: writing 0 clears corresponding stored bits.</summary>
     Write0Clear,
+    /// <summary>Write-1-to-set: writing 1 sets corresponding stored bits; writing 0 keeps.</summary>
+    Write1Set,
+    /// <summary>Write-1-to-toggle: writing 1 toggles corresponding stored bits.</summary>
+    Toggle,
     /// <summary>Read clears all bits (RC).</summary>
     ReadClear,
     Reserved

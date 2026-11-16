@@ -479,22 +479,18 @@ public class LlTestCaseGeneratorBitOpTests
     }
 
     [Fact]
-    public async Task Generate_ModifyReg_TrustedClearMask_Survives_Wrong_Body_Regen()
+    public async Task Generate_SetPrescaler_ModifyReg_Uses_Cmsis_Formula()
     {
-        var dir = Path.Combine(Path.GetTempPath(), "tae32_modify_" + Guid.NewGuid().ToString("N"));
+        // Bug repro: clearMask wrongly narrow → expected became initial|7 (0xA5A55A5F) instead of 0xA5A50007.
+        var dir = Path.Combine(Path.GetTempPath(), "tae32_setpsc_" + Guid.NewGuid().ToString("N"));
         Directory.CreateDirectory(dir);
-        var path = Path.Combine(dir, "tae32g58xx_ll_adc.h");
-        // Wrong clear-mask from the start (ADCAL instead of ADCALDIF).
+        var path = Path.Combine(dir, "tae32g58xx_ll_wwdg.h");
         File.WriteAllText(path, """
-            #define ADC0_CR_ADCALDIF_Msk (0x10U)
-            #define ADC0_CR_ADCALDIF_Val (0x1U)
-            #define ADC0_CR_ADCALDIF_Pos (4U)
-            #define ADC0_CR_ADCAL_Msk (0x8U)
-            #define ADC0_CR_ADCAL_Val (0x1U)
-            #define ADC0_CR_ADCAL_Pos (3U)
-            __STATIC_INLINE void LL_ADC_SetCalibrationMode(ADC_TypeDef *ADCx, uint32_t Mode)
+            #define WWDG_PSCR_PSC_Msk (0xFFFFUL)
+            #define WWDG_PSCR_PSC_Pos (0UL)
+            __STATIC_INLINE void LL_WWDG_SetPrescaler(WWDG_TypeDef *WWDGx, uint32_t Prescaler)
             {
-                MODIFY_REG(ADCx->CR, ADC0_CR_ADCAL_Msk, (((Mode) & ADC0_CR_ADCAL_Val) << ADC0_CR_ADCAL_Pos));
+                MODIFY_REG(WWDGx->PSCR, WWDG_PSCR_PSC_Msk, ((Prescaler) << WWDG_PSCR_PSC_Pos));
             }
             """);
 
@@ -515,32 +511,35 @@ public class LlTestCaseGeneratorBitOpTests
             });
             init.PeripheralInstances.Add(new PeripheralInstance
             {
-                Id = instId, SdkProjectId = projectId, Name = "ADC0", ModuleName = "ADC", NaturalKey = "ADC0"
+                Id = instId, SdkProjectId = projectId, Name = "WWDG", ModuleName = "WWDG", NaturalKey = "WWDG"
             });
             init.RegisterDefinitions.Add(new RegisterDefinition
             {
                 Id = regId, SdkProjectId = projectId, PeripheralInstanceId = instId,
-                StructName = "ADC_TypeDef", MemberName = "CR", DefinitionFile = path, NaturalKey = "ADC.CR"
+                StructName = "WWDG_TypeDef", MemberName = "PSCR", DefinitionFile = path, NaturalKey = "WWDG.PSCR"
             });
-            init.RegisterFields.AddRange(
-                new RegisterField { RegisterDefinitionId = regId, Name = "ADCALDIF", BitPosition = 4, Mask = 0x10, NaturalKey = "ADCALDIF" },
-                new RegisterField { RegisterDefinitionId = regId, Name = "ADCAL", BitPosition = 3, Mask = 0x8, NaturalKey = "ADCAL" });
+            // Intentionally wrong DB mask — generator must prefer header 0xFFFF.
+            init.RegisterFields.Add(new RegisterField
+            {
+                RegisterDefinitionId = regId, Name = "PSC", BitPosition = 0, Mask = 0x7, NaturalKey = "PSC",
+                DefinitionFile = path, MskMacroName = "WWDG_PSCR_PSC_Msk", PosMacroName = "WWDG_PSCR_PSC_Pos"
+            });
             init.LlFunctions.Add(new LlFunction
             {
                 Id = fnId,
                 SdkProjectId = projectId,
-                FunctionName = "LL_ADC_SetCalibrationMode",
-                PeripheralName = "ADC",
+                FunctionName = "LL_WWDG_SetPrescaler",
+                PeripheralName = "WWDG",
                 ReturnType = "void",
-                Parameters = "ADC_TypeDef *ADCx, uint32_t Mode",
-                Signature = "void LL_ADC_SetCalibrationMode(ADC_TypeDef *ADCx, uint32_t Mode)",
+                Parameters = "WWDG_TypeDef *WWDGx, uint32_t Prescaler",
+                Signature = "void LL_WWDG_SetPrescaler(WWDG_TypeDef *WWDGx, uint32_t Prescaler)",
                 Form = "inline",
                 FilePath = path,
-                NaturalKey = path + "|LL_ADC_SetCalibrationMode",
+                NaturalKey = path + "|LL_WWDG_SetPrescaler",
                 ParseParameters =
                 {
-                    new LlFunctionParameter { Name = "ADCx", Type = "ADC_TypeDef *", Position = 0, IsPointer = true },
-                    new LlFunctionParameter { Name = "Mode", Type = "uint32_t", Position = 1, IsPointer = false }
+                    new LlFunctionParameter { Name = "WWDGx", Type = "WWDG_TypeDef *", Position = 0, IsPointer = true },
+                    new LlFunctionParameter { Name = "Prescaler", Type = "uint32_t", Position = 1, IsPointer = false }
                 }
             });
             await init.SaveChangesAsync();
@@ -548,36 +547,346 @@ public class LlTestCaseGeneratorBitOpTests
 
         var generator = new LlTestCaseGenerator(new SharedConnectionFactory(options));
         var cases = await generator.GenerateAsync(fnId);
-        var write = cases.First(c => c.Name.Contains("write-check", StringComparison.OrdinalIgnoreCase));
-        var reg = write.Assertions.First(a => a.Kind == LlAssertionKind.RegisterValue);
-        const uint clearMask = 0x10u;
-        const uint fieldExpected = 0x10u; // max field value << Pos
-        const uint preserve = 0xA5A55A5Au & ~clearMask;
-        const uint expectedAfter = preserve | fieldExpected;
-        write.InitialRegisters.Should().ContainSingle(r =>
-            r.MemberName == "CR"
-            && !string.Equals(r.ValueHex, "0x0", StringComparison.OrdinalIgnoreCase));
-        reg.ExpectedMask.Should().Be(preserve | clearMask);
-        reg.ExpectedHex.Should().BeEquivalentTo($"0x{expectedAfter:X}");
-        reg.RuleSourceDetail.Should().Contain("可信源");
-        reg.RuleSourceDetail.Should().Contain("ADCALDIF");
-        reg.RuleSourceDetail.Should().Contain("RMW");
-        reg.RuleSourceDetail.Should().NotContain("ADCAL_Msk");
+        var writes = cases.Where(c => c.Name.Contains("write-check", StringComparison.OrdinalIgnoreCase)).ToList();
+        writes.Should().HaveCountGreaterThan(1);
+        writes.Should().Contain(c => c.Name.Contains("/one/", StringComparison.OrdinalIgnoreCase));
+        writes.Should().Contain(c => c.Name.Contains("/max/", StringComparison.OrdinalIgnoreCase));
+
+        const uint clearMask = 0xFFFFu;
+        foreach (var write in writes)
+        {
+            var initial = TestHarnessGenerator.ParseUIntExpression(
+                write.InitialRegisters.Single(r => r.MemberName == "PSCR").ValueHex);
+            var param = TestHarnessGenerator.ParseUIntExpression(
+                write.Parameters.First(p => p.Name == "Prescaler").ValueExpression);
+            var setMask = (param << 0) & clearMask;
+            var expected = (initial & ~clearMask) | setMask;
+
+            var full = write.Assertions.First(a =>
+                a.Kind == LlAssertionKind.RegisterValue && a.ExpectedMask == 0xFFFFFFFFu);
+            TestHarnessGenerator.ParseUIntExpression(full.ExpectedHex!)
+                .Should().Be(expected, because: write.Name);
+
+            // Must never be the old bug pattern initial|param when low bits were not cleared.
+            if ((initial & clearMask) != 0 && setMask != (initial & clearMask))
+            {
+                var wrongOr = initial | setMask;
+                TestHarnessGenerator.ParseUIntExpression(full.ExpectedHex!).Should().NotBe(wrongOr);
+            }
+
+            write.Assertions.Should().Contain(a =>
+                a.Kind == LlAssertionKind.RegisterValue
+                && a.ExpectedMask == clearMask
+                && (a.RuleSourceDetail ?? "").Contains("目标位域", StringComparison.Ordinal));
+
+            // BitField must use chip 0xFFFF, NOT stale DB 0x7 → Expected 6/7.
+            var bf = write.Assertions.Should().Contain(a =>
+                a.Kind == LlAssertionKind.BitField && a.BitFieldName == "PSC").Subject;
+            bf.ExpectedMask.Should().Be(clearMask);
+            TestHarnessGenerator.ParseUIntExpression(bf.ExpectedHex!)
+                .Should().Be((setMask & clearMask) >> 0, because: write.Name);
+            (bf.RuleSourceDetail ?? "").Should().Contain("已忽略 DB.Mask=0x7");
+        }
+
+        // Concrete user case: Prescaler=7 with interference preload shape.
+        var seven = writes.FirstOrDefault(w =>
+            TestHarnessGenerator.ParseUIntExpression(
+                w.Parameters.First(p => p.Name == "Prescaler").ValueExpression) == 7u);
+        if (seven is not null)
+        {
+            var initial = TestHarnessGenerator.ParseUIntExpression(seven.InitialRegisters.Single().ValueHex);
+            var expected = (initial & ~clearMask) | 7u;
+            TestHarnessGenerator.ParseUIntExpression(
+                    seven.Assertions.First(a => a.ExpectedMask == 0xFFFFFFFFu).ExpectedHex!)
+                .Should().Be(expected);
+        }
 
         Directory.Delete(dir, true);
         await conn.DisposeAsync();
     }
 
     [Fact]
-    public async Task Generate_ReadBitShift_TrustedField_Survives_Wrong_Body_Regen()
+    public async Task Generate_ClearFlag_W1C_Asserts_Flag_Zero_And_Others_Preserved()
     {
+        var dir = Path.Combine(Path.GetTempPath(), "tae32_wwdg_w1c_" + Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(dir);
+        var path = Path.Combine(dir, "tae32g58xx_ll_wwdg.h");
+        File.WriteAllText(path, """
+            #define WWDG_ISR_EWIF_Msk (0x1UL)
+            #define WWDG_ISR_EWIF_Pos (0U)
+            __STATIC_INLINE void LL_WWDG_ClearFlag_EWIF(WWDG_TypeDef *WWDGx)
+            {
+                ASSERT_INLINE_PARAM(IS_WWDG_ALL_INSTANCE(WWDGx));
+                WRITE_REG(WWDGx->ISR, WWDG_ISR_EWIF_Msk);
+            }
+            """);
+
+        var conn = new Microsoft.Data.Sqlite.SqliteConnection("Data Source=:memory:");
+        await conn.OpenAsync();
+        var options = new DbContextOptionsBuilder<AppDbContext>().UseSqlite(conn).Options;
+        var projectId = Guid.Parse("10101010-1010-1010-1010-101010101010");
+        var fnId = Guid.Parse("20202020-2020-2020-2020-202020202020");
+        var instId = Guid.Parse("30303030-3030-3030-3030-303030303030");
+        var regId = Guid.Parse("40404040-4040-4040-4040-404040404040");
+
+        await using (var init = new AppDbContext(options))
+        {
+            await init.Database.EnsureCreatedAsync();
+            init.SdkProjects.Add(new SdkProject
+            {
+                Id = projectId, Name = "t", SdkRootPath = dir, ScanResultsPath = dir, IsActive = true
+            });
+            init.PeripheralInstances.Add(new PeripheralInstance
+            {
+                Id = instId, SdkProjectId = projectId, Name = "WWDG", ModuleName = "WWDG", NaturalKey = "WWDG"
+            });
+            init.RegisterDefinitions.Add(new RegisterDefinition
+            {
+                Id = regId, SdkProjectId = projectId, PeripheralInstanceId = instId,
+                StructName = "WWDG_TypeDef", MemberName = "ISR", DefinitionFile = path, NaturalKey = "WWDG.ISR",
+                AccessAttribute = "Rw"
+            });
+            init.RegisterFields.Add(new RegisterField
+            {
+                RegisterDefinitionId = regId, Name = "EWIF", BitPosition = 0, Mask = 0x1, NaturalKey = "EWIF",
+                AccessAttribute = "Rw"
+            });
+            init.LlFunctions.Add(new LlFunction
+            {
+                Id = fnId,
+                SdkProjectId = projectId,
+                FunctionName = "LL_WWDG_ClearFlag_EWIF",
+                PeripheralName = "WWDG",
+                ReturnType = "void",
+                Parameters = "WWDG_TypeDef *WWDGx",
+                Signature = "void LL_WWDG_ClearFlag_EWIF(WWDG_TypeDef *WWDGx)",
+                Form = "inline",
+                FilePath = path,
+                NaturalKey = path + "|LL_WWDG_ClearFlag_EWIF",
+                ParseParameters =
+                {
+                    new LlFunctionParameter { Name = "WWDGx", Type = "WWDG_TypeDef *", Position = 0, IsPointer = true }
+                }
+            });
+            await init.SaveChangesAsync();
+        }
+
+        var generator = new LlTestCaseGenerator(new SharedConnectionFactory(options));
+        var cases = await generator.GenerateAsync(fnId);
+        var clear = cases.Should().ContainSingle(c =>
+            c.Name.Contains("clear-check", StringComparison.OrdinalIgnoreCase)).Subject;
+        clear.Status.Should().Be(nameof(LlTestCaseStatus.Ready));
+        clear.InitialRegisters.Should().ContainSingle(r =>
+            r.MemberName == "ISR"
+            && string.Equals(r.ValueHex, "0xFFFFFFFF", StringComparison.OrdinalIgnoreCase));
+
+        const uint flag = 0x1u;
+        const uint preserve = 0xFFFFFFFFu & ~flag;
+        var flagAssert = clear.Assertions.Should().Contain(a =>
+            a.Kind == LlAssertionKind.RegisterValue
+            && a.ExpectedMask == flag
+            && string.Equals(a.ExpectedHex, "0x0", StringComparison.OrdinalIgnoreCase)).Subject;
+        flagAssert.RuleSourceDetail.Should().Contain("目标位");
+
+        var keepAssert = clear.Assertions.Should().Contain(a =>
+            a.Kind == LlAssertionKind.RegisterValue
+            && a.ExpectedMask == preserve
+            && string.Equals(a.ExpectedHex, $"0x{preserve:X}", StringComparison.OrdinalIgnoreCase)).Subject;
+        keepAssert.RuleSourceDetail.Should().Contain("非目标位");
+
+        // Must NOT expect whole register == 0 under a wide mask.
+        clear.Assertions.Where(a => a.Kind == LlAssertionKind.RegisterValue)
+            .Should().NotContain(a =>
+                a.ExpectedMask.HasValue
+                && a.ExpectedMask.Value >= 0xFFFFu
+                && string.Equals(a.ExpectedHex, "0x0", StringComparison.OrdinalIgnoreCase));
+
+        Directory.Delete(dir, true);
+        await conn.DisposeAsync();
+    }
+
+    [Fact]
+    public async Task Generate_ReadBit_Then_Shift_Pos_Produces_ReadCheck()
+    {
+        // WWDG/IWDG style: (READ_BIT(reg->MEM, Msk) >> Pos) — not READ_BIT_SHIFT macro.
+        var dir = Path.Combine(Path.GetTempPath(), "tae32_readbitpos_" + Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(dir);
+        var path = Path.Combine(dir, "tae32g58xx_ll_wwdg.h");
+        File.WriteAllText(path, """
+            #define WWDG_WVR_WV_Msk (0x7FU)
+            #define WWDG_WVR_WV_Pos (0U)
+            __STATIC_INLINE uint32_t LL_WWDG_GetWindow(const WWDG_TypeDef *WWDGx)
+            {
+                ASSERT_INLINE_PARAM(IS_WWDG_ALL_INSTANCE(WWDGx));
+                return (uint32_t)(READ_BIT(WWDGx->WVR, WWDG_WVR_WV_Msk) >> WWDG_WVR_WV_Pos);
+            }
+            """);
+
+        var conn = new Microsoft.Data.Sqlite.SqliteConnection("Data Source=:memory:");
+        await conn.OpenAsync();
+        var options = new DbContextOptionsBuilder<AppDbContext>().UseSqlite(conn).Options;
+        var projectId = Guid.Parse("aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa");
+        var fnId = Guid.Parse("bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb");
+        var instId = Guid.Parse("cccccccc-cccc-cccc-cccc-cccccccccccc");
+        var regId = Guid.Parse("dddddddd-dddd-dddd-dddd-dddddddddddd");
+
+        await using (var init = new AppDbContext(options))
+        {
+            await init.Database.EnsureCreatedAsync();
+            init.SdkProjects.Add(new SdkProject
+            {
+                Id = projectId, Name = "t", SdkRootPath = dir, ScanResultsPath = dir, IsActive = true
+            });
+            init.PeripheralInstances.Add(new PeripheralInstance
+            {
+                Id = instId, SdkProjectId = projectId, Name = "WWDG", ModuleName = "WWDG", NaturalKey = "WWDG"
+            });
+            init.RegisterDefinitions.Add(new RegisterDefinition
+            {
+                Id = regId, SdkProjectId = projectId, PeripheralInstanceId = instId,
+                StructName = "WWDG_TypeDef", MemberName = "WVR", DefinitionFile = path, NaturalKey = "WWDG.WVR"
+            });
+            init.RegisterFields.Add(new RegisterField
+            {
+                RegisterDefinitionId = regId, Name = "WV", BitPosition = 0, Mask = 0x7F, NaturalKey = "WV"
+            });
+            init.LlFunctions.Add(new LlFunction
+            {
+                Id = fnId,
+                SdkProjectId = projectId,
+                FunctionName = "LL_WWDG_GetWindow",
+                PeripheralName = "WWDG",
+                ReturnType = "uint32_t",
+                Parameters = "const WWDG_TypeDef *WWDGx",
+                Signature = "uint32_t LL_WWDG_GetWindow(const WWDG_TypeDef *WWDGx)",
+                Form = "inline",
+                FilePath = path,
+                NaturalKey = path + "|LL_WWDG_GetWindow",
+                ParseParameters =
+                {
+                    new LlFunctionParameter { Name = "WWDGx", Type = "const WWDG_TypeDef *", Position = 0, IsPointer = true }
+                }
+            });
+            await init.SaveChangesAsync();
+        }
+
+        var generator = new LlTestCaseGenerator(new SharedConnectionFactory(options));
+        var cases = await generator.GenerateAsync(fnId);
+        var reads = cases.Where(c => c.Name.Contains("read-check", StringComparison.OrdinalIgnoreCase)).ToList();
+        reads.Should().NotBeEmpty();
+        reads.Should().Contain(c => c.Name.Contains("WV", StringComparison.OrdinalIgnoreCase));
+        foreach (var read in reads)
+        {
+            read.Status.Should().Be(nameof(LlTestCaseStatus.Ready));
+            var initial = TestHarnessGenerator.ParseUIntExpression(read.InitialRegisters.Single().ValueHex);
+            var expected = TestHarnessGenerator.ParseUIntExpression(
+                read.Assertions.First(a => a.Kind == LlAssertionKind.ReturnValue).ExpectedHex!);
+            // Must match (initial & 0x7F) >> 0
+            expected.Should().Be(initial & 0x7Fu);
+        }
+        cases.Should().NotContain(c => c.Name.EndsWith("/draft", StringComparison.OrdinalIgnoreCase));
+
+        Directory.Delete(dir, true);
+        await conn.DisposeAsync();
+    }
+
+    [Fact]
+    public async Task Generate_GetPrescaler_Expected_Matches_Initial_And_Mask()
+    {
+        var dir = Path.Combine(Path.GetTempPath(), "tae32_getpsc_" + Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(dir);
+        var path = Path.Combine(dir, "tae32g58xx_ll_wwdg.h");
+        File.WriteAllText(path, """
+            #define WWDG_PSCR_PSC_Msk (0xFFFFUL)
+            #define WWDG_PSCR_PSC_Pos (0UL)
+            __STATIC_INLINE uint32_t LL_WWDG_GetPrescaler(const WWDG_TypeDef *WWDGx)
+            {
+                return (uint32_t)(READ_BIT(WWDGx->PSCR, WWDG_PSCR_PSC_Msk) >> WWDG_PSCR_PSC_Pos);
+            }
+            """);
+
+        var conn = new Microsoft.Data.Sqlite.SqliteConnection("Data Source=:memory:");
+        await conn.OpenAsync();
+        var options = new DbContextOptionsBuilder<AppDbContext>().UseSqlite(conn).Options;
+        var projectId = Guid.Parse("51515151-5151-5151-5151-515151515151");
+        var fnId = Guid.Parse("52525252-5252-5252-5252-525252525252");
+        var instId = Guid.Parse("53535353-5353-5353-5353-535353535353");
+        var regId = Guid.Parse("54545454-5454-5454-5454-545454545454");
+
+        await using (var init = new AppDbContext(options))
+        {
+            await init.Database.EnsureCreatedAsync();
+            init.SdkProjects.Add(new SdkProject
+            {
+                Id = projectId, Name = "t", SdkRootPath = dir, ScanResultsPath = dir, IsActive = true
+            });
+            init.PeripheralInstances.Add(new PeripheralInstance
+            {
+                Id = instId, SdkProjectId = projectId, Name = "WWDG", ModuleName = "WWDG", NaturalKey = "WWDG"
+            });
+            init.RegisterDefinitions.Add(new RegisterDefinition
+            {
+                Id = regId, SdkProjectId = projectId, PeripheralInstanceId = instId,
+                StructName = "WWDG_TypeDef", MemberName = "PSCR", DefinitionFile = path, NaturalKey = "WWDG.PSCR"
+            });
+            // Intentionally wrong narrow mask in DB — generator must prefer header #define 0xFFFF.
+            init.RegisterFields.Add(new RegisterField
+            {
+                RegisterDefinitionId = regId, Name = "PSC", BitPosition = 0, Mask = 0x1, NaturalKey = "PSC",
+                DefinitionFile = path, MskMacroName = "WWDG_PSCR_PSC_Msk", PosMacroName = "WWDG_PSCR_PSC_Pos"
+            });
+            init.LlFunctions.Add(new LlFunction
+            {
+                Id = fnId,
+                SdkProjectId = projectId,
+                FunctionName = "LL_WWDG_GetPrescaler",
+                PeripheralName = "WWDG",
+                ReturnType = "uint32_t",
+                Parameters = "const WWDG_TypeDef *WWDGx",
+                Signature = "uint32_t LL_WWDG_GetPrescaler(const WWDG_TypeDef *WWDGx)",
+                Form = "inline",
+                FilePath = path,
+                NaturalKey = path + "|LL_WWDG_GetPrescaler",
+                ParseParameters =
+                {
+                    new LlFunctionParameter { Name = "WWDGx", Type = "const WWDG_TypeDef *", Position = 0, IsPointer = true }
+                }
+            });
+            await init.SaveChangesAsync();
+        }
+
+        var generator = new LlTestCaseGenerator(new SharedConnectionFactory(options));
+        var cases = await generator.GenerateAsync(fnId);
+        var reads = cases.Where(c => c.Name.Contains("read-check", StringComparison.OrdinalIgnoreCase)).ToList();
+        reads.Should().HaveCountGreaterThan(1); // min/one/max/…
+        reads.Should().Contain(c => c.Name.Contains("/min/", StringComparison.OrdinalIgnoreCase));
+        reads.Should().Contain(c => c.Name.Contains("/max/", StringComparison.OrdinalIgnoreCase));
+
+        const uint mask = 0xFFFFu;
+        foreach (var read in reads)
+        {
+            var initial = TestHarnessGenerator.ParseUIntExpression(read.InitialRegisters.Single(r => r.MemberName == "PSCR").ValueHex);
+            var expected = TestHarnessGenerator.ParseUIntExpression(
+                read.Assertions.First(a => a.Kind == LlAssertionKind.ReturnValue).ExpectedHex!);
+            expected.Should().Be((initial & mask) >> 0,
+                because: $"case {read.Name}: expected must derive from initial");
+            // Must not be the old bug: expected=1 while low 16 bits are pattern noise.
+            if ((initial & mask) != 1)
+                expected.Should().NotBe(1u);
+        }
+
+        Directory.Delete(dir, true);
+        await conn.DisposeAsync();
+    }
+
+    [Fact]
+    public async Task Generate_ReadBitShift_Uses_Body_Mask_And_Derives_Expected_From_Initial()
+    {
+        // Get/Read must follow the body macros the compiled LL actually uses.
         var dir = Path.Combine(Path.GetTempPath(), "tae32_readshift_" + Guid.NewGuid().ToString("N"));
         Directory.CreateDirectory(dir);
         var path = Path.Combine(dir, "tae32g58xx_ll_adc.h");
-        // Wrong read field from the start (ADCAL instead of ADCALDIF).
         File.WriteAllText(path, """
-            #define ADC0_CR_ADCALDIF_Msk (0x10U)
-            #define ADC0_CR_ADCALDIF_Pos (4U)
             #define ADC0_CR_ADCAL_Msk (0x8U)
             #define ADC0_CR_ADCAL_Pos (3U)
             __STATIC_INLINE uint32_t LL_ADC_GetCalibrationMode(const ADC_TypeDef *ADCx)
@@ -610,9 +919,11 @@ public class LlTestCaseGeneratorBitOpTests
                 Id = regId, SdkProjectId = projectId, PeripheralInstanceId = instId,
                 StructName = "ADC_TypeDef", MemberName = "CR", DefinitionFile = path, NaturalKey = "ADC.CR"
             });
-            init.RegisterFields.AddRange(
-                new RegisterField { RegisterDefinitionId = regId, Name = "ADCALDIF", BitPosition = 4, Mask = 0x10, NaturalKey = "ADCALDIF" },
-                new RegisterField { RegisterDefinitionId = regId, Name = "ADCAL", BitPosition = 3, Mask = 0x8, NaturalKey = "ADCAL" });
+            init.RegisterFields.Add(new RegisterField
+            {
+                RegisterDefinitionId = regId, Name = "ADCAL", BitPosition = 3, Mask = 0x8, NaturalKey = "ADCAL",
+                DefinitionFile = path
+            });
             init.LlFunctions.Add(new LlFunction
             {
                 Id = fnId,
@@ -635,23 +946,22 @@ public class LlTestCaseGeneratorBitOpTests
 
         var generator = new LlTestCaseGenerator(new SharedConnectionFactory(options));
         var cases = await generator.GenerateAsync(fnId);
-        var read = cases.First(c => c.Name.Contains("read-check", StringComparison.OrdinalIgnoreCase));
-        read.Name.Should().Contain("ADCALDIF");
-        const uint fieldBits = 0x10u;
-        const uint bodyWrong = 0x8u; // ADCAL in wrong body — excluded from preserve
-        const uint preserve = 0xA5A55A5Au & ~(fieldBits | bodyWrong);
-        const uint preload = fieldBits | preserve;
-        read.InitialRegisters.Should().ContainSingle(r =>
-            r.MemberName == "CR" && string.Equals(r.ValueHex, $"0x{preload:X}", StringComparison.OrdinalIgnoreCase));
-        var ret = read.Assertions.First(a => a.Kind == LlAssertionKind.ReturnValue);
-        ret.ExpectedHex.Should().BeEquivalentTo("0x1");
-        ret.RuleSourceDetail.Should().Contain("可信源");
-        ret.RuleSourceDetail.Should().Contain("ADCALDIF");
-        read.Assertions.Should().Contain(a =>
-            a.Kind == LlAssertionKind.RegisterValue
-            && a.MemberName == "CR"
-            && string.Equals(a.ExpectedHex, $"0x{preload:X}", StringComparison.OrdinalIgnoreCase)
-            && (a.RuleSourceDetail ?? "").Contains("读不得改写", StringComparison.Ordinal));
+        var reads = cases.Where(c => c.Name.Contains("read-check", StringComparison.OrdinalIgnoreCase)).ToList();
+        reads.Should().NotBeEmpty();
+        reads.Should().OnlyContain(c => c.Name.Contains("ADCAL", StringComparison.OrdinalIgnoreCase));
+        const uint mask = 0x8u;
+        const int pos = 3;
+        foreach (var read in reads)
+        {
+            var initial = TestHarnessGenerator.ParseUIntExpression(read.InitialRegisters.Single().ValueHex);
+            var expected = TestHarnessGenerator.ParseUIntExpression(
+                read.Assertions.First(a => a.Kind == LlAssertionKind.ReturnValue).ExpectedHex!);
+            expected.Should().Be((initial & mask) >> pos);
+            read.Assertions.Should().Contain(a =>
+                a.Kind == LlAssertionKind.RegisterValue
+                && a.MemberName == "CR"
+                && string.Equals(a.ExpectedHex, $"0x{initial:X}", StringComparison.OrdinalIgnoreCase));
+        }
 
         Directory.Delete(dir, true);
         await conn.DisposeAsync();

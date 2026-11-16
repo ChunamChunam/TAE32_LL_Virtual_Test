@@ -294,6 +294,7 @@ public sealed class LlTestEngine : ILLTestEngine
                     var argValues = TestHarnessGenerator.BuildArgsValuesInHarnessOrder(
                         edit.Parameters, edit.PreludeCalls);
                     var blob = NativeTestHost.PackArgs(argValues);
+                    var beforeExecute = NativeTestHost.SnapshotBuffer(ptr, map);
                     L($"原生执行 {entity.FunctionName} @ virtual {virtualInstance} (hint={periHint}) …");
                     ret = host.Execute(ptr, (uint)size, blob, out var nrc);
                     if (nrc != 0)
@@ -305,9 +306,10 @@ public sealed class LlTestEngine : ILLTestEngine
                     {
                         LlFunctionName = entity.FunctionName,
                         SourceFile = entity.SourceFile,
-                        Note = "native-harness-sync"
+                        Note = "ll-native-write"
                     };
-                    await NativeTestHost.SyncBufferToVirtualMcuAsync(_mcu, mcuId.Value, virtualInstance, ptr, map, ctx, timeoutCts.Token);
+                    await NativeTestHost.SyncBufferToVirtualMcuAsync(
+                        _mcu, mcuId.Value, virtualInstance, ptr, map, ctx, timeoutCts.Token, beforeExecute);
                     run.ExecuteCompleted = true;
                     run.HardwareBehaviorSimulated = true;
                     stages.Add(new LlTestStageResult
@@ -347,8 +349,13 @@ public sealed class LlTestEngine : ILLTestEngine
                 nativeSw.Stop();
             }
 
+            // Prefer LL-attributed accesses for the run report (exclude test preload / unchanged sync).
             var trace = mcuId is Guid mid
-                ? await _mcu.GetAccessTraceAsync(mid, new VirtualAccessFilter { Take = 500 }, cancellationToken)
+                ? await _mcu.GetAccessTraceAsync(mid, new VirtualAccessFilter
+                {
+                    LlFunctionName = entity.FunctionName,
+                    Take = 500
+                }, cancellationToken)
                 : Array.Empty<VirtualAccessRecord>();
 
             var assertions = await AssertionEvaluator.EvaluateAsync(
