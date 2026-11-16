@@ -54,6 +54,7 @@ public interface ITestBatchService
         Guid? suiteId = null,
         int skip = 0,
         int take = 50,
+        string? statusFilter = null,
         CancellationToken ct = default);
 
     Task<TestBatchRun?> GetAsync(Guid batchRunId, CancellationToken ct = default);
@@ -67,6 +68,7 @@ public interface ITestBatchService
         string? searchText = null,
         Guid? planId = null,
         Guid? suiteId = null,
+        string? statusFilter = null,
         CancellationToken ct = default);
 }
 
@@ -101,6 +103,7 @@ public interface ITestAnalyticsService
         string? searchText = null,
         int skip = 0,
         int take = 50,
+        string? statusFilter = null,
         CancellationToken ct = default);
 
     /// <summary>Load full failure detail (logs / traces) for the selected list row.</summary>
@@ -111,6 +114,7 @@ public interface ITestAnalyticsService
         Guid sdkProjectId,
         Guid? batchRunId = null,
         string? searchText = null,
+        string? statusFilter = null,
         CancellationToken ct = default);
 }
 

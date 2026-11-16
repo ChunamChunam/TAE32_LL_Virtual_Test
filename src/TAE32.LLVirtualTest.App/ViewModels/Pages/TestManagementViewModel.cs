@@ -9,6 +9,7 @@ using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
 using TAE32.LLVirtualTest.App.Views.Dialogs;
 using TAE32.LLVirtualTest.Core.Entities;
+using TAE32.LLVirtualTest.Core.Enums;
 using TAE32.LLVirtualTest.Core.Interfaces;
 using TAE32.LLVirtualTest.Core.Models;
 using TAE32.LLVirtualTest.Infrastructure.Services;
@@ -76,7 +77,35 @@ public partial class TestManagementViewModel : ObservableObject
         "仅活动",
         "仅归档"
     };
+    public ObservableCollection<string> CaseStatusFilterOptions { get; } = new()
+    {
+        "全部状态",
+        nameof(LlTestCaseStatus.Draft),
+        nameof(LlTestCaseStatus.Ready),
+        nameof(LlTestCaseStatus.Disabled),
+        nameof(LlTestCaseStatus.Unsupported)
+    };
+    public ObservableCollection<string> BatchStatusFilterOptions { get; } = new()
+    {
+        "全部状态",
+        "Running",
+        "Completed",
+        "Cancelled",
+        "Error"
+    };
+    public ObservableCollection<string> FailureStatusFilterOptions { get; } = new()
+    {
+        "全部状态",
+        nameof(LlTestRunStatus.Failed),
+        nameof(LlTestRunStatus.Error),
+        nameof(LlTestRunStatus.Timeout),
+        nameof(LlTestRunStatus.StaticAnalysisFailed)
+    };
     [ObservableProperty] private string _selectedPlanStatusFilter = "全部状态";
+    [ObservableProperty] private string _selectedAvailableCaseStatusFilter = "全部状态";
+    [ObservableProperty] private string _selectedHistoryStatusFilter = "全部状态";
+    [ObservableProperty] private string _selectedExportBatchStatusFilter = "全部状态";
+    [ObservableProperty] private string _selectedFailureStatusFilter = "全部状态";
     [ObservableProperty] private string _suiteName = string.Empty;
     [ObservableProperty] private string _suitePeripheral = "(全部)";
     [ObservableProperty] private TestStatistics _statistics = new();
@@ -517,7 +546,8 @@ public partial class TestManagementViewModel : ObservableObject
             return;
 
         var search = string.IsNullOrWhiteSpace(HistorySearchText) ? null : HistorySearchText.Trim();
-        var n = await _batches.DeleteFilteredAsync(pid, search);
+        var status = NormalizeStatusFilter(SelectedHistoryStatusFilter);
+        var n = await _batches.DeleteFilteredAsync(pid, search, statusFilter: status);
         HistoryPageIndex = 1;
         StatusText = $"已删除 {n} 条批次记录（Running 未删）";
         await ReloadHistoryAsync();
@@ -709,8 +739,10 @@ public partial class TestManagementViewModel : ObservableObject
         }
 
         var search = string.IsNullOrWhiteSpace(ExportBatchSearchText) ? null : ExportBatchSearchText.Trim();
+        var status = NormalizeStatusFilter(SelectedExportBatchStatusFilter);
         var skip = Math.Max(0, (ExportBatchPageIndex - 1) * ExportBatchPageSize);
-        var (list, total) = await _batches.ListHistoryPagedAsync(pid, search, skip: skip, take: ExportBatchPageSize);
+        var (list, total) = await _batches.ListHistoryPagedAsync(
+            pid, search, skip: skip, take: ExportBatchPageSize, statusFilter: status);
         ExportBatchTotalCount = total;
         ExportBatchTotalPages = Math.Max(1, (int)Math.Ceiling(total / (double)Math.Max(1, ExportBatchPageSize)));
         if (ExportBatchPageIndex > ExportBatchTotalPages) ExportBatchPageIndex = ExportBatchTotalPages;
@@ -1195,7 +1227,8 @@ public partial class TestManagementViewModel : ObservableObject
             return;
 
         var search = string.IsNullOrWhiteSpace(FailureSearchText) ? null : FailureSearchText.Trim();
-        var n = await _analytics.DeleteFailureRunsFilteredAsync(pid, SelectedBatch?.Id, search);
+        var status = NormalizeStatusFilter(SelectedFailureStatusFilter);
+        var n = await _analytics.DeleteFailureRunsFilteredAsync(pid, SelectedBatch?.Id, search, status);
         FailurePageIndex = 1;
         StatusText = $"已删除 {n} 条运行记录";
         await ReloadFailuresAsync();
@@ -1338,8 +1371,9 @@ public partial class TestManagementViewModel : ObservableObject
 
         var peri = string.IsNullOrWhiteSpace(SuitePeripheral) || SuitePeripheral == "(全部)" ? null : SuitePeripheral;
         var search = string.IsNullOrWhiteSpace(AvailableCaseSearchText) ? null : AvailableCaseSearchText.Trim();
+        var status = NormalizeStatusFilter(SelectedAvailableCaseStatusFilter);
         var skip = Math.Max(0, (AvailableCasePageIndex - 1) * AvailableCasePageSize);
-        var (list, total) = await _cases.ListPagedAsync(pid, peri, search, skip, AvailableCasePageSize);
+        var (list, total) = await _cases.ListPagedAsync(pid, peri, search, skip, AvailableCasePageSize, status);
         AvailableCaseTotalCount = total;
         AvailableCaseTotalPages = Math.Max(1, (int)Math.Ceiling(total / (double)Math.Max(1, AvailableCasePageSize)));
         if (AvailableCasePageIndex > AvailableCaseTotalPages) AvailableCasePageIndex = AvailableCaseTotalPages;
@@ -1369,8 +1403,10 @@ public partial class TestManagementViewModel : ObservableObject
         }
 
         var search = string.IsNullOrWhiteSpace(HistorySearchText) ? null : HistorySearchText.Trim();
+        var status = NormalizeStatusFilter(SelectedHistoryStatusFilter);
         var skip = Math.Max(0, (HistoryPageIndex - 1) * HistoryPageSize);
-        var (list, total) = await _batches.ListHistoryPagedAsync(pid, search, skip: skip, take: HistoryPageSize);
+        var (list, total) = await _batches.ListHistoryPagedAsync(
+            pid, search, skip: skip, take: HistoryPageSize, statusFilter: status);
         HistoryTotalCount = total;
         HistoryTotalPages = Math.Max(1, (int)Math.Ceiling(total / (double)Math.Max(1, HistoryPageSize)));
         if (HistoryPageIndex > HistoryTotalPages) HistoryPageIndex = HistoryTotalPages;
@@ -1439,9 +1475,10 @@ public partial class TestManagementViewModel : ObservableObject
         }
 
         var search = string.IsNullOrWhiteSpace(FailureSearchText) ? null : FailureSearchText.Trim();
+        var status = NormalizeStatusFilter(SelectedFailureStatusFilter);
         var skip = Math.Max(0, (FailurePageIndex - 1) * FailurePageSize);
         var (list, total) = await _analytics.GetFailuresPagedAsync(
-            pid, SelectedBatch?.Id, search, skip, FailurePageSize);
+            pid, SelectedBatch?.Id, search, skip, FailurePageSize, status);
         FailureTotalCount = total;
         FailureTotalPages = Math.Max(1, (int)Math.Ceiling(total / (double)Math.Max(1, FailurePageSize)));
         if (FailurePageIndex > FailureTotalPages) FailurePageIndex = FailureTotalPages;
@@ -1506,6 +1543,33 @@ public partial class TestManagementViewModel : ObservableObject
     }
 
     private static string Pct(double? v) => v is null ? "N/A" : $"{v:F1}%";
+
+    private static string? NormalizeStatusFilter(string? selected) =>
+        string.IsNullOrWhiteSpace(selected) || selected == "全部状态" ? null : selected.Trim();
+
+    partial void OnSelectedAvailableCaseStatusFilterChanged(string value)
+    {
+        AvailableCasePageIndex = 1;
+        _ = ReloadCasesAsync();
+    }
+
+    partial void OnSelectedHistoryStatusFilterChanged(string value)
+    {
+        HistoryPageIndex = 1;
+        _ = ReloadHistoryAsync();
+    }
+
+    partial void OnSelectedExportBatchStatusFilterChanged(string value)
+    {
+        ExportBatchPageIndex = 1;
+        _ = ReloadExportBatchListAsync();
+    }
+
+    partial void OnSelectedFailureStatusFilterChanged(string value)
+    {
+        FailurePageIndex = 1;
+        _ = ReloadFailuresAsync();
+    }
 }
 
 public sealed class FailurePickItem : ObservableObject

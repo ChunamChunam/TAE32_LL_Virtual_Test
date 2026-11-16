@@ -15,7 +15,10 @@ public partial class SdkManagementViewModel : ObservableObject
     private readonly IScanImportService _import;
     private readonly ISdkScanService _scan;
 
+    private readonly List<SdkProject> _allProjects = new();
+
     public ObservableCollection<SdkProject> Projects { get; } = new();
+    public ObservableCollection<string> StatusFilterOptions { get; } = new() { "全部状态" };
 
     [ObservableProperty] private SdkProject? _selectedProject;
     [ObservableProperty] private string _newName = "TAE32G58xx DFP LL";
@@ -23,6 +26,8 @@ public partial class SdkManagementViewModel : ObservableObject
     [ObservableProperty] private string _scanResultsPath = AppPaths.DefaultScanResults;
     [ObservableProperty] private string _statusMessage = string.Empty;
     [ObservableProperty] private bool _isBusy;
+    [ObservableProperty] private string _projectSearchText = string.Empty;
+    [ObservableProperty] private string _selectedStatusFilter = "全部状态";
 
     public SdkManagementViewModel(ISdkProjectService projects, IScanImportService import, ISdkScanService scan)
     {
@@ -34,9 +39,50 @@ public partial class SdkManagementViewModel : ObservableObject
     [RelayCommand]
     public async Task RefreshAsync()
     {
-        Projects.Clear();
+        _allProjects.Clear();
         foreach (var p in await _projects.GetAllAsync())
+            _allProjects.Add(p);
+        RebuildStatusFilters();
+        ApplyProjectFilter();
+    }
+
+    [RelayCommand]
+    private void SearchProjects() => ApplyProjectFilter();
+
+    partial void OnSelectedStatusFilterChanged(string value) => ApplyProjectFilter();
+
+    private void RebuildStatusFilters()
+    {
+        var keep = SelectedStatusFilter;
+        StatusFilterOptions.Clear();
+        StatusFilterOptions.Add("全部状态");
+        foreach (var s in _allProjects.Select(x => x.ScanStatus.ToString()).Distinct().OrderBy(x => x))
+            StatusFilterOptions.Add(s);
+        SelectedStatusFilter = StatusFilterOptions.Contains(keep) ? keep : "全部状态";
+    }
+
+    private void ApplyProjectFilter()
+    {
+        var selectedId = SelectedProject?.Id;
+        Projects.Clear();
+        var term = string.IsNullOrWhiteSpace(ProjectSearchText) ? null : ProjectSearchText.Trim();
+        var status = string.IsNullOrWhiteSpace(SelectedStatusFilter) || SelectedStatusFilter == "全部状态"
+            ? null
+            : SelectedStatusFilter;
+        foreach (var p in _allProjects)
+        {
+            var statusText = p.ScanStatus.ToString();
+            if (status is not null && !string.Equals(statusText, status, StringComparison.OrdinalIgnoreCase))
+                continue;
+            if (term is not null
+                && !(p.Name?.Contains(term, StringComparison.OrdinalIgnoreCase) ?? false)
+                && !statusText.Contains(term, StringComparison.OrdinalIgnoreCase)
+                && !(p.SdkRootPath?.Contains(term, StringComparison.OrdinalIgnoreCase) ?? false))
+                continue;
             Projects.Add(p);
+        }
+
+        SelectedProject = Projects.FirstOrDefault(x => x.Id == selectedId) ?? Projects.FirstOrDefault();
     }
 
     [RelayCommand]

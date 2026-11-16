@@ -130,6 +130,16 @@ public partial class App : Application
                     CREATE INDEX IF NOT EXISTS "IX_LlTestRuns_SdkProjectId_Status"
                     ON "LlTestRuns" ("SdkProjectId", "Status");
                     """);
+                // Additive column for pre-compile LL static analysis (idempotent on SQLite).
+                try
+                {
+                    await db.Database.ExecuteSqlRawAsync(
+                        """ALTER TABLE "LlTestRuns" ADD COLUMN "StaticAnalysisJson" TEXT""");
+                }
+                catch
+                {
+                    /* column already exists */
+                }
             }
         }
         catch (Exception ex)

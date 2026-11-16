@@ -17,12 +17,14 @@ public interface ILlTestCaseStore
         string? searchText = null,
         int skip = 0,
         int take = 100,
+        string? statusFilter = null,
         CancellationToken cancellationToken = default);
 
     Task<IReadOnlyList<LlTestCase>> ListFilteredAsync(
         Guid sdkProjectId,
         string? peripheralName = null,
         string? searchText = null,
+        string? statusFilter = null,
         CancellationToken cancellationToken = default);
 
     Task<LlTestCase?> GetAsync(Guid id, CancellationToken cancellationToken = default);
@@ -37,12 +39,14 @@ public interface ILlTestCaseStore
         Guid sdkProjectId,
         string? peripheralName = null,
         string? searchText = null,
+        string? statusFilter = null,
         CancellationToken cancellationToken = default);
 
     Task<int> CountFilteredNotReadyAsync(
         Guid sdkProjectId,
         string? peripheralName = null,
         string? searchText = null,
+        string? statusFilter = null,
         CancellationToken cancellationToken = default);
 
     Task DeleteAsync(Guid id, CancellationToken cancellationToken = default);
@@ -70,6 +74,7 @@ public interface ILlTestCaseStore
         string? searchText = null,
         int skip = 0,
         int take = 50,
+        string? statusFilter = null,
         CancellationToken cancellationToken = default);
 
     Task<int> DeleteRunsAsync(IEnumerable<Guid> runIds, CancellationToken cancellationToken = default);

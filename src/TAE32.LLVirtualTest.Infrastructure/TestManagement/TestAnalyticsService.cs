@@ -127,7 +127,7 @@ public sealed class TestAnalyticsService : ITestAnalyticsService
     public async Task<IReadOnlyList<FailureAnalysisItem>> GetFailuresAsync(
         Guid sdkProjectId, Guid? batchRunId = null, int take = 100, CancellationToken ct = default)
     {
-        var (items, _) = await GetFailuresPagedAsync(sdkProjectId, batchRunId, null, 0, take, ct);
+        var (items, _) = await GetFailuresPagedAsync(sdkProjectId, batchRunId, null, 0, take, statusFilter: null, ct: ct);
         return items;
     }
 
@@ -227,10 +227,11 @@ public sealed class TestAnalyticsService : ITestAnalyticsService
         string? searchText = null,
         int skip = 0,
         int take = 50,
+        string? statusFilter = null,
         CancellationToken ct = default)
     {
         await using var db = await _dbFactory.CreateDbContextAsync(ct);
-        var q = await BuildFailureRunsQueryAsync(db, sdkProjectId, batchRunId, searchText, ct);
+        var q = await BuildFailureRunsQueryAsync(db, sdkProjectId, batchRunId, searchText, statusFilter, ct);
         var total = await q.CountAsync(ct);
         take = Math.Max(1, take);
         skip = Math.Max(0, skip);
@@ -285,10 +286,11 @@ public sealed class TestAnalyticsService : ITestAnalyticsService
         Guid sdkProjectId,
         Guid? batchRunId = null,
         string? searchText = null,
+        string? statusFilter = null,
         CancellationToken ct = default)
     {
         await using var db = await _dbFactory.CreateDbContextAsync(ct);
-        var q = await BuildFailureRunsQueryAsync(db, sdkProjectId, batchRunId, searchText, ct);
+        var q = await BuildFailureRunsQueryAsync(db, sdkProjectId, batchRunId, searchText, statusFilter, ct);
         var ids = await q.Select(x => x.Id).ToListAsync(ct);
         if (ids.Count == 0) return 0;
         return await db.LlTestRuns.Where(x => ids.Contains(x.Id)).ExecuteDeleteAsync(ct);
@@ -299,13 +301,21 @@ public sealed class TestAnalyticsService : ITestAnalyticsService
         Guid sdkProjectId,
         Guid? batchRunId,
         string? searchText,
+        string? statusFilter,
         CancellationToken ct)
     {
         IQueryable<Core.Entities.LlTestRun> q = db.LlTestRuns.AsNoTracking()
             .Where(x => x.SdkProjectId == sdkProjectId
                         && (x.Status == nameof(LlTestRunStatus.Failed)
                             || x.Status == nameof(LlTestRunStatus.Error)
-                            || x.Status == nameof(LlTestRunStatus.Timeout)));
+                            || x.Status == nameof(LlTestRunStatus.Timeout)
+                            || x.Status == nameof(LlTestRunStatus.StaticAnalysisFailed)));
+
+        if (!string.IsNullOrWhiteSpace(statusFilter))
+        {
+            var status = statusFilter.Trim();
+            q = q.Where(x => x.Status == status);
+        }
 
         if (batchRunId is Guid bid)
         {

@@ -178,20 +178,25 @@
                   <ColumnDefinition Width="Auto"/>
                   <ColumnDefinition Width="Auto"/>
                   <ColumnDefinition Width="Auto"/>
+                  <ColumnDefinition Width="Auto"/>
                 </Grid.ColumnDefinitions>
                 <TextBox Grid.Column="0" Text="{Binding CaseSearchText, UpdateSourceTrigger=PropertyChanged}"
-                         ToolTip="名称 / 函数 / 外设 / 状态" Margin="0,0,8,0"/>
-                <Button Grid.Column="1" Style="{StaticResource GhostButtonStyle}" Content="查询"
+                         ToolTip="名称 / 函数 / 外设" Margin="0,0,8,0"/>
+                <ComboBox Grid.Column="1" Width="100" Margin="0,0,8,0"
+                          ItemsSource="{Binding CaseStatusFilterOptions}"
+                          SelectedItem="{Binding SelectedCaseStatusFilter}"
+                          ToolTip="按用例状态筛选"/>
+                <Button Grid.Column="2" Style="{StaticResource GhostButtonStyle}" Content="查询"
                         Command="{Binding SearchCasesCommand}" Margin="0,0,8,0"/>
-                <CheckBox Grid.Column="2" Content="本页全选" IsChecked="{Binding IsAllCasesSelected}"
+                <CheckBox Grid.Column="3" Content="本页全选" IsChecked="{Binding IsAllCasesSelected}"
                           VerticalAlignment="Center" Margin="0,0,8,0"
                           ToolTip="仅勾选当前页"/>
-                <Button Grid.Column="3" Style="{StaticResource GhostButtonStyle}" Content="全选匹配"
+                <Button Grid.Column="4" Style="{StaticResource GhostButtonStyle}" Content="全选匹配"
                         Command="{Binding SelectAllMatchingCasesCommand}" Margin="0,0,8,0"
                         ToolTip="勾选当前外设 + 搜索条件下的全部用例（跨所有分页）"/>
-                <TextBlock Grid.Column="4" Text="{Binding CaseCheckedCountText}" Foreground="{StaticResource BrushAccent}"
+                <TextBlock Grid.Column="5" Text="{Binding CaseCheckedCountText}" Foreground="{StaticResource BrushAccent}"
                            VerticalAlignment="Center" Margin="0,0,8,0"/>
-                <Button Grid.Column="5" Style="{StaticResource GhostButtonStyle}" Content="清空勾选"
+                <Button Grid.Column="6" Style="{StaticResource GhostButtonStyle}" Content="清空勾选"
                         Command="{Binding ClearCaseSelectionCommand}"/>
               </Grid>
               <Border DockPanel.Dock="Bottom" Style="{StaticResource GridPagerFooterStyle}" Margin="-10,-2,-10,-10"
@@ -290,14 +295,19 @@
                       <ColumnDefinition Width="Auto"/>
                       <ColumnDefinition Width="Auto"/>
                       <ColumnDefinition Width="Auto"/>
+                      <ColumnDefinition Width="Auto"/>
                     </Grid.ColumnDefinitions>
                     <TextBox Grid.Column="0" Text="{Binding RunSearchText, UpdateSourceTrigger=PropertyChanged}"
-                             ToolTip="状态 / 用例名 / 函数名" Margin="0,0,8,0"/>
-                    <Button Grid.Column="1" Style="{StaticResource GhostButtonStyle}" Content="查询"
+                             ToolTip="用例名 / 函数名" Margin="0,0,8,0"/>
+                    <ComboBox Grid.Column="1" Width="100" Margin="0,0,8,0"
+                              ItemsSource="{Binding RunStatusFilterOptions}"
+                              SelectedItem="{Binding SelectedRunStatusFilter}"
+                              ToolTip="按运行状态筛选"/>
+                    <Button Grid.Column="2" Style="{StaticResource GhostButtonStyle}" Content="查询"
                             Command="{Binding SearchRunsCommand}" Margin="0,0,8,0"/>
-                    <CheckBox Grid.Column="2" Content="页全选" IsChecked="{Binding IsAllRunsOnPageSelected}"
+                    <CheckBox Grid.Column="3" Content="页全选" IsChecked="{Binding IsAllRunsOnPageSelected}"
                               VerticalAlignment="Center" Margin="0,0,8,0"/>
-                    <Button Grid.Column="3" Content="删除" Command="{Binding DeleteSelectedRunsCommand}"
+                    <Button Grid.Column="4" Content="删除" Command="{Binding DeleteSelectedRunsCommand}"
                             Padding="10,4"/>
                   </Grid>
                   <Border DockPanel.Dock="Bottom" Style="{StaticResource GridPagerFooterStyle}" Margin="-10,-2,-10,-10"

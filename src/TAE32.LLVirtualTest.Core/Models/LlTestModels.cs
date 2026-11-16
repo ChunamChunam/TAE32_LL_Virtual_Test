@@ -102,9 +102,11 @@ public sealed class LlTestRunResult
     public string? ReturnValueText { get; set; }
     public string CompileLog { get; set; } = string.Empty;
     public string ExecutionLog { get; set; } = string.Empty;
+    public string StaticAnalysisJson { get; set; } = string.Empty;
     public IReadOnlyList<LlTestAssertionResult> AssertionResults { get; set; } = Array.Empty<LlTestAssertionResult>();
     public IReadOnlyList<LlTestStageResult> Stages { get; set; } = Array.Empty<LlTestStageResult>();
     public IReadOnlyList<VirtualAccessRecord> AccessTrace { get; set; } = Array.Empty<VirtualAccessRecord>();
+    public IReadOnlyList<StaticAnalysisDiagnostic> StaticAnalysisDiagnostics { get; set; } = Array.Empty<StaticAnalysisDiagnostic>();
     public int DurationMs { get; set; }
 }
 

@@ -19,7 +19,9 @@ public enum LlTestRunStatus
     Error,
     Skipped,
     Timeout,
-    Cancelled
+    Cancelled,
+    /// <summary>Source static analysis found a blocking semantic / UB risk before native execute.</summary>
+    StaticAnalysisFailed
 }
 
 public enum LlAssertionKind
@@ -45,6 +47,7 @@ public enum LlAssertionRuleSource
 public enum LlTestExecutionStage
 {
     EnvironmentCheck,
+    StaticAnalysis,
     Compile,
     NativeExecute,
     Assert,

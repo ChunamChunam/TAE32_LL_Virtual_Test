@@ -78,10 +78,11 @@ public sealed class AppDataService : IAppDataService
         string? form = null,
         int skip = 0,
         int take = 200,
+        string? parseStatus = null,
         CancellationToken cancellationToken = default)
     {
         await using var db = await _dbFactory.CreateDbContextAsync(cancellationToken);
-        var q = FilterFunctions(db, sdkProjectId, search, peripheralName, chipName, form);
+        var q = FilterFunctions(db, sdkProjectId, search, peripheralName, chipName, form, parseStatus);
         // Peripheral first so "全部" pages are not dominated by alphabetically-early names (e.g. LL_ADC_*).
         return await q.OrderBy(x => x.PeripheralName).ThenBy(x => x.FunctionName).ThenBy(x => x.StartLine)
             .Skip(skip).Take(take)
@@ -94,10 +95,11 @@ public sealed class AppDataService : IAppDataService
         string? peripheralName = null,
         string? chipName = null,
         string? form = null,
+        string? parseStatus = null,
         CancellationToken cancellationToken = default)
     {
         await using var db = await _dbFactory.CreateDbContextAsync(cancellationToken);
-        return await FilterFunctions(db, sdkProjectId, search, peripheralName, chipName, form).CountAsync(cancellationToken);
+        return await FilterFunctions(db, sdkProjectId, search, peripheralName, chipName, form, parseStatus).CountAsync(cancellationToken);
     }
 
     public async Task<LlFunction?> GetFunctionByIdAsync(Guid id, CancellationToken cancellationToken = default)
@@ -421,7 +423,14 @@ public sealed class AppDataService : IAppDataService
         return q;
     }
 
-    private static IQueryable<LlFunction> FilterFunctions(AppDbContext db, Guid? sdkProjectId, string? search, string? peripheralName, string? chipName, string? form)
+    private static IQueryable<LlFunction> FilterFunctions(
+        AppDbContext db,
+        Guid? sdkProjectId,
+        string? search,
+        string? peripheralName,
+        string? chipName,
+        string? form,
+        string? parseStatus = null)
     {
         var q = db.LlFunctions.AsNoTracking().AsQueryable();
         if (sdkProjectId is Guid id) q = q.Where(x => x.SdkProjectId == id);
@@ -431,6 +440,14 @@ public sealed class AppDataService : IAppDataService
             q = q.Where(x => x.ChipName == chipName);
         if (!string.IsNullOrWhiteSpace(form))
             q = q.Where(x => x.Form == form);
+        if (!string.IsNullOrWhiteSpace(parseStatus))
+        {
+            var status = parseStatus.Trim();
+            if (string.Equals(status, nameof(Core.Enums.LlParseStatus.NotParsed), StringComparison.OrdinalIgnoreCase))
+                q = q.Where(x => x.ParseStatus == null || x.ParseStatus == status);
+            else
+                q = q.Where(x => x.ParseStatus == status);
+        }
         if (!string.IsNullOrWhiteSpace(search))
         {
             var s = search.Trim();

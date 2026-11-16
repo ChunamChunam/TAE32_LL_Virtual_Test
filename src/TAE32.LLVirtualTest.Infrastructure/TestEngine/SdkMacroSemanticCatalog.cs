@@ -1,0 +1,253 @@
+using System.Globalization;
+using System.Text.RegularExpressions;
+using TAE32.LLVirtualTest.Core.Models;
+using TAE32.LLVirtualTest.Infrastructure.VirtualMcu;
+
+namespace TAE32.LLVirtualTest.Infrastructure.TestEngine;
+
+/// <summary>
+/// Classifies SDK numeric macros using real #define values (not suffix alone).
+/// Built from the same authoritative chip headers as <see cref="ChipHeaderAddressCatalog"/>.
+/// </summary>
+internal sealed class SdkMacroSemanticCatalog
+{
+    private static readonly Regex UintDefine = new(
+        @"#define\s+(?<name>[A-Za-z_][A-Za-z0-9_]*)\s+(?<val>\(?\s*(?:0x[0-9A-Fa-f]+|\d+)(?:UL|U|L)?\s*\)?)",
+        RegexOptions.Compiled | RegexOptions.CultureInvariant);
+
+    private readonly Dictionary<string, SdkMacroSemanticInfo> _macros =
+        new(StringComparer.OrdinalIgnoreCase);
+
+    public int Count => _macros.Count;
+
+    public static SdkMacroSemanticCatalog? TryLoad(string? sdkRoot)
+    {
+        var chip = ChipHeaderAddressCatalog.TryLoad(sdkRoot);
+        if (chip is null) return null;
+
+        var catalog = new SdkMacroSemanticCatalog();
+        foreach (var path in new[] { chip.DeviceHeaderPath, chip.ChipHeaderPath, chip.ChipStructPath })
+        {
+            if (string.IsNullOrWhiteSpace(path) || !File.Exists(path)) continue;
+            catalog.IngestFile(path);
+        }
+
+        catalog.CrossValidatePairs();
+        return catalog.Count > 0 ? catalog : null;
+    }
+
+    /// <summary>Also ingest an LL header so local helper macros are visible.</summary>
+    public void IngestFile(string path)
+    {
+        string text;
+        try { text = File.ReadAllText(path); }
+        catch { return; }
+
+        foreach (Match m in UintDefine.Matches(text))
+        {
+            var name = m.Groups["name"].Value;
+            if (!TryParseUint(m.Groups["val"].Value, out var value)) continue;
+            var info = Classify(name, value, path);
+            _macros[name] = info;
+        }
+    }
+
+    public bool TryGet(string name, out SdkMacroSemanticInfo info)
+        => _macros.TryGetValue(name, out info!);
+
+    public SdkMacroSemanticInfo? GetOrNull(string name)
+        => _macros.TryGetValue(name, out var info) ? info : null;
+
+    private void CrossValidatePairs()
+    {
+        // Prefer paired evidence: X_Pos + X_Msk → confirm kinds by value shape.
+        foreach (var kv in _macros.ToList())
+        {
+            var name = kv.Key;
+            var info = kv.Value;
+            if (name.EndsWith("_Msk", StringComparison.OrdinalIgnoreCase)
+                || name.EndsWith("_MSK", StringComparison.OrdinalIgnoreCase))
+            {
+                var posName = name[..^4] + "_Pos";
+                if (_macros.TryGetValue(posName, out var pos) && pos.NumericValue is uint pv)
+                {
+                    info.Kind = SdkMacroSemanticKind.BitFieldMask;
+                    if (pos.Kind is SdkMacroSemanticKind.Unknown or SdkMacroSemanticKind.NumericOther)
+                        pos.Kind = pv < 64 ? SdkMacroSemanticKind.BitFieldPosition : pos.Kind;
+                    SyncHints(info, pos);
+                }
+            }
+            else if (name.EndsWith("_Pos", StringComparison.OrdinalIgnoreCase))
+            {
+                var mskName = name[..^4] + "_Msk";
+                if (_macros.TryGetValue(mskName, out var msk))
+                {
+                    if (info.NumericValue is uint pv && pv < 64)
+                        info.Kind = SdkMacroSemanticKind.BitFieldPosition;
+                    if (msk.Kind is SdkMacroSemanticKind.Unknown or SdkMacroSemanticKind.NumericOther)
+                        msk.Kind = SdkMacroSemanticKind.BitFieldMask;
+                    SyncHints(msk, info);
+                }
+            }
+        }
+    }
+
+    private static void SyncHints(SdkMacroSemanticInfo a, SdkMacroSemanticInfo b)
+    {
+        a.PeripheralHint ??= b.PeripheralHint;
+        a.RegisterHint ??= b.RegisterHint;
+        a.FieldHint ??= b.FieldHint;
+        b.PeripheralHint ??= a.PeripheralHint;
+        b.RegisterHint ??= a.RegisterHint;
+        b.FieldHint ??= a.FieldHint;
+    }
+
+    private static SdkMacroSemanticInfo Classify(string name, uint value, string path)
+    {
+        var info = new SdkMacroSemanticInfo
+        {
+            Name = name,
+            NumericValue = value,
+            Expansion = $"0x{value:X}",
+            DefinitionFile = path
+        };
+        TryParseNameParts(name, out var peri, out var reg, out var field, out var suffix);
+        info.PeripheralHint = peri;
+        info.RegisterHint = reg;
+        info.FieldHint = field;
+
+        // Value-first heuristics, then name suffix as corroboration.
+        var pop = PopCount(value);
+        var trailing = CountTrailingZeros(value);
+
+        if (string.Equals(suffix, "BASE", StringComparison.OrdinalIgnoreCase)
+            || name.EndsWith("_BASE", StringComparison.OrdinalIgnoreCase))
+        {
+            info.Kind = SdkMacroSemanticKind.RegisterBase;
+            return info;
+        }
+
+        if (string.Equals(suffix, "Pos", StringComparison.OrdinalIgnoreCase))
+        {
+            info.Kind = value < 64
+                ? SdkMacroSemanticKind.BitFieldPosition
+                : SdkMacroSemanticKind.NumericOther;
+            return info;
+        }
+
+        if (string.Equals(suffix, "Msk", StringComparison.OrdinalIgnoreCase)
+            || string.Equals(suffix, "MSK", StringComparison.OrdinalIgnoreCase))
+        {
+            // Real masks are typically contiguous (or multi-bit). A "_Msk" with value >= 32 used as Pos is UB.
+            info.Kind = SdkMacroSemanticKind.BitFieldMask;
+            return info;
+        }
+
+        if (string.Equals(suffix, "Val", StringComparison.OrdinalIgnoreCase)
+            || string.Equals(suffix, "VAL", StringComparison.OrdinalIgnoreCase))
+        {
+            info.Kind = SdkMacroSemanticKind.BitFieldValue;
+            return info;
+        }
+
+        // Unsuffixed numeric: position-like if small; mask-like if multi-bit contiguous.
+        if (value < 32 && pop == 1 && trailing == (int)value)
+            info.Kind = SdkMacroSemanticKind.NumericOther; // ambiguous single-bit constant
+        else if (pop >= 2 && IsContiguousMask(value))
+            info.Kind = SdkMacroSemanticKind.BitFieldMask;
+        else
+            info.Kind = SdkMacroSemanticKind.NumericOther;
+
+        return info;
+    }
+
+    /// <summary>
+    /// Parse PERI_REG_FIELD_SUFFIX (e.g. WWDG_PSCR_PSC_Msk) or PERI_REG_SUFFIX.
+    /// </summary>
+    internal static bool TryParseNameParts(
+        string name,
+        out string? peripheral,
+        out string? register,
+        out string? field,
+        out string? suffix)
+    {
+        peripheral = register = field = suffix = null;
+        var parts = name.Split('_', StringSplitOptions.RemoveEmptyEntries);
+        if (parts.Length < 2) return false;
+
+        var last = parts[^1];
+        var isSuffix = last is "Msk" or "MSK" or "Pos" or "POS" or "Val" or "VAL" or "BASE" or "Offset" or "OFFSET";
+        if (isSuffix)
+        {
+            suffix = last;
+            if (parts.Length >= 4)
+            {
+                peripheral = parts[0];
+                register = parts[1];
+                field = string.Join('_', parts.Skip(2).Take(parts.Length - 3));
+                return true;
+            }
+
+            if (parts.Length == 3)
+            {
+                peripheral = parts[0];
+                register = parts[1];
+                return true;
+            }
+        }
+        else if (parts.Length >= 2)
+        {
+            peripheral = parts[0];
+            register = parts[1];
+            if (parts.Length >= 3)
+                field = string.Join('_', parts.Skip(2));
+            return true;
+        }
+
+        return false;
+    }
+
+    private static bool IsContiguousMask(uint value)
+    {
+        if (value == 0) return false;
+        var v = value >> CountTrailingZeros(value);
+        return (v & (v + 1)) == 0;
+    }
+
+    private static int PopCount(uint v)
+    {
+        var n = 0;
+        while (v != 0)
+        {
+            n += (int)(v & 1);
+            v >>= 1;
+        }
+
+        return n;
+    }
+
+    private static int CountTrailingZeros(uint v)
+    {
+        if (v == 0) return 32;
+        var n = 0;
+        while ((v & 1) == 0)
+        {
+            n++;
+            v >>= 1;
+        }
+
+        return n;
+    }
+
+    private static bool TryParseUint(string text, out uint value)
+    {
+        value = 0;
+        var s = text.Trim().Trim('(', ')').Trim();
+        if (s.EndsWith("UL", StringComparison.OrdinalIgnoreCase)) s = s[..^2];
+        else if (s.EndsWith("U", StringComparison.OrdinalIgnoreCase) || s.EndsWith("L", StringComparison.OrdinalIgnoreCase))
+            s = s[..^1];
+        if (s.StartsWith("0x", StringComparison.OrdinalIgnoreCase))
+            return uint.TryParse(s[2..], NumberStyles.HexNumber, CultureInfo.InvariantCulture, out value);
+        return uint.TryParse(s, NumberStyles.Integer, CultureInfo.InvariantCulture, out value);
+    }
+}

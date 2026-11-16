@@ -4,10 +4,23 @@
   <DockPanel>
     <StackPanel DockPanel.Dock="Top" Margin="0,0,0,12">
       <TextBlock Text="外设管理" FontSize="22" FontWeight="SemiBold" Foreground="{StaticResource BrushTextPrimary}"/>
-      <DockPanel Margin="0,8,0,0">
-        <Button DockPanel.Dock="Right" Content="搜索/刷新" Command="{Binding RefreshCommand}"/>
-        <TextBox Text="{Binding SearchText, UpdateSourceTrigger=PropertyChanged}" Margin="0,0,8,0"/>
-      </DockPanel>
+      <Grid Margin="0,8,0,0">
+        <Grid.ColumnDefinitions>
+          <ColumnDefinition Width="*"/>
+          <ColumnDefinition Width="Auto"/>
+          <ColumnDefinition Width="Auto"/>
+          <ColumnDefinition Width="Auto"/>
+        </Grid.ColumnDefinitions>
+        <TextBox Grid.Column="0" Text="{Binding SearchText, UpdateSourceTrigger=PropertyChanged}"
+                 ToolTip="外设名 / 芯片 / 识别状态 / 相关文件" Margin="0,0,8,0"/>
+        <ComboBox Grid.Column="1" Width="120" Margin="0,0,8,0"
+                  ItemsSource="{Binding StatusFilterOptions}"
+                  SelectedItem="{Binding SelectedStatusFilter}"
+                  ToolTip="按识别状态筛选"/>
+        <Button Grid.Column="2" Style="{StaticResource GhostButtonStyle}" Content="查询" Margin="0,0,8,0"
+                Command="{Binding SearchCommand}"/>
+        <Button Grid.Column="3" Content="刷新" Command="{Binding RefreshCommand}" Width="90"/>
+      </Grid>
     </StackPanel>
     <DataGrid ItemsSource="{Binding Items}">
       <DataGrid.Columns>

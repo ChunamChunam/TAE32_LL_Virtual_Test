@@ -22,12 +22,22 @@ public partial class LlFunctionLibraryViewModel : ObservableObject
     public ObservableCollection<string> PeripheralFilters { get; } = new();
     public ObservableCollection<string> ChipFilters { get; } = new();
     public ObservableCollection<string> FormFilters { get; } = new() { "(全部)", "inline_definition", "function_macro", "declaration" };
+    public ObservableCollection<string> ParseStatusFilterOptions { get; } = new()
+    {
+        "全部状态",
+        nameof(LlParseStatus.NotParsed),
+        nameof(LlParseStatus.InProgress),
+        nameof(LlParseStatus.Success),
+        nameof(LlParseStatus.Partial),
+        nameof(LlParseStatus.Failed)
+    };
     public ObservableCollection<int> PageSizeOptions { get; } = new() { 50, 100, 200, 300, 500 };
 
     [ObservableProperty] private string _searchText = string.Empty;
     [ObservableProperty] private string? _selectedPeripheral;
     [ObservableProperty] private string? _selectedChip;
     [ObservableProperty] private string? _selectedForm = "(全部)";
+    [ObservableProperty] private string _selectedParseStatusFilter = "全部状态";
     [ObservableProperty] private LlFunctionRowItem? _selectedItem;
     [ObservableProperty] private int _totalCount;
     [ObservableProperty] private int _pageIndex = 1;
@@ -245,6 +255,12 @@ public partial class LlFunctionLibraryViewModel : ObservableObject
         _ = ResetAndReloadAsync();
     }
 
+    partial void OnSelectedParseStatusFilterChanged(string value)
+    {
+        if (_suppressFilterReload) return;
+        _ = ResetAndReloadAsync();
+    }
+
     partial void OnPageSizeChanged(int value)
     {
         if (_suppressFilterReload || value <= 0) return;
@@ -305,9 +321,13 @@ public partial class LlFunctionLibraryViewModel : ObservableObject
         var peri = SelectedPeripheral is null or "(全部)" ? null : SelectedPeripheral;
         var chip = SelectedChip is null or "(全部)" ? null : SelectedChip;
         var form = SelectedForm is null or "(全部)" ? null : SelectedForm;
+        var parseStatus = string.IsNullOrWhiteSpace(SelectedParseStatusFilter) || SelectedParseStatusFilter == "全部状态"
+            ? null
+            : SelectedParseStatusFilter;
         var search = NullIfEmpty(SearchText);
 
-        TotalCount = await _data.CountFunctionsAsync(search: search, peripheralName: peri, chipName: chip, form: form);
+        TotalCount = await _data.CountFunctionsAsync(
+            search: search, peripheralName: peri, chipName: chip, form: form, parseStatus: parseStatus);
         TotalPages = Math.Max(1, (int)Math.Ceiling(TotalCount / (double)PageSize));
         if (PageIndex > TotalPages) PageIndex = TotalPages;
         if (PageIndex < 1) PageIndex = 1;
@@ -319,7 +339,8 @@ public partial class LlFunctionLibraryViewModel : ObservableObject
             chipName: chip,
             form: form,
             skip: skip,
-            take: PageSize);
+            take: PageSize,
+            parseStatus: parseStatus);
 
         Items.Clear();
         foreach (var f in list)

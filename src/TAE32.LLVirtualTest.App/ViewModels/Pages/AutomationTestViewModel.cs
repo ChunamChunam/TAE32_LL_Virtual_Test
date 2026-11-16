@@ -8,6 +8,7 @@ using CommunityToolkit.Mvvm.Input;
 using Microsoft.Win32;
 using TAE32.LLVirtualTest.App.Views.Dialogs;
 using TAE32.LLVirtualTest.Core.Entities;
+using TAE32.LLVirtualTest.Core.Enums;
 using TAE32.LLVirtualTest.Core.Interfaces;
 using TAE32.LLVirtualTest.Core.Models;
 
@@ -35,6 +36,28 @@ public partial class AutomationTestViewModel : ObservableObject
     public ObservableCollection<RunPickItem> Runs { get; } = new();
     public ObservableCollection<string> LogLines { get; } = new();
     public ObservableCollection<int> FunctionPageSizeOptions { get; } = new() { 50, 100, 200, 300 };
+    public ObservableCollection<string> CaseStatusFilterOptions { get; } = new()
+    {
+        "全部状态",
+        nameof(LlTestCaseStatus.Draft),
+        nameof(LlTestCaseStatus.Ready),
+        nameof(LlTestCaseStatus.Disabled),
+        nameof(LlTestCaseStatus.Unsupported)
+    };
+    public ObservableCollection<string> RunStatusFilterOptions { get; } = new()
+    {
+        "全部状态",
+        nameof(LlTestRunStatus.Pending),
+        nameof(LlTestRunStatus.Compiling),
+        nameof(LlTestRunStatus.Running),
+        nameof(LlTestRunStatus.Passed),
+        nameof(LlTestRunStatus.Failed),
+        nameof(LlTestRunStatus.Error),
+        nameof(LlTestRunStatus.Skipped),
+        nameof(LlTestRunStatus.Timeout),
+        nameof(LlTestRunStatus.Cancelled),
+        nameof(LlTestRunStatus.StaticAnalysisFailed)
+    };
 
     [ObservableProperty] private string _selectedPeripheral = "(全部)";
     [ObservableProperty] private string _functionSearchText = string.Empty;
@@ -43,6 +66,7 @@ public partial class AutomationTestViewModel : ObservableObject
     [ObservableProperty] private RunPickItem? _selectedRunItem;
     [ObservableProperty] private bool _isAllRunsOnPageSelected;
     [ObservableProperty] private string _runSearchText = string.Empty;
+    [ObservableProperty] private string _selectedRunStatusFilter = "全部状态";
     [ObservableProperty] private int _runPageIndex = 1;
     [ObservableProperty] private int _runPageSize = 50;
     [ObservableProperty] private int _runTotalCount;
@@ -78,6 +102,7 @@ public partial class AutomationTestViewModel : ObservableObject
     [ObservableProperty] private bool _isAllOnPageSelected;
     [ObservableProperty] private string _checkedCountText = "已勾选 0";
     [ObservableProperty] private string _caseSearchText = string.Empty;
+    [ObservableProperty] private string _selectedCaseStatusFilter = "全部状态";
     [ObservableProperty] private int _casePageIndex = 1;
     [ObservableProperty] private int _casePageSize = 100;
     [ObservableProperty] private int _caseTotalCount;
@@ -629,7 +654,8 @@ public partial class AutomationTestViewModel : ObservableObject
 
         var peri = CasePeripheralFilter();
         var search = string.IsNullOrWhiteSpace(CaseSearchText) ? null : CaseSearchText.Trim();
-        var pending = await _store.CountFilteredNotReadyAsync(pid, peri, search);
+        var status = NormalizeStatusFilter(SelectedCaseStatusFilter);
+        var pending = await _store.CountFilteredNotReadyAsync(pid, peri, search, status);
         if (pending == 0)
         {
             StatusText = "当前筛选内没有 Draft 用例可标为 Ready";
@@ -641,7 +667,7 @@ public partial class AutomationTestViewModel : ObservableObject
         try
         {
             var n = await _store.MarkFilteredReadyAsync(
-                pid, peri, search, _busyCts?.Token ?? CancellationToken.None);
+                pid, peri, search, status, _busyCts?.Token ?? CancellationToken.None);
             await ReloadCasesAsync();
             var scope = peri is null && search is null
                 ? "当前项目全部筛选用例"
@@ -693,6 +719,13 @@ public partial class AutomationTestViewModel : ObservableObject
         CasePageIndex = 1;
         _checkedCaseIds.Clear();
         await ReloadCasesAsync();
+    }
+
+    partial void OnSelectedCaseStatusFilterChanged(string value)
+    {
+        CasePageIndex = 1;
+        _checkedCaseIds.Clear();
+        _ = ReloadCasesAsync();
     }
 
     partial void OnCasePageSizeChanged(int value)
@@ -802,6 +835,12 @@ public partial class AutomationTestViewModel : ObservableObject
         await ReloadRunsAsync();
     }
 
+    partial void OnSelectedRunStatusFilterChanged(string value)
+    {
+        RunPageIndex = 1;
+        _ = ReloadRunsAsync();
+    }
+
     partial void OnRunPageSizeChanged(int value)
     {
         RunPageIndex = 1;
@@ -879,6 +918,39 @@ public partial class AutomationTestViewModel : ObservableObject
         sb.AppendLine($"返回值      : {run.ReturnValueText ?? "—"}");
         sb.AppendLine($"耗时        : {run.DurationMs} ms");
         sb.AppendLine($"失败原因    : {run.FailureReason ?? "—"}");
+        sb.AppendLine();
+        sb.AppendLine("======== 静态分析 ========");
+        if (string.IsNullOrWhiteSpace(run.StaticAnalysisJson) || run.StaticAnalysisJson is "[]" or "null")
+        {
+            sb.AppendLine(string.Equals(run.Status, "StaticAnalysisFailed", StringComparison.OrdinalIgnoreCase)
+                ? "（失败，但诊断 JSON 缺失）"
+                : "通过 / 无诊断");
+        }
+        else
+        {
+            try
+            {
+                var diags = System.Text.Json.JsonSerializer.Deserialize<List<TAE32.LLVirtualTest.Core.Models.StaticAnalysisDiagnostic>>(
+                    run.StaticAnalysisJson,
+                    new System.Text.Json.JsonSerializerOptions { PropertyNameCaseInsensitive = true })
+                    ?? new List<TAE32.LLVirtualTest.Core.Models.StaticAnalysisDiagnostic>();
+                var sa = new TAE32.LLVirtualTest.Core.Models.StaticAnalysisResult
+                {
+                    HasBlockingError = diags.Any(d => string.Equals(d.Severity, "Error", StringComparison.OrdinalIgnoreCase)),
+                    HasWarning = diags.Any(d => string.Equals(d.Severity, "Warning", StringComparison.OrdinalIgnoreCase)),
+                    Diagnostics = diags
+                };
+                var fn = run.TestCase?.FunctionName
+                         ?? SelectedRunItem?.CaseName
+                         ?? "—";
+                sb.AppendLine(Infrastructure.TestEngine.LlShiftStaticAnalyzer.FormatReport(fn, sa).TrimEnd());
+            }
+            catch
+            {
+                sb.AppendLine(run.StaticAnalysisJson.Trim());
+            }
+        }
+
         sb.AppendLine();
         sb.AppendLine("======== 执行日志 ========");
         sb.AppendLine(string.IsNullOrWhiteSpace(run.ExecutionLog) ? "（无）" : run.ExecutionLog.Trim());
@@ -1079,8 +1151,9 @@ public partial class AutomationTestViewModel : ObservableObject
 
         var peri = CasePeripheralFilter();
         var search = string.IsNullOrWhiteSpace(CaseSearchText) ? null : CaseSearchText.Trim();
+        var status = NormalizeStatusFilter(SelectedCaseStatusFilter);
         var skip = Math.Max(0, (CasePageIndex - 1) * CasePageSize);
-        var (list, total) = await _store.ListPagedAsync(pid, peri, search, skip, CasePageSize);
+        var (list, total) = await _store.ListPagedAsync(pid, peri, search, skip, CasePageSize, status);
         CaseTotalCount = total;
         CaseTotalPages = Math.Max(1, (int)Math.Ceiling(total / (double)Math.Max(1, CasePageSize)));
         if (CasePageIndex > CaseTotalPages) CasePageIndex = CaseTotalPages;
@@ -1105,11 +1178,14 @@ public partial class AutomationTestViewModel : ObservableObject
 
     private string? CasePeripheralFilter() => SelectedPeripheral == "(全部)" ? null : SelectedPeripheral;
 
+    private static string? NormalizeStatusFilter(string? selected) =>
+        string.IsNullOrWhiteSpace(selected) || selected == "全部状态" ? null : selected.Trim();
+
     private async Task<IReadOnlyList<LlTestCase>> LoadFilteredCasesAsync()
     {
         if (ActiveProjectId is not Guid pid) return Array.Empty<LlTestCase>();
         var search = string.IsNullOrWhiteSpace(CaseSearchText) ? null : CaseSearchText.Trim();
-        return await _store.ListFilteredAsync(pid, CasePeripheralFilter(), search);
+        return await _store.ListFilteredAsync(pid, CasePeripheralFilter(), search, NormalizeStatusFilter(SelectedCaseStatusFilter));
     }
 
     private void OnCaseItemSelectionChanged(CasePickItem item)
@@ -1159,8 +1235,9 @@ public partial class AutomationTestViewModel : ObservableObject
         }
 
         var search = string.IsNullOrWhiteSpace(RunSearchText) ? null : RunSearchText.Trim();
+        var status = NormalizeStatusFilter(SelectedRunStatusFilter);
         var skip = Math.Max(0, (RunPageIndex - 1) * RunPageSize);
-        var (list, total) = await _store.ListRunsPagedAsync(pid, search, skip, RunPageSize);
+        var (list, total) = await _store.ListRunsPagedAsync(pid, search, skip, RunPageSize, status);
         RunTotalCount = total;
         RunTotalPages = Math.Max(1, (int)Math.Ceiling(total / (double)Math.Max(1, RunPageSize)));
         if (RunPageIndex > RunTotalPages) RunPageIndex = RunTotalPages;

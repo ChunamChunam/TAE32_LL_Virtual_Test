@@ -19,6 +19,7 @@ public interface IAppDataService
         string? form = null,
         int skip = 0,
         int take = 200,
+        string? parseStatus = null,
         CancellationToken cancellationToken = default);
 
     Task<int> CountFunctionsAsync(
@@ -27,6 +28,7 @@ public interface IAppDataService
         string? peripheralName = null,
         string? chipName = null,
         string? form = null,
+        string? parseStatus = null,
         CancellationToken cancellationToken = default);
 
     Task<LlFunction?> GetFunctionByIdAsync(Guid id, CancellationToken cancellationToken = default);

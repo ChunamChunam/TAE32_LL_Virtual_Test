@@ -144,10 +144,11 @@ public sealed class TestBatchService : ITestBatchService
         Guid? suiteId = null,
         int skip = 0,
         int take = 50,
+        string? statusFilter = null,
         CancellationToken ct = default)
     {
         await using var db = await _dbFactory.CreateDbContextAsync(ct);
-        var q = ApplyHistoryFilters(db.TestBatchRuns.AsNoTracking(), sdkProjectId, planId, suiteId, searchText);
+        var q = ApplyHistoryFilters(db.TestBatchRuns.AsNoTracking(), sdkProjectId, planId, suiteId, searchText, statusFilter);
         var total = await q.CountAsync(ct);
         take = Math.Max(1, take);
         skip = Math.Max(0, skip);
@@ -160,11 +161,17 @@ public sealed class TestBatchService : ITestBatchService
         Guid sdkProjectId,
         Guid? planId,
         Guid? suiteId,
-        string? searchText)
+        string? searchText,
+        string? statusFilter = null)
     {
         q = q.Where(x => x.SdkProjectId == sdkProjectId);
         if (planId is Guid p) q = q.Where(x => x.TestPlanId == p);
         if (suiteId is Guid s) q = q.Where(x => x.TestSuiteId == s);
+        if (!string.IsNullOrWhiteSpace(statusFilter))
+        {
+            var status = statusFilter.Trim();
+            q = q.Where(x => x.Status == status);
+        }
         if (!string.IsNullOrWhiteSpace(searchText))
         {
             var term = searchText.Trim();
@@ -203,10 +210,11 @@ public sealed class TestBatchService : ITestBatchService
         string? searchText = null,
         Guid? planId = null,
         Guid? suiteId = null,
+        string? statusFilter = null,
         CancellationToken ct = default)
     {
         await using var db = await _dbFactory.CreateDbContextAsync(ct);
-        var q = ApplyHistoryFilters(db.TestBatchRuns, sdkProjectId, planId, suiteId, searchText)
+        var q = ApplyHistoryFilters(db.TestBatchRuns, sdkProjectId, planId, suiteId, searchText, statusFilter)
             .Where(x => x.Status != "Running");
         var rows = await q.ToListAsync(ct);
         if (rows.Count == 0) return 0;
@@ -301,7 +309,10 @@ public sealed class TestBatchService : ITestBatchService
         switch (status)
         {
             case LlTestRunStatus.Passed: batch.PassedCount++; break;
-            case LlTestRunStatus.Failed: batch.FailedCount++; break;
+            case LlTestRunStatus.Failed:
+            case LlTestRunStatus.StaticAnalysisFailed:
+                batch.FailedCount++;
+                break;
             case LlTestRunStatus.Error: batch.ErrorCount++; break;
             case LlTestRunStatus.Skipped: batch.SkippedCount++; break;
             case LlTestRunStatus.Timeout: batch.TimeoutCount++; break;

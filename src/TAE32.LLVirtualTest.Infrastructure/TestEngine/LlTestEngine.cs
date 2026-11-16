@@ -18,6 +18,7 @@ public sealed class LlTestEngine : ILLTestEngine
     private readonly ISdkProjectService _projects;
     private readonly IDbContextFactory<AppDbContext> _dbFactory;
     private readonly LlTestCaseGenerator _generator;
+    private readonly LlShiftStaticAnalyzer _staticAnalyzer;
     private readonly string _workRoot;
 
     public LlTestEngine(
@@ -26,7 +27,8 @@ public sealed class LlTestEngine : ILLTestEngine
         IVirtualMcuService mcu,
         ISdkProjectService projects,
         IDbContextFactory<AppDbContext> dbFactory,
-        LlTestCaseGenerator generator)
+        LlTestCaseGenerator generator,
+        LlShiftStaticAnalyzer? staticAnalyzer = null)
     {
         _compiler = compiler;
         _store = store;
@@ -34,6 +36,7 @@ public sealed class LlTestEngine : ILLTestEngine
         _projects = projects;
         _dbFactory = dbFactory;
         _generator = generator;
+        _staticAnalyzer = staticAnalyzer ?? new LlShiftStaticAnalyzer();
         _workRoot = Path.Combine(Path.GetTempPath(), "tae32_ll_test_work");
         Directory.CreateDirectory(_workRoot);
     }
@@ -181,6 +184,42 @@ public sealed class LlTestEngine : ILLTestEngine
                 run.FailureReason = "Clang 不可用，拒绝执行（避免访问真实物理地址）。";
                 return await FinishAsync(run, stages, execLog, sw, null, Array.Empty<LlTestAssertionResult>(), Array.Empty<VirtualAccessRecord>());
             }
+
+            // Pre-compile LL source static analysis (shift / Mask-as-Pos / register-field mismatch).
+            // Blocking Errors stop Native Execute even if Clang would accept the code.
+            var project = await _projects.GetByIdAsync(entity.SdkProjectId, cancellationToken);
+            var resolvedSource = ResolveLlSourcePath(entity.SourceFile, project?.SdkRootPath);
+            var staticResult = _staticAnalyzer.Analyze(
+                project?.SdkRootPath, resolvedSource, entity.FunctionName);
+            run.StaticAnalysisJson = LlTestJson.Serialize(staticResult.Diagnostics);
+            var staticReport = LlShiftStaticAnalyzer.FormatReport(entity.FunctionName, staticResult);
+            stages.Add(new LlTestStageResult
+            {
+                Stage = LlTestExecutionStage.StaticAnalysis,
+                Succeeded = !staticResult.HasBlockingError,
+                Message = staticResult.Diagnostics.Count == 0
+                    ? "静态分析通过（未发现位移/宏误用）"
+                    : staticResult.HasBlockingError
+                        ? $"静态分析失败：{staticResult.Diagnostics.Count} 条诊断"
+                        : $"静态分析警告：{staticResult.Diagnostics.Count} 条诊断"
+            });
+            L(stages[^1].Message);
+            if (staticResult.HasBlockingError)
+            {
+                run.Status = nameof(LlTestRunStatus.StaticAnalysisFailed);
+                run.FailureReason = staticResult.Diagnostics
+                    .Where(d => string.Equals(d.Severity, "Error", StringComparison.OrdinalIgnoreCase))
+                    .Select(d => $"{d.RuleId}: {d.Description}")
+                    .FirstOrDefault() ?? "静态分析失败";
+                execLog.AppendLine(staticReport);
+                return await FinishAsync(
+                    run, stages, execLog, sw, null,
+                    Array.Empty<LlTestAssertionResult>(), Array.Empty<VirtualAccessRecord>(),
+                    staticResult.Diagnostics);
+            }
+
+            if (staticResult.HasWarning)
+                execLog.AppendLine(staticReport);
 
             // Isolated virtual MCU
             var mcuInfo = await _mcu.CreateAsync(new VirtualMcuCreateOptions
@@ -440,7 +479,8 @@ public sealed class LlTestEngine : ILLTestEngine
         Stopwatch sw,
         uint? ret,
         IReadOnlyList<LlTestAssertionResult> assertions,
-        IReadOnlyList<VirtualAccessRecord> trace)
+        IReadOnlyList<VirtualAccessRecord> trace,
+        IReadOnlyList<StaticAnalysisDiagnostic>? staticDiagnostics = null)
     {
         sw.Stop();
         run.DurationMs = (int)sw.ElapsedMilliseconds;
@@ -449,8 +489,16 @@ public sealed class LlTestEngine : ILLTestEngine
         run.StagesJson = LlTestJson.Serialize(stages);
         run.AssertionResultsJson = LlTestJson.Serialize(assertions);
         run.AccessTraceJson = LlTestJson.Serialize(trace);
+        if (staticDiagnostics is { Count: > 0 } && string.IsNullOrWhiteSpace(run.StaticAnalysisJson))
+            run.StaticAnalysisJson = LlTestJson.Serialize(staticDiagnostics);
         run.ReturnValueText ??= ret is uint r ? $"0x{r:X8}" : run.ReturnValueText;
         await _store.SaveRunAsync(run);
+
+        var diags = staticDiagnostics
+                    ?? (string.IsNullOrWhiteSpace(run.StaticAnalysisJson)
+                        ? Array.Empty<StaticAnalysisDiagnostic>()
+                        : LlTestJson.Deserialize<List<StaticAnalysisDiagnostic>>(run.StaticAnalysisJson!)
+                          ?? new List<StaticAnalysisDiagnostic>());
 
         return new LlTestRunResult
         {
@@ -465,11 +513,66 @@ public sealed class LlTestEngine : ILLTestEngine
             ReturnValueText = run.ReturnValueText,
             CompileLog = run.CompileLog ?? "",
             ExecutionLog = run.ExecutionLog ?? "",
+            StaticAnalysisJson = run.StaticAnalysisJson ?? "",
             AssertionResults = assertions,
             Stages = stages,
             AccessTrace = trace,
+            StaticAnalysisDiagnostics = diags,
             DurationMs = run.DurationMs
         };
+    }
+
+    private static string? ResolveLlSourcePath(string? filePath, string? sdkRoot)
+    {
+        if (string.IsNullOrWhiteSpace(filePath)) return null;
+        if (File.Exists(filePath)) return Path.GetFullPath(filePath);
+
+        var normalized = filePath.Replace('/', Path.DirectorySeparatorChar);
+        if (!string.IsNullOrWhiteSpace(sdkRoot))
+        {
+            var underSdk = Path.GetFullPath(Path.Combine(sdkRoot, normalized));
+            if (File.Exists(underSdk)) return underSdk;
+            var byName = Path.GetFileName(normalized);
+            try
+            {
+                var hit = Directory.EnumerateFiles(sdkRoot, byName, SearchOption.AllDirectories)
+                    .FirstOrDefault(p => p.Contains($"{Path.DirectorySeparatorChar}LL{Path.DirectorySeparatorChar}",
+                        StringComparison.OrdinalIgnoreCase));
+                if (hit is not null) return hit;
+            }
+            catch
+            {
+                /* ignore */
+            }
+        }
+
+        var dir = AppContext.BaseDirectory;
+        for (var i = 0; i < 10; i++)
+        {
+            var cand = Path.GetFullPath(Path.Combine(dir, normalized));
+            if (File.Exists(cand)) return cand;
+            var sdkContent = Path.Combine(dir, "SDKContent");
+            if (Directory.Exists(sdkContent))
+            {
+                try
+                {
+                    var hit = Directory.EnumerateFiles(sdkContent, Path.GetFileName(normalized), SearchOption.AllDirectories)
+                        .FirstOrDefault(p => p.Contains($"{Path.DirectorySeparatorChar}LL{Path.DirectorySeparatorChar}",
+                            StringComparison.OrdinalIgnoreCase));
+                    if (hit is not null) return hit;
+                }
+                catch
+                {
+                    /* ignore */
+                }
+            }
+
+            var parent = Path.GetDirectoryName(dir);
+            if (string.IsNullOrEmpty(parent) || parent == dir) break;
+            dir = parent;
+        }
+
+        return null;
     }
 
     private static string? ReturnTypeOf(string? signature)

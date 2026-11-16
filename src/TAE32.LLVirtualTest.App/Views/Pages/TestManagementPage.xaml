@@ -147,12 +147,21 @@
                          Foreground="{StaticResource BrushTextPrimary}" Margin="0,0,0,4"/>
               <Border DockPanel.Dock="Top" Padding="0,0,0,6" Margin="0,0,0,2"
                       BorderBrush="{StaticResource BrushBorder}" BorderThickness="0,0,0,1">
-                <DockPanel LastChildFill="True">
-                  <Button DockPanel.Dock="Right" Style="{StaticResource GhostButtonStyle}" Content="查询"
+                <Grid>
+                  <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="*"/>
+                    <ColumnDefinition Width="Auto"/>
+                    <ColumnDefinition Width="Auto"/>
+                  </Grid.ColumnDefinitions>
+                  <TextBox Grid.Column="0" Text="{Binding AvailableCaseSearchText, UpdateSourceTrigger=PropertyChanged}"
+                           ToolTip="名称 / 函数 / 外设（与左侧套件外设筛选叠加）" Margin="0,0,8,0"/>
+                  <ComboBox Grid.Column="1" Width="100" Margin="0,0,8,0"
+                            ItemsSource="{Binding CaseStatusFilterOptions}"
+                            SelectedItem="{Binding SelectedAvailableCaseStatusFilter}"
+                            ToolTip="按用例状态筛选"/>
+                  <Button Grid.Column="2" Style="{StaticResource GhostButtonStyle}" Content="查询"
                           Command="{Binding SearchAvailableCasesCommand}"/>
-                  <TextBox Text="{Binding AvailableCaseSearchText, UpdateSourceTrigger=PropertyChanged}"
-                           ToolTip="名称 / 函数 / 外设 / 状态（与左侧套件外设筛选叠加）"/>
-                </DockPanel>
+                </Grid>
               </Border>
               <Border DockPanel.Dock="Bottom" Style="{StaticResource GridPagerFooterStyle}" Margin="-10,-2,-10,-10"
                       Padding="8,6" CornerRadius="0,0,8,8">
@@ -219,18 +228,23 @@
                   <ColumnDefinition Width="Auto"/>
                   <ColumnDefinition Width="Auto"/>
                   <ColumnDefinition Width="Auto"/>
+                  <ColumnDefinition Width="Auto"/>
                 </Grid.ColumnDefinitions>
                 <TextBox Grid.Column="0" Text="{Binding HistorySearchText, UpdateSourceTrigger=PropertyChanged}"
-                         ToolTip="状态 / 范围类型 / 范围名称" Margin="0,0,8,0"/>
-                <Button Grid.Column="1" Style="{StaticResource GhostButtonStyle}" Content="查询" Margin="0,0,8,0"
+                         ToolTip="范围类型 / 范围名称" Margin="0,0,8,0"/>
+                <ComboBox Grid.Column="1" Width="100" Margin="0,0,8,0"
+                          ItemsSource="{Binding BatchStatusFilterOptions}"
+                          SelectedItem="{Binding SelectedHistoryStatusFilter}"
+                          ToolTip="按批次状态筛选"/>
+                <Button Grid.Column="2" Style="{StaticResource GhostButtonStyle}" Content="查询" Margin="0,0,8,0"
                         Command="{Binding SearchHistoryCommand}"/>
-                <Button Grid.Column="2" Content="删除" Margin="0,0,8,0" Padding="10,4"
+                <Button Grid.Column="3" Content="删除" Margin="0,0,8,0" Padding="10,4"
                         Command="{Binding DeleteHistorySelectedCommand}"
                         ToolTip="删除列表中当前选中的一条批次"/>
-                <Button Grid.Column="3" Content="删除本页" Margin="0,0,8,0" Padding="10,4"
+                <Button Grid.Column="4" Content="删除本页" Margin="0,0,8,0" Padding="10,4"
                         Command="{Binding DeleteHistoryPageCommand}"
                         ToolTip="删除当前页批次记录（不删 LlTestRun；Running 跳过）"/>
-                <Button Grid.Column="4" Content="删除全部" Padding="10,4"
+                <Button Grid.Column="5" Content="删除全部" Padding="10,4"
                         Command="{Binding DeleteHistoryAllCommand}"
                         ToolTip="删除当前筛选下全部批次（Running 跳过）"/>
               </Grid>
@@ -473,19 +487,24 @@
                   <ColumnDefinition Width="Auto"/>
                   <ColumnDefinition Width="Auto"/>
                   <ColumnDefinition Width="Auto"/>
+                  <ColumnDefinition Width="Auto"/>
                 </Grid.ColumnDefinitions>
                 <TextBox Grid.Column="0" Text="{Binding FailureSearchText, UpdateSourceTrigger=PropertyChanged}"
-                         ToolTip="用例名 / 函数名 / 状态 / 失败原因" Margin="0,0,8,0"/>
-                <Button Grid.Column="1" Style="{StaticResource GhostButtonStyle}" Content="查询" Margin="0,0,8,0"
+                         ToolTip="用例名 / 函数名 / 失败原因" Margin="0,0,8,0"/>
+                <ComboBox Grid.Column="1" Width="100" Margin="0,0,8,0"
+                          ItemsSource="{Binding FailureStatusFilterOptions}"
+                          SelectedItem="{Binding SelectedFailureStatusFilter}"
+                          ToolTip="按失败状态筛选"/>
+                <Button Grid.Column="2" Style="{StaticResource GhostButtonStyle}" Content="查询" Margin="0,0,8,0"
                         Command="{Binding SearchFailuresCommand}"/>
-                <CheckBox Grid.Column="2" Content="页全选" IsChecked="{Binding IsAllFailuresOnPageSelected}"
+                <CheckBox Grid.Column="3" Content="页全选" IsChecked="{Binding IsAllFailuresOnPageSelected}"
                           VerticalAlignment="Center" Margin="0,0,8,0"/>
-                <Button Grid.Column="3" Content="删除" Margin="0,0,8,0" Padding="10,4"
+                <Button Grid.Column="4" Content="删除" Margin="0,0,8,0" Padding="10,4"
                         Command="{Binding DeleteSelectedFailuresCommand}"
                         ToolTip="删除勾选的运行记录"/>
-                <Button Grid.Column="4" Content="删除本页" Margin="0,0,8,0" Padding="10,4"
+                <Button Grid.Column="5" Content="删除本页" Margin="0,0,8,0" Padding="10,4"
                         Command="{Binding DeleteFailuresPageCommand}"/>
-                <Button Grid.Column="5" Content="删除全部" Padding="10,4"
+                <Button Grid.Column="6" Content="删除全部" Padding="10,4"
                         Command="{Binding DeleteFailuresAllCommand}"/>
               </Grid>
               <Border DockPanel.Dock="Bottom" Style="{StaticResource GridPagerFooterStyle}" Margin="-10,-2,-10,-10"
@@ -578,10 +597,15 @@
                       <Grid.ColumnDefinitions>
                         <ColumnDefinition Width="*"/>
                         <ColumnDefinition Width="Auto"/>
+                        <ColumnDefinition Width="Auto"/>
                       </Grid.ColumnDefinitions>
                       <TextBox Grid.Column="0" Text="{Binding ExportBatchSearchText, UpdateSourceTrigger=PropertyChanged}"
-                               ToolTip="状态 / 范围类型 / 范围值" Margin="0,0,6,0"/>
-                      <Button Grid.Column="1" Style="{StaticResource GhostButtonStyle}" Content="查询"
+                               ToolTip="范围类型 / 范围值" Margin="0,0,6,0"/>
+                      <ComboBox Grid.Column="1" Width="100" Margin="0,0,6,0"
+                                ItemsSource="{Binding BatchStatusFilterOptions}"
+                                SelectedItem="{Binding SelectedExportBatchStatusFilter}"
+                                ToolTip="按批次状态筛选"/>
+                      <Button Grid.Column="2" Style="{StaticResource GhostButtonStyle}" Content="查询"
                               Command="{Binding SearchExportBatchesCommand}"/>
                     </Grid>
                   </Border>

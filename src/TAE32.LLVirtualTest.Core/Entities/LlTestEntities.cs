@@ -49,6 +49,8 @@ public class LlTestRun
     public string? AccessTraceJson { get; set; }
     public string? AssertionResultsJson { get; set; }
     public string? StagesJson { get; set; }
+    /// <summary>JSON list of <see cref="Models.StaticAnalysisDiagnostic"/> from pre-compile LL source checks.</summary>
+    public string? StaticAnalysisJson { get; set; }
     public int DurationMs { get; set; }
     public DateTime StartedAtUtc { get; set; } = DateTime.UtcNow;
     public DateTime? FinishedAtUtc { get; set; }

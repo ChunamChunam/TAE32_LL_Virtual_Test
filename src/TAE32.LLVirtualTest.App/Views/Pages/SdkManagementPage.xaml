@@ -29,8 +29,23 @@
 
       <Border Grid.Column="0" Style="{StaticResource AppCardBorderStyle}" Padding="0">
         <DockPanel>
-          <TextBlock DockPanel.Dock="Top" Margin="12,10,12,8" FontWeight="SemiBold"
+          <TextBlock DockPanel.Dock="Top" Margin="12,10,12,0" FontWeight="SemiBold"
                      Foreground="{StaticResource BrushTextPrimary}" Text="工程列表"/>
+          <Grid DockPanel.Dock="Top" Margin="12,8,12,8">
+            <Grid.ColumnDefinitions>
+              <ColumnDefinition Width="*"/>
+              <ColumnDefinition Width="Auto"/>
+              <ColumnDefinition Width="Auto"/>
+            </Grid.ColumnDefinitions>
+            <TextBox Grid.Column="0" Text="{Binding ProjectSearchText, UpdateSourceTrigger=PropertyChanged}"
+                     ToolTip="名称 / 路径 / 状态" Margin="0,0,6,0"/>
+            <ComboBox Grid.Column="1" Width="100" Margin="0,0,6,0"
+                      ItemsSource="{Binding StatusFilterOptions}"
+                      SelectedItem="{Binding SelectedStatusFilter}"
+                      ToolTip="按扫描状态筛选"/>
+            <Button Grid.Column="2" Style="{StaticResource GhostButtonStyle}" Content="查询"
+                    Command="{Binding SearchProjectsCommand}"/>
+          </Grid>
           <DataGrid ItemsSource="{Binding Projects}" SelectedItem="{Binding SelectedProject}">
             <DataGrid.Columns>
               <DataGridTextColumn Header="名称" Binding="{Binding Name}" Width="1.4*"/>

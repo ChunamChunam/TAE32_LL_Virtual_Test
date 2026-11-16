@@ -33,10 +33,11 @@ public sealed class LlTestCaseStore : ILlTestCaseStore
         string? searchText = null,
         int skip = 0,
         int take = 100,
+        string? statusFilter = null,
         CancellationToken cancellationToken = default)
     {
         await using var db = await _dbFactory.CreateDbContextAsync(cancellationToken);
-        var q = ApplyCaseFilters(db.LlTestCases.AsNoTracking(), sdkProjectId, peripheralName, searchText);
+        var q = ApplyCaseFilters(db.LlTestCases.AsNoTracking(), sdkProjectId, peripheralName, searchText, statusFilter);
         var total = await q.CountAsync(cancellationToken);
         take = Math.Max(1, take);
         skip = Math.Max(0, skip);
@@ -72,10 +73,11 @@ public sealed class LlTestCaseStore : ILlTestCaseStore
         Guid sdkProjectId,
         string? peripheralName = null,
         string? searchText = null,
+        string? statusFilter = null,
         CancellationToken cancellationToken = default)
     {
         await using var db = await _dbFactory.CreateDbContextAsync(cancellationToken);
-        var q = ApplyCaseFilters(db.LlTestCases.AsNoTracking(), sdkProjectId, peripheralName, searchText);
+        var q = ApplyCaseFilters(db.LlTestCases.AsNoTracking(), sdkProjectId, peripheralName, searchText, statusFilter);
         return await q.OrderBy(x => x.PeripheralName).ThenBy(x => x.FunctionName).ThenBy(x => x.Name)
             .ToListAsync(cancellationToken);
     }
@@ -84,11 +86,17 @@ public sealed class LlTestCaseStore : ILlTestCaseStore
         IQueryable<LlTestCase> q,
         Guid sdkProjectId,
         string? peripheralName,
-        string? searchText)
+        string? searchText,
+        string? statusFilter = null)
     {
         q = q.Where(x => x.SdkProjectId == sdkProjectId);
         if (!string.IsNullOrWhiteSpace(peripheralName))
             q = q.Where(x => x.PeripheralName == peripheralName);
+        if (!string.IsNullOrWhiteSpace(statusFilter))
+        {
+            var status = statusFilter.Trim();
+            q = q.Where(x => x.Status == status);
+        }
         if (!string.IsNullOrWhiteSpace(searchText))
         {
             var term = searchText.Trim();
@@ -132,10 +140,11 @@ public sealed class LlTestCaseStore : ILlTestCaseStore
         Guid sdkProjectId,
         string? peripheralName = null,
         string? searchText = null,
+        string? statusFilter = null,
         CancellationToken cancellationToken = default)
     {
         await using var db = await _dbFactory.CreateDbContextAsync(cancellationToken);
-        var q = ApplyCaseFilters(db.LlTestCases.AsNoTracking(), sdkProjectId, peripheralName, searchText)
+        var q = ApplyCaseFilters(db.LlTestCases.AsNoTracking(), sdkProjectId, peripheralName, searchText, statusFilter)
             .Where(x => x.Status == nameof(LlTestCaseStatus.Draft)
                         || x.Status == nameof(LlTestCaseStatus.Unsupported));
         return await q.CountAsync(cancellationToken);
@@ -145,10 +154,11 @@ public sealed class LlTestCaseStore : ILlTestCaseStore
         Guid sdkProjectId,
         string? peripheralName = null,
         string? searchText = null,
+        string? statusFilter = null,
         CancellationToken cancellationToken = default)
     {
         await using var db = await _dbFactory.CreateDbContextAsync(cancellationToken);
-        var q = ApplyCaseFilters(db.LlTestCases, sdkProjectId, peripheralName, searchText)
+        var q = ApplyCaseFilters(db.LlTestCases, sdkProjectId, peripheralName, searchText, statusFilter)
             .Where(x => x.Status == nameof(LlTestCaseStatus.Draft)
                         || x.Status == nameof(LlTestCaseStatus.Unsupported));
         var now = DateTime.UtcNow;
@@ -261,11 +271,17 @@ public sealed class LlTestCaseStore : ILlTestCaseStore
         string? searchText = null,
         int skip = 0,
         int take = 50,
+        string? statusFilter = null,
         CancellationToken cancellationToken = default)
     {
         await using var db = await _dbFactory.CreateDbContextAsync(cancellationToken);
         var q = db.LlTestRuns.AsNoTracking()
             .Where(x => x.SdkProjectId == sdkProjectId);
+        if (!string.IsNullOrWhiteSpace(statusFilter))
+        {
+            var status = statusFilter.Trim();
+            q = q.Where(x => x.Status == status);
+        }
         if (!string.IsNullOrWhiteSpace(searchText))
         {
             var term = searchText.Trim();

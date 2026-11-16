@@ -11,8 +11,13 @@ public partial class ChipManagementViewModel : ObservableObject
 {
     private readonly IAppDataService _data;
     private readonly IDbContextFactory<AppDbContext> _dbFactory;
+    private readonly List<ChipRow> _all = new();
 
     public ObservableCollection<ChipRow> Items { get; } = new();
+    public ObservableCollection<string> StatusFilterOptions { get; } = new() { "全部状态" };
+
+    [ObservableProperty] private string _searchText = string.Empty;
+    [ObservableProperty] private string _selectedStatusFilter = "全部状态";
 
     public ChipManagementViewModel(IAppDataService data, IDbContextFactory<AppDbContext> dbFactory)
     {
@@ -23,7 +28,7 @@ public partial class ChipManagementViewModel : ObservableObject
     [RelayCommand]
     public async Task RefreshAsync()
     {
-        Items.Clear();
+        _all.Clear();
         var chips = await _data.GetChipsAsync();
         await using var db = await _dbFactory.CreateDbContextAsync();
         foreach (var c in chips)
@@ -31,7 +36,7 @@ public partial class ChipManagementViewModel : ObservableObject
             var peri = await db.Peripherals.AsNoTracking().CountAsync(x => x.ChipId == c.Id);
             var funcs = await db.LlFunctions.AsNoTracking().CountAsync(x => x.ChipId == c.Id);
             var project = await db.SdkProjects.AsNoTracking().FirstOrDefaultAsync(x => x.Id == c.SdkProjectId);
-            Items.Add(new ChipRow
+            _all.Add(new ChipRow
             {
                 ModelName = c.ModelName,
                 Level = c.Level ?? "—",
@@ -42,6 +47,44 @@ public partial class ChipManagementViewModel : ObservableObject
                 SdkPath = project?.SdkRootPath ?? "—",
                 Notes = c.Notes ?? "—"
             });
+        }
+
+        RebuildStatusFilters();
+        ApplyFilter();
+    }
+
+    [RelayCommand]
+    private void Search() => ApplyFilter();
+
+    partial void OnSelectedStatusFilterChanged(string value) => ApplyFilter();
+
+    private void RebuildStatusFilters()
+    {
+        var keep = SelectedStatusFilter;
+        StatusFilterOptions.Clear();
+        StatusFilterOptions.Add("全部状态");
+        foreach (var s in _all.Select(x => x.DetectionStatus).Where(x => !string.IsNullOrWhiteSpace(x) && x != "—").Distinct().OrderBy(x => x))
+            StatusFilterOptions.Add(s);
+        SelectedStatusFilter = StatusFilterOptions.Contains(keep) ? keep : "全部状态";
+    }
+
+    private void ApplyFilter()
+    {
+        Items.Clear();
+        var term = string.IsNullOrWhiteSpace(SearchText) ? null : SearchText.Trim();
+        var status = string.IsNullOrWhiteSpace(SelectedStatusFilter) || SelectedStatusFilter == "全部状态"
+            ? null
+            : SelectedStatusFilter;
+        foreach (var row in _all)
+        {
+            if (status is not null && !string.Equals(row.DetectionStatus, status, StringComparison.OrdinalIgnoreCase))
+                continue;
+            if (term is not null
+                && !row.ModelName.Contains(term, StringComparison.OrdinalIgnoreCase)
+                && !row.DetectionStatus.Contains(term, StringComparison.OrdinalIgnoreCase)
+                && !row.SdkPath.Contains(term, StringComparison.OrdinalIgnoreCase))
+                continue;
+            Items.Add(row);
         }
     }
 
