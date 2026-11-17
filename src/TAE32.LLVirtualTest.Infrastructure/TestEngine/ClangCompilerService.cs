@@ -69,6 +69,30 @@ public sealed class ClangCompilerService : ICompilerService
         if (Directory.Exists(hostSdk) && !includes.Contains(hostSdk, StringComparer.OrdinalIgnoreCase))
             includes.Add(hostSdk);
 
+        // LLVM clang on Windows does not ship CRT headers; prefer system SDK/MinGW, else app-bundled freestanding CRT.
+        foreach (var crt in ResolveHostCrtIncludePaths())
+        {
+            if (!includes.Contains(crt, StringComparer.OrdinalIgnoreCase))
+                includes.Add(crt);
+        }
+
+        var usingBundledCrt = false;
+        if (!HostCrtHeadersAvailable(includes))
+        {
+            var bundled = EmbeddedHostCrtIncludeDirectory();
+            if (bundled is not null)
+            {
+                includes.Add(bundled);
+                usingBundledCrt = true;
+            }
+            else if (clang is not null)
+            {
+                missing.Add(
+                    "C 标准库头（string.h）：内置 CRT 不可用。请安装 MinGW-w64（https://winlibs.com/），" +
+                    "解压后将 mingw64\\include 配到 ExtraIncludes，或安装到 C:\\mingw64");
+            }
+        }
+
         return new CompilerEnvironmentInfo
         {
             ClangFound = clang is not null,
@@ -79,7 +103,11 @@ public sealed class ClangCompilerService : ICompilerService
             Missing = missing,
             Summary = clang is null
                 ? "未找到 Clang：无法编译真实 LL 函数。请点「获取内置 Clang」或手动配置 clang.exe。"
-                : $"Clang OK: {clang} | includes={includes.Count} | missing={missing.Count}"
+                : !HostCrtHeadersAvailable(includes)
+                    ? $"Clang 已找到，但缺少 C 运行时头文件（string.h）。请安装 MinGW-w64：https://winlibs.com/ （推荐 UCRT 运行时 zip，解压到 C:\\mingw64）。clang={clang}"
+                    : usingBundledCrt
+                        ? $"Clang OK: {clang} | includes={includes.Count} | CRT=应用内置 | missing={missing.Count}"
+                        : $"Clang OK: {clang} | includes={includes.Count} | missing={missing.Count}"
         };
     }
 
@@ -252,8 +280,26 @@ public sealed class ClangCompilerService : ICompilerService
                      .Distinct(StringComparer.Ordinal))
             defineArgs.Append("-D").Append(d).Append(' ');
 
+        // Link strategy (does not change assertion / stage judgment in LlTestEngine):
+        // 1) MSVC libs present → normal MSVC link (same as before on VS machines)
+        // 2) else → freestanding link + tae32_host_crt.c (memcpy/memset only)
+        //    Do NOT override MinGW/system headers with HostSdk/crt when they already exist —
+        //    only inject bundled headers when string.h is completely missing.
+        var msvcLibs = OperatingSystem.IsWindows()
+            ? ResolveMsvcLibraryPaths()
+            : Array.Empty<string>();
+        var freestanding = OperatingSystem.IsWindows() && msvcLibs.Count == 0;
+
+        var includePaths = env.IncludePaths.ToList();
+        if (freestanding && !HostCrtHeadersAvailable(includePaths))
+        {
+            var bundled = EmbeddedHostCrtIncludeDirectory();
+            if (bundled is not null && !includePaths.Contains(bundled, StringComparer.OrdinalIgnoreCase))
+                includePaths.Add(bundled);
+        }
+
         var includeArgs = new StringBuilder();
-        foreach (var inc in env.IncludePaths)
+        foreach (var inc in includePaths)
             includeArgs.Append("-I\"").Append(inc).Append("\" ");
 
         var clangDir = Path.GetDirectoryName(env.ClangPath!)!;
@@ -270,22 +316,92 @@ public sealed class ClangCompilerService : ICompilerService
             args.Append("-fPIC ");
         args.Append(defineArgs);
         args.Append(includeArgs);
+
+        string? linkModeNote = null;
+        IReadOnlyDictionary<string, string>? extraEnv = null;
+        string? freestandingCrtC = null;
+        if (OperatingSystem.IsWindows())
+        {
+            if (!freestanding)
+            {
+                foreach (var libDir in msvcLibs)
+                    args.Append("-L\"").Append(libDir).Append("\" ");
+                var libPath = string.Join(";", msvcLibs);
+                var existingLib = Environment.GetEnvironmentVariable("LIB");
+                if (!string.IsNullOrWhiteSpace(existingLib))
+                    libPath = libPath + ";" + existingLib;
+                extraEnv = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
+                {
+                    ["LIB"] = libPath
+                };
+                linkModeNote = "LINK=MSVC libs (" + msvcLibs.Count + " dirs)";
+            }
+            else
+            {
+                // No VS/Build Tools: avoid libcmt/oldnames; provide memcpy via tae32_host_crt.c.
+                args.Append("-fno-stack-protector -fno-asynchronous-unwind-tables ");
+                args.Append("-nostdlib -nodefaultlibs ");
+                args.Append("-Xlinker /NODEFAULTLIB ");
+                args.Append("-Xlinker /NOENTRY ");
+                freestandingCrtC = EmbeddedHostCrtSourcePath();
+                linkModeNote = freestandingCrtC is not null
+                    ? "LINK=freestanding (+ tae32_host_crt.c for memcpy; headers from system/MinGW/bundled)"
+                    : "LINK=freestanding (missing tae32_host_crt.c)";
+            }
+        }
+
         args.Append("-Wno-everything ");
         args.Append("-o \"").Append(outputDllPath).Append("\" ");
         args.Append('"').Append(compileInput).Append('"');
+        if (freestandingCrtC is not null)
+            args.Append(" \"").Append(freestandingCrtC).Append('"');
 
         var profile = await GetOrCreateProfileAsync(sdkProjectId, cancellationToken);
         if (!string.IsNullOrWhiteSpace(profile.ExtraArgs))
             args.Append(' ').Append(profile.ExtraArgs);
 
-        var (code, stdout, stderr) = await RunAsync(env.ClangPath!, args.ToString(), cancellationToken, extraPath: clangDir);
+        var (code, stdout, stderr) = await RunAsync(
+            env.ClangPath!, args.ToString(), cancellationToken, extraPath: clangDir, extraEnv: extraEnv);
         var log = $"CMD: {env.ClangPath} {args}\n\nSTDOUT:\n{stdout}\n\nSTDERR:\n{stderr}";
+        if (!string.IsNullOrWhiteSpace(linkModeNote))
+            log += "\n\n" + linkModeNote;
         if (!string.Equals(compileInput, harnessCPath, StringComparison.OrdinalIgnoreCase))
             log += $"\n\nHOSTFIX: {compileInput}";
         var errors = Regex.Matches(stderr + "\n" + stdout, @"error:.*", RegexOptions.IgnoreCase)
             .Select(m => m.Value.Trim()).Distinct().Take(40).ToList();
         if (code != 0 && errors.Count == 0)
             errors.Add($"clang exit code {code}");
+
+        if (errors.Any(e =>
+                e.Contains("string.h", StringComparison.OrdinalIgnoreCase)
+                || e.Contains("stdlib.h", StringComparison.OrdinalIgnoreCase)
+                || e.Contains("stddef.h", StringComparison.OrdinalIgnoreCase)
+                || e.Contains("stdint.h", StringComparison.OrdinalIgnoreCase)
+                || e.Contains("limits.h", StringComparison.OrdinalIgnoreCase)))
+        {
+            const string hint =
+                "提示：若仍缺 C 标准库头文件，请安装 MinGW-w64（https://winlibs.com/），" +
+                "推荐 Win64 + UCRT 运行时 zip，解压到 C:\\mingw64 后重试。";
+            if (!errors.Any(e => e.Contains("winlibs.com", StringComparison.OrdinalIgnoreCase)))
+                errors.Add(hint);
+            log += "\n\n" + hint;
+        }
+
+        if (errors.Any(e =>
+                e.Contains("libcmt.lib", StringComparison.OrdinalIgnoreCase)
+                || e.Contains("oldnames.lib", StringComparison.OrdinalIgnoreCase)
+                || e.Contains("vcruntime", StringComparison.OrdinalIgnoreCase)
+                || e.Contains("undefined symbol: memcpy", StringComparison.OrdinalIgnoreCase)
+                || e.Contains("undefined symbol: memset", StringComparison.OrdinalIgnoreCase)))
+        {
+            const string hint =
+                "提示：缺少 CRT 链接符号。请更新本软件（freestanding 会自动编入 tae32_host_crt.c），" +
+                "或安装 MinGW-w64（https://winlibs.com/）到 C:\\mingw64。";
+            if (!errors.Any(e => e.Contains("winlibs.com", StringComparison.OrdinalIgnoreCase)
+                                 || e.Contains("tae32_host_crt", StringComparison.OrdinalIgnoreCase)))
+                errors.Add(hint);
+            log += "\n\n" + hint;
+        }
 
         return new CompileJobResult
         {
@@ -409,6 +525,215 @@ public sealed class ClangCompilerService : ICompilerService
         return includes;
     }
 
+    /// <summary>
+    /// App-bundled freestanding CRT (HostSdk/crt). Ships with the installer — no Windows SDK download.
+    /// </summary>
+    internal static string? EmbeddedHostCrtIncludeDirectory()
+    {
+        var hostSdk = TestEnginePaths.HostSdkIncludeDirectory();
+        var crt = Path.Combine(hostSdk, "crt");
+        return File.Exists(Path.Combine(crt, "string.h")) ? crt : null;
+    }
+
+    /// <summary>
+    /// Strong memcpy/memset definitions linked in freestanding mode (clang emits external calls at -O0).
+    /// </summary>
+    internal static string? EmbeddedHostCrtSourcePath()
+    {
+        var crt = EmbeddedHostCrtIncludeDirectory();
+        if (crt is null) return null;
+        var src = Path.Combine(crt, "tae32_host_crt.c");
+        return File.Exists(src) ? src : null;
+    }
+
+    /// <summary>
+    /// Locate Windows CRT / UCRT / MSVC / MinGW include dirs so clang can resolve &lt;string.h&gt;.
+    /// Official LLVM win64 builds do not bundle these headers. App-bundled HostSdk/crt is added separately
+    /// when none of these system paths are present.
+    /// </summary>
+    internal static IReadOnlyList<string> ResolveHostCrtIncludePaths()
+    {
+        if (!OperatingSystem.IsWindows())
+            return Array.Empty<string>();
+
+        var result = new List<string>();
+
+        // Windows 10/11 SDK: ucrt contains string.h / stdlib.h; um/shared often needed by CRT.
+        foreach (var kitsRoot in new[]
+                 {
+                     Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ProgramFilesX86), "Windows Kits", "10", "Include"),
+                     Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ProgramFiles), "Windows Kits", "10", "Include")
+                 })
+        {
+            if (!Directory.Exists(kitsRoot)) continue;
+            var verDir = Directory.GetDirectories(kitsRoot)
+                .Select(d => new DirectoryInfo(d))
+                .Where(d => File.Exists(Path.Combine(d.FullName, "ucrt", "string.h")))
+                .OrderByDescending(d => d.Name, StringComparer.OrdinalIgnoreCase)
+                .FirstOrDefault();
+            if (verDir is null) continue;
+            foreach (var sub in new[] { "ucrt", "shared", "um" })
+            {
+                var p = Path.Combine(verDir.FullName, sub);
+                if (Directory.Exists(p) && !result.Contains(p, StringComparer.OrdinalIgnoreCase))
+                    result.Add(p);
+            }
+
+            break;
+        }
+
+        // MSVC toolset headers (stddef.h / intrin.h companions) — fixed shallow layout only.
+        foreach (var editionRoot in EnumerateMsvcToolsRoots())
+        {
+            try
+            {
+                var msvcInclude = Directory.GetDirectories(editionRoot)
+                    .Select(ver => Path.Combine(ver, "include"))
+                    .Where(inc => File.Exists(Path.Combine(inc, "stddef.h")))
+                    .OrderByDescending(inc => inc, StringComparer.OrdinalIgnoreCase)
+                    .FirstOrDefault();
+                if (msvcInclude is not null && !result.Contains(msvcInclude, StringComparer.OrdinalIgnoreCase))
+                {
+                    result.Add(msvcInclude);
+                    break;
+                }
+            }
+            catch
+            {
+                /* ignore */
+            }
+        }
+
+        // MinGW-w64 / WinLibs (https://winlibs.com/) common extract locations.
+        foreach (var mingw in EnumerateMingwIncludeCandidates())
+        {
+            if (File.Exists(Path.Combine(mingw, "string.h"))
+                && !result.Contains(mingw, StringComparer.OrdinalIgnoreCase))
+                result.Add(mingw);
+        }
+
+        return result;
+    }
+
+    private static IEnumerable<string> EnumerateMingwIncludeCandidates()
+    {
+        yield return @"C:\mingw64\include";
+        yield return @"C:\mingw64\x86_64-w64-mingw32\include";
+        yield return @"C:\msys64\mingw64\include";
+        yield return Path.Combine(
+            Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
+            "Programs", "mingw64", "include");
+        yield return Path.Combine(
+            Environment.GetFolderPath(Environment.SpecialFolder.UserProfile),
+            "mingw64", "include");
+        yield return Path.Combine(
+            Environment.GetFolderPath(Environment.SpecialFolder.UserProfile),
+            "Downloads", "mingw64", "include");
+
+        // WinLibs zip often extracts as mingw64\ next to the archive name folder.
+        foreach (var root in new[]
+                 {
+                     @"C:\",
+                     Environment.GetFolderPath(Environment.SpecialFolder.UserProfile),
+                     Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), "Downloads")
+                 })
+        {
+            if (string.IsNullOrWhiteSpace(root) || !Directory.Exists(root)) continue;
+            string[] dirs;
+            try { dirs = Directory.GetDirectories(root, "mingw64", SearchOption.TopDirectoryOnly); }
+            catch { continue; }
+            foreach (var d in dirs)
+                yield return Path.Combine(d, "include");
+        }
+    }
+
+    private static IEnumerable<string> EnumerateMsvcToolsRoots()
+    {
+        foreach (var programFiles in new[]
+                 {
+                     Environment.GetFolderPath(Environment.SpecialFolder.ProgramFiles),
+                     Environment.GetFolderPath(Environment.SpecialFolder.ProgramFilesX86)
+                 })
+        {
+            if (string.IsNullOrWhiteSpace(programFiles)) continue;
+            foreach (var year in new[] { "2022", "2019", "2026", "2017" })
+            {
+                foreach (var edition in new[] { "BuildTools", "Community", "Professional", "Enterprise" })
+                {
+                    var msvc = Path.Combine(programFiles, "Microsoft Visual Studio", year, edition, "VC", "Tools", "MSVC");
+                    if (Directory.Exists(msvc))
+                        yield return msvc;
+                }
+            }
+        }
+    }
+
+    /// <summary>
+    /// MSVC + Windows SDK library dirs containing libcmt.lib / ucrt / um (x64).
+    /// Empty when VS Build Tools are not installed — harness then links freestanding.
+    /// </summary>
+    internal static IReadOnlyList<string> ResolveMsvcLibraryPaths()
+    {
+        if (!OperatingSystem.IsWindows())
+            return Array.Empty<string>();
+
+        var result = new List<string>();
+
+        foreach (var editionRoot in EnumerateMsvcToolsRoots())
+        {
+            try
+            {
+                var libX64 = Directory.GetDirectories(editionRoot)
+                    .Select(ver => Path.Combine(ver, "lib", "x64"))
+                    .Where(p => File.Exists(Path.Combine(p, "libcmt.lib")))
+                    .OrderByDescending(p => p, StringComparer.OrdinalIgnoreCase)
+                    .FirstOrDefault();
+                if (libX64 is not null)
+                {
+                    result.Add(libX64);
+                    break;
+                }
+            }
+            catch
+            {
+                /* ignore */
+            }
+        }
+
+        // Without MSVC libcmt/oldnames, Windows SDK um/ucrt alone cannot satisfy the default clang link.
+        if (!result.Any(p => File.Exists(Path.Combine(p, "libcmt.lib"))))
+            return Array.Empty<string>();
+
+        foreach (var kitsLibRoot in new[]
+                 {
+                     Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ProgramFilesX86), "Windows Kits", "10", "Lib"),
+                     Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ProgramFiles), "Windows Kits", "10", "Lib")
+                 })
+        {
+            if (!Directory.Exists(kitsLibRoot)) continue;
+            var verDir = Directory.GetDirectories(kitsLibRoot)
+                .Select(d => new DirectoryInfo(d))
+                .Where(d => File.Exists(Path.Combine(d.FullName, "ucrt", "x64", "ucrt.lib"))
+                            || File.Exists(Path.Combine(d.FullName, "um", "x64", "kernel32.lib")))
+                .OrderByDescending(d => d.Name, StringComparer.OrdinalIgnoreCase)
+                .FirstOrDefault();
+            if (verDir is null) continue;
+            foreach (var sub in new[] { Path.Combine("ucrt", "x64"), Path.Combine("um", "x64") })
+            {
+                var p = Path.Combine(verDir.FullName, sub);
+                if (Directory.Exists(p) && !result.Contains(p, StringComparer.OrdinalIgnoreCase))
+                    result.Add(p);
+            }
+
+            break;
+        }
+
+        return result;
+    }
+
+    private static bool HostCrtHeadersAvailable(IEnumerable<string> includes)
+        => includes.Any(p => File.Exists(Path.Combine(p, "string.h")));
+
     private static async Task DownloadFileAsync(
         string url, string destPath, IProgress<string>? progress, CancellationToken ct)
     {
@@ -486,7 +811,11 @@ public sealed class ClangCompilerService : ICompilerService
     }
 
     private static async Task<(int code, string stdout, string stderr)> RunAsync(
-        string file, string args, CancellationToken ct, string? extraPath = null)
+        string file,
+        string args,
+        CancellationToken ct,
+        string? extraPath = null,
+        IReadOnlyDictionary<string, string>? extraEnv = null)
     {
         var psi = new ProcessStartInfo
         {
@@ -501,6 +830,12 @@ public sealed class ClangCompilerService : ICompilerService
         {
             var path = Environment.GetEnvironmentVariable("PATH") ?? "";
             psi.Environment["PATH"] = extraPath + Path.PathSeparator + path;
+        }
+
+        if (extraEnv is not null)
+        {
+            foreach (var (key, value) in extraEnv)
+                psi.Environment[key] = value;
         }
 
         using var p = new Process { StartInfo = psi };

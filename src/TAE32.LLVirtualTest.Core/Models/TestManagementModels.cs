@@ -162,6 +162,8 @@ public sealed class FailureAnalysisItem
     public string? InitialRegistersJson { get; set; }
     /// <summary>可读：每次写/改位的值（before→after）。</summary>
     public string? RegisterWritesSummary { get; set; }
+    /// <summary>执行阶段 JSON（EnvironmentCheck / Compile / Execute / Assert 等）。</summary>
+    public string? StagesJson { get; set; }
 }
 
 public sealed class TestReportRequest

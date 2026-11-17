@@ -162,7 +162,11 @@ internal sealed class SdkMacroSemanticCatalog
     }
 
     /// <summary>
-    /// Parse PERI_REG_FIELD_SUFFIX (e.g. WWDG_PSCR_PSC_Msk) or PERI_REG_SUFFIX.
+    /// Parse chip field macros. Naming is always
+    /// <c>{Peripheral}_{Register}_{Field}_{Suffix}</c> where Peripheral may itself
+    /// contain underscores (e.g. <c>HRPWM_MST_MCR0_CONT_Msk</c>,
+    /// <c>HRPWM_SLV0_PWMCR0_CONT_Msk</c>, <c>WWDG_PSCR_PSC_Msk</c>).
+    /// Last segment before suffix = field; second-last = register; remainder = peripheral.
     /// </summary>
     internal static bool TryParseNameParts(
         string name,
@@ -180,14 +184,16 @@ internal sealed class SdkMacroSemanticCatalog
         if (isSuffix)
         {
             suffix = last;
+            // PERI_REG_FIELD_Sfx (4+) — Peripheral may be multi-token (HRPWM_MST / HRPWM_SLV0).
             if (parts.Length >= 4)
             {
-                peripheral = parts[0];
-                register = parts[1];
-                field = string.Join('_', parts.Skip(2).Take(parts.Length - 3));
+                field = parts[^2];
+                register = parts[^3];
+                peripheral = string.Join('_', parts.Take(parts.Length - 3));
                 return true;
             }
 
+            // PERI_REG_Sfx (no field token)
             if (parts.Length == 3)
             {
                 peripheral = parts[0];
@@ -197,10 +203,19 @@ internal sealed class SdkMacroSemanticCatalog
         }
         else if (parts.Length >= 2)
         {
-            peripheral = parts[0];
-            register = parts[1];
+            // Unsuffixed: treat last as field when 3+, else PERI_REG.
             if (parts.Length >= 3)
-                field = string.Join('_', parts.Skip(2));
+            {
+                field = parts[^1];
+                register = parts[^2];
+                peripheral = string.Join('_', parts.Take(parts.Length - 2));
+            }
+            else
+            {
+                peripheral = parts[0];
+                register = parts[1];
+            }
+
             return true;
         }
 

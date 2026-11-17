@@ -116,6 +116,9 @@ public class LlTestCaseGeneratorBitOpTests
             && a.MemberName == "CFGR1"
             && a.ExpectedMask == expectedAfter
             && string.Equals(a.ExpectedHex, $"0x{expectedAfter:X}", StringComparison.OrdinalIgnoreCase));
+        setCase.Assertions.Should().Contain(a => a.Kind == LlAssertionKind.RegisterWrite);
+        setCase.Assertions.Should().Contain(a => a.Kind == LlAssertionKind.PreserveBits);
+        setCase.Assertions.Should().Contain(a => a.Kind == LlAssertionKind.NoUnexpectedWrite);
         setCase.Assertions.Should().Contain(a => a.Kind == LlAssertionKind.Timeout);
 
         // Mutate body to wrong mask, then REGENERATE — trusted expected must stay PREPARING_START RMW.
@@ -211,7 +214,7 @@ public class LlTestCaseGeneratorBitOpTests
 
         var generator = new LlTestCaseGenerator(new SharedConnectionFactory(options));
         var cases = await generator.GenerateAsync(fnId);
-        var clearCase = cases.First(c => c.Name.Contains("clear-check", StringComparison.OrdinalIgnoreCase));
+        var clearCase = cases.First(c => c.Name.Contains("disable-check", StringComparison.OrdinalIgnoreCase));
         var reg = clearCase.Assertions.First(a => a.Kind == LlAssertionKind.RegisterValue);
         const uint mask = 0x80u;
         const uint preserve = 0xA5A55A5Au & ~mask;
@@ -223,6 +226,9 @@ public class LlTestCaseGeneratorBitOpTests
         reg.RuleSourceDetail.Should().Contain("AWD2");
         reg.RuleSourceDetail.Should().Contain("RMW");
         reg.RuleSourceDetail.Should().NotContain("AWD1IE_Msk");
+        clearCase.Assertions.Should().Contain(a => a.Kind == LlAssertionKind.RegisterWrite);
+        clearCase.Assertions.Should().Contain(a => a.Kind == LlAssertionKind.PreserveBits);
+        clearCase.Assertions.Should().Contain(a => a.Kind == LlAssertionKind.NoUnexpectedWrite);
 
         Directory.Delete(dir, true);
         await conn.DisposeAsync();
@@ -292,8 +298,8 @@ public class LlTestCaseGeneratorBitOpTests
 
         var generator = new LlTestCaseGenerator(new SharedConnectionFactory(options));
         var cases = await generator.GenerateAsync(fnId);
-        cases.Should().Contain(c => c.Name.Contains("clear-check", StringComparison.OrdinalIgnoreCase));
-        var clearCase = cases.First(c => c.Name.Contains("clear-check", StringComparison.OrdinalIgnoreCase));
+        cases.Should().Contain(c => c.Name.Contains("disable-check", StringComparison.OrdinalIgnoreCase));
+        var clearCase = cases.First(c => c.Name.Contains("disable-check", StringComparison.OrdinalIgnoreCase));
         const uint mask = 0x1u;
         const uint preserve = 0xA5A55A5Au & ~mask;
         clearCase.InitialRegisters.Should().ContainSingle(r =>
@@ -303,6 +309,9 @@ public class LlTestCaseGeneratorBitOpTests
             a.Kind == LlAssertionKind.RegisterValue
             && a.ExpectedMask == (preserve | mask)
             && string.Equals(a.ExpectedHex, $"0x{preserve:X}", StringComparison.OrdinalIgnoreCase));
+        clearCase.Assertions.Should().Contain(a => a.Kind == LlAssertionKind.RegisterWrite);
+        clearCase.Assertions.Should().Contain(a => a.Kind == LlAssertionKind.PreserveBits);
+        clearCase.Assertions.Should().Contain(a => a.Kind == LlAssertionKind.NoUnexpectedWrite);
 
         Directory.Delete(dir, true);
         await conn.DisposeAsync();
@@ -381,13 +390,15 @@ public class LlTestCaseGeneratorBitOpTests
 
         var generator = new LlTestCaseGenerator(new SharedConnectionFactory(options));
         var cases = await generator.GenerateAsync(fnId);
-        var setCase = cases.First(c => c.Name.Contains("set-check", StringComparison.OrdinalIgnoreCase));
+        var setCase = cases.First(c => c.Name.Contains("enable-check", StringComparison.OrdinalIgnoreCase));
         setCase.Name.Should().Contain("/CR.");
         setCase.InitialRegisters.Should().ContainSingle(r => r.MemberName == "CR");
         var reg = setCase.Assertions.First(a => a.Kind == LlAssertionKind.RegisterValue);
         reg.MemberName.Should().Be("CR");
         reg.RuleSourceDetail.Should().Contain("成员/掩码不一致");
         reg.RuleSourceDetail.Should().Contain("->SR");
+        setCase.Assertions.Should().Contain(a => a.Kind == LlAssertionKind.RegisterWrite);
+        setCase.Assertions.Should().Contain(a => a.Kind == LlAssertionKind.NoUnexpectedWrite);
 
         Directory.Delete(dir, true);
         await conn.DisposeAsync();

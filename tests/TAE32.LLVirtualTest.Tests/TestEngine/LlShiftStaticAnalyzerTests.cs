@@ -159,4 +159,64 @@ public class LlShiftStaticAnalyzerTests
         report.Should().Contain("WWDG_WVR_WV_Msk");
         report.Should().Contain("建议");
     }
+
+    [Fact]
+    public void ParseNameParts_Hrpwm_MultiToken_Peripheral_Is_Correct()
+    {
+        SdkMacroSemanticCatalog.TryParseNameParts(
+                "HRPWM_MST_MCR0_CONT_Msk", out var peri, out var reg, out var field, out var suffix)
+            .Should().BeTrue();
+        peri.Should().Be("HRPWM_MST");
+        reg.Should().Be("MCR0");
+        field.Should().Be("CONT");
+        suffix.Should().Be("Msk");
+
+        SdkMacroSemanticCatalog.TryParseNameParts(
+                "HRPWM_SLV0_PWMCR0_CONT_Msk", out peri, out reg, out field, out suffix)
+            .Should().BeTrue();
+        peri.Should().Be("HRPWM_SLV0");
+        reg.Should().Be("PWMCR0");
+        field.Should().Be("CONT");
+
+        SdkMacroSemanticCatalog.TryParseNameParts(
+                "WWDG_PSCR_PSC_Msk", out peri, out reg, out field, out suffix)
+            .Should().BeTrue();
+        peri.Should().Be("WWDG");
+        reg.Should().Be("PSCR");
+        field.Should().Be("PSC");
+    }
+
+    [Fact]
+    public void Correct_Hrpwm_Mst_SetCounterMode_Is_Not_Flagged()
+    {
+        var sdk = FindSdkRoot();
+        if (sdk is null) return;
+        var header = Path.Combine(
+            sdk, "SDK", "Drivers", "TAE32G58xx_Driver", "LL", "tae32g58xx_ll_hrpwm.h");
+        if (!File.Exists(header)) return;
+
+        var analyzer = new LlShiftStaticAnalyzer();
+        var result = analyzer.Analyze(sdk, header, "LL_HRPWM_MST_SetCounterMode");
+
+        result.HasBlockingError.Should().BeFalse(
+            because: string.Join("; ", result.Diagnostics.Select(d => $"{d.RuleId}:{d.Description}")));
+        result.Diagnostics.Should().NotContain(d => d.RuleId == "RegisterFieldMismatch");
+    }
+
+    [Fact]
+    public void Correct_Hrpwm_Slv_SetCounterMode_Is_Not_Flagged()
+    {
+        var sdk = FindSdkRoot();
+        if (sdk is null) return;
+        var header = Path.Combine(
+            sdk, "SDK", "Drivers", "TAE32G58xx_Driver", "LL", "tae32g58xx_ll_hrpwm.h");
+        if (!File.Exists(header)) return;
+
+        var analyzer = new LlShiftStaticAnalyzer();
+        var result = analyzer.Analyze(sdk, header, "LL_HRPWM_SLV_SetCounterMode");
+
+        result.HasBlockingError.Should().BeFalse(
+            because: string.Join("; ", result.Diagnostics.Select(d => $"{d.RuleId}:{d.Description}")));
+        result.Diagnostics.Should().NotContain(d => d.RuleId == "RegisterFieldMismatch");
+    }
 }

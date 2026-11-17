@@ -918,6 +918,14 @@ public partial class AutomationTestViewModel : ObservableObject
         sb.AppendLine($"返回值      : {run.ReturnValueText ?? "—"}");
         sb.AppendLine($"耗时        : {run.DurationMs} ms");
         sb.AppendLine($"失败原因    : {run.FailureReason ?? "—"}");
+        if (string.Equals(run.Status, nameof(LlTestRunStatus.Skipped), StringComparison.OrdinalIgnoreCase))
+        {
+            sb.AppendLine();
+            sb.AppendLine("说明：Skipped 仍可能已完成环境检查/编译/执行；");
+            sb.AppendLine("常见原因是仅超时断言通过、缺少语义校验，故不计 Passed。");
+            sb.AppendLine("下方「执行日志 / 阶段」即为本次操作过程。");
+        }
+
         sb.AppendLine();
         sb.AppendLine("======== 静态分析 ========");
         if (string.IsNullOrWhiteSpace(run.StaticAnalysisJson) || run.StaticAnalysisJson is "[]" or "null")
@@ -960,11 +968,43 @@ public partial class AutomationTestViewModel : ObservableObject
         sb.AppendLine();
         sb.AppendLine("======== 断言结果 ========");
         sb.AppendLine(string.IsNullOrWhiteSpace(run.AssertionResultsJson) ? "（无）" : run.AssertionResultsJson.Trim());
+        TryAppendWriteCheckSummary(sb, run);
         sb.AppendLine();
         sb.AppendLine("======== 阶段 / 访问轨迹 ========");
         sb.AppendLine(string.IsNullOrWhiteSpace(run.StagesJson) ? "阶段：（无）" : "阶段: " + run.StagesJson.Trim());
         sb.AppendLine(string.IsNullOrWhiteSpace(run.AccessTraceJson) ? "轨迹：（无）" : "轨迹: " + run.AccessTraceJson.Trim());
         ResultDetail = sb.ToString();
+    }
+
+    private static void TryAppendWriteCheckSummary(StringBuilder sb, LlTestRun run)
+    {
+        if (string.IsNullOrWhiteSpace(run.AssertionResultsJson) || run.AssertionResultsJson is "[]" or "null")
+            return;
+        try
+        {
+            var results = System.Text.Json.JsonSerializer.Deserialize<List<LlTestAssertionResult>>(
+                run.AssertionResultsJson,
+                new System.Text.Json.JsonSerializerOptions { PropertyNameCaseInsensitive = true });
+            if (results is null || results.Count == 0) return;
+            var semantic = results.Where(a => a.Kind is not LlAssertionKind.Timeout).ToList();
+            if (semantic.Count == 0) return;
+
+            sb.AppendLine();
+            sb.AppendLine("======== 写入验证摘要（无 Get / 虚拟寄存器）========");
+            foreach (var a in semantic)
+            {
+                var mark = a.Passed ? "Passed" : "Failed";
+                sb.AppendLine($"{a.Kind,-18} {mark,-6}  expected={a.Expected ?? "—"}  actual={a.Actual ?? "—"}");
+                if (!string.IsNullOrWhiteSpace(a.Message))
+                    sb.AppendLine($"  {a.Message}");
+                if (!string.IsNullOrWhiteSpace(a.RuleSourceDetail))
+                    sb.AppendLine($"  {a.RuleSourceDetail}");
+            }
+        }
+        catch
+        {
+            /* ignore malformed JSON */
+        }
     }
 
     private void RefreshRunSelectionUi()

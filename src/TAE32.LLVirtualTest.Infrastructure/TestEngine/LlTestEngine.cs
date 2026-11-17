@@ -439,7 +439,7 @@ public sealed class LlTestEngine : ILLTestEngine
             {
                 run.Status = nameof(LlTestRunStatus.Skipped);
                 run.FailureReason =
-                    "仅超时断言通过，无返回值/寄存器等语义校验，不计 Passed。请重新生成用例（read-check / write-check）。";
+                    "仅超时断言通过，无返回值/寄存器等语义校验，不计 Passed。请重新生成用例（read/write/enable/disable-check）。";
             }
             else
             {

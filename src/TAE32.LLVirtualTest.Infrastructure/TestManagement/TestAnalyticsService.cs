@@ -309,6 +309,7 @@ public sealed class TestAnalyticsService : ITestAnalyticsService
                         && (x.Status == nameof(LlTestRunStatus.Failed)
                             || x.Status == nameof(LlTestRunStatus.Error)
                             || x.Status == nameof(LlTestRunStatus.Timeout)
+                            || x.Status == nameof(LlTestRunStatus.Skipped)
                             || x.Status == nameof(LlTestRunStatus.StaticAnalysisFailed)));
 
         if (!string.IsNullOrWhiteSpace(statusFilter))
@@ -388,7 +389,8 @@ public sealed class TestAnalyticsService : ITestAnalyticsService
         ExecutionLogExcerpt = Truncate(r.ExecutionLog, 800),
         ParametersJson = Truncate(r.TestCase?.ParametersJson, 4000),
         InitialRegistersJson = Truncate(r.TestCase?.InitialRegistersJson, 2000),
-        RegisterWritesSummary = BuildRegisterWritesSummary(r.AccessTraceJson)
+        RegisterWritesSummary = BuildRegisterWritesSummary(r.AccessTraceJson),
+        StagesJson = Truncate(r.StagesJson, 4000)
     };
 
     private static string? BuildRegisterWritesSummary(string? accessTraceJson)

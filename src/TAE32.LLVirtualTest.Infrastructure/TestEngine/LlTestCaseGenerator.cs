@@ -376,13 +376,12 @@ public sealed class LlTestCaseGenerator
                 cases.Add(pair);
         }
 
-        // SET_BIT / CLEAR_BIT / WRITE_REG write-check (mask bits from #define + chip fields).
+        // SET_BIT / CLEAR_BIT / WRITE_REG write-check — covers Enable/Disable across all modules.
         // Skip SET/CLEAR on the same member when MODIFY_REG case already exists (e.g. UART SetParity:
         // CLEAR+MODIFY in one call — running a CLEAR-only expectation against the full fn is wrong).
-        if (await TryBuildBitOpWriteCaseAsync(db, fn, inst, draftParams, cancellationToken) is { } bitOpCheck)
+        var bitOpChecks = await TryBuildBitOpWriteCasesAsync(db, fn, inst, draftParams, cancellationToken);
+        if (bitOpChecks.Count > 0)
         {
-            var dup = cases.Any(c =>
-                string.Equals(c.Name, bitOpCheck.Name, StringComparison.OrdinalIgnoreCase));
             var modifyMembers = cases
                 .Where(c => c.Name.Contains("/write-check", StringComparison.OrdinalIgnoreCase)
                             && (c.Notes?.Contains("MODIFY", StringComparison.OrdinalIgnoreCase) == true
@@ -393,19 +392,27 @@ public sealed class LlTestCaseGenerator
                     .Select(a => a.MemberName))
                 .Where(m => !string.IsNullOrEmpty(m))
                 .ToHashSet(StringComparer.OrdinalIgnoreCase);
-            var bitMembers = bitOpCheck.Assertions
-                .Where(a => a.Kind == LlAssertionKind.RegisterValue)
-                .Select(a => a.MemberName)
-                .Where(m => !string.IsNullOrEmpty(m))
-                .ToList();
-            var overlapsModify = modifyMembers.Count > 0
-                                 && bitMembers.Any(m => modifyMembers.Contains(m!))
-                                 && (bitOpCheck.Name.Contains("clear-check", StringComparison.OrdinalIgnoreCase)
-                                     || bitOpCheck.Name.Contains("set-check", StringComparison.OrdinalIgnoreCase));
-            if (!dup && !overlapsModify)
+
+            foreach (var bitOpCheck in bitOpChecks)
             {
-                cases.Add(bitOpCheck);
-                builtSpecial = true;
+                var dup = cases.Any(c =>
+                    string.Equals(c.Name, bitOpCheck.Name, StringComparison.OrdinalIgnoreCase));
+                var bitMembers = bitOpCheck.Assertions
+                    .Where(a => a.Kind == LlAssertionKind.RegisterValue)
+                    .Select(a => a.MemberName)
+                    .Where(m => !string.IsNullOrEmpty(m))
+                    .ToList();
+                var overlapsModify = modifyMembers.Count > 0
+                                     && bitMembers.Any(m => modifyMembers.Contains(m!))
+                                     && (bitOpCheck.Name.Contains("clear-check", StringComparison.OrdinalIgnoreCase)
+                                         || bitOpCheck.Name.Contains("set-check", StringComparison.OrdinalIgnoreCase)
+                                         || bitOpCheck.Name.Contains("enable-check", StringComparison.OrdinalIgnoreCase)
+                                         || bitOpCheck.Name.Contains("disable-check", StringComparison.OrdinalIgnoreCase));
+                if (!dup && !overlapsModify)
+                {
+                    cases.Add(bitOpCheck);
+                    builtSpecial = true;
+                }
             }
         }
 
@@ -421,11 +428,12 @@ public sealed class LlTestCaseGenerator
             cases.Add(model);
         }
 
-        // Legacy fallback only when WRITE_REG/bit-op did not already emit a Ready clear-check.
+        // Legacy fallback only when WRITE_REG/bit-op did not already emit Ready clear/disable-check.
         // Never expect the whole status register to become 0 — only the target flag bits.
         var hostCanRun = LlNativeEligibility.DescribeSkip(fn.FunctionName, fn.FilePath, draftParams) is null;
         var alreadyHasClearCheck = cases.Any(c =>
-            c.Name.Contains("clear-check", StringComparison.OrdinalIgnoreCase));
+            c.Name.Contains("clear-check", StringComparison.OrdinalIgnoreCase)
+            || c.Name.Contains("disable-check", StringComparison.OrdinalIgnoreCase));
         if (allowClearCheck && hostCanRun && !alreadyHasClearCheck && IsClearLike(fn.FunctionName)
             && LlClearStatusRegisterResolver.TryResolve(fn.FunctionName, fn.PeripheralName, out var clrMem, out var clrMask))
         {
@@ -490,24 +498,24 @@ public sealed class LlTestCaseGenerator
         return cases;
     }
 
-    // Accept chip masks (ADC0_CFGR0_ROVSM_Msk) and LL composite masks (LL_ADC_CFGR0_OVERSAMPLING_MODE_MSK).
+    // Flat or nested: Inst->MEM / Inst->Master.MCR0 / Inst->PWM[(Pwmx)%N].REG.PWMCR0
     private static readonly Regex ModifyRegPattern = new(
-        @"MODIFY_REG\s*\(\s*[A-Za-z0-9_]+\s*->\s*(?<mem>[A-Za-z0-9_]+)\s*,\s*(?<msk>[A-Za-z0-9_]+_(?:Msk|MSK))\s*,",
+        @"MODIFY_REG\s*\(\s*(?<inst>[A-Za-z0-9_]+)\s*->\s*(?<path>[^,]+?)\s*,\s*(?<msk>[A-Za-z0-9_]+_(?:Msk|MSK))\s*,",
         RegexOptions.Compiled | RegexOptions.CultureInvariant | RegexOptions.IgnoreCase);
 
     /// <summary>Full MODIFY_REG including RHS (field-value << Pos vs pre-shifted Mask).</summary>
     private static readonly Regex ModifyRegFullPattern = new(
-        @"MODIFY_REG\s*\(\s*[A-Za-z0-9_]+\s*->\s*(?<mem>[A-Za-z0-9_]+)\s*,\s*(?<msk>[A-Za-z0-9_]+_(?:Msk|MSK))\s*,\s*(?<rhs>[^;]+?)\)\s*;",
+        @"MODIFY_REG\s*\(\s*(?<inst>[A-Za-z0-9_]+)\s*->\s*(?<path>[^,]+?)\s*,\s*(?<msk>[A-Za-z0-9_]+_(?:Msk|MSK))\s*,\s*(?<rhs>[^;]+?)\)\s*;",
         RegexOptions.Compiled | RegexOptions.CultureInvariant | RegexOptions.IgnoreCase | RegexOptions.Singleline);
 
-    /// <summary>SET_BIT / CLEAR_BIT(reg->MEM, MASK_Msk|_MSK).</summary>
+    /// <summary>SET_BIT / CLEAR_BIT(reg-> path, MASK_Msk|_MSK).</summary>
     private static readonly Regex SetClearBitPattern = new(
-        @"\b(?<op>SET_BIT|CLEAR_BIT)\s*\(\s*[A-Za-z0-9_]+\s*->\s*(?<mem>[A-Za-z0-9_]+)\s*,\s*(?<msk>[A-Za-z0-9_]+_(?:Msk|MSK))\s*\)",
+        @"\b(?<op>SET_BIT|CLEAR_BIT)\s*\(\s*(?<inst>[A-Za-z0-9_]+)\s*->\s*(?<path>[^,]+?)\s*,\s*(?<msk>[A-Za-z0-9_]+_(?:Msk|MSK))\s*\)",
         RegexOptions.Compiled | RegexOptions.CultureInvariant | RegexOptions.IgnoreCase);
 
-    /// <summary>WRITE_REG(reg->MEM, VALUE) — VALUE may be literal or named mask macro.</summary>
+    /// <summary>WRITE_REG(reg->path, VALUE) — VALUE may be literal or named mask macro.</summary>
     private static readonly Regex WriteRegPattern = new(
-        @"\bWRITE_REG\s*\(\s*[A-Za-z0-9_]+\s*->\s*(?<mem>[A-Za-z0-9_]+)\s*,\s*(?<val>[^;]+?)\s*\)",
+        @"\bWRITE_REG\s*\(\s*(?<inst>[A-Za-z0-9_]+)\s*->\s*(?<path>[^,]+?)\s*,\s*(?<val>[^;]+?)\s*\)",
         RegexOptions.Compiled | RegexOptions.CultureInvariant | RegexOptions.IgnoreCase | RegexOptions.Singleline);
 
     private static readonly Regex ChipFieldMskToken = new(
@@ -541,17 +549,19 @@ public sealed class LlTestCaseGenerator
         RegexOptions.Compiled | RegexOptions.CultureInvariant | RegexOptions.IgnoreCase);
 
     /// <summary>
-    /// SET_BIT / CLEAR_BIT / WRITE_REG → register write-check.
-    /// Expected bits prefer a name-correlated LL_*_MSK #define in the same header (independent of the
-    /// possibly-wrong SET_BIT argument in the function body). Body is only used to detect op + member.
+    /// SET_BIT / CLEAR_BIT / WRITE_REG → write monitoring for all modules (incl. Enable/Disable).
+    /// Expected bits prefer a name-correlated LL_*_MSK #define (independent of a possibly-wrong
+    /// SET_BIT argument). Body detects op + member/path; array paths expand channels like MODIFY.
     /// </summary>
-    private static async Task<LlTestCaseEditModel?> TryBuildBitOpWriteCaseAsync(
+    private static async Task<List<LlTestCaseEditModel>> TryBuildBitOpWriteCasesAsync(
         AppDbContext db,
         LlFunction fn,
         string instance,
         List<LlTestParameterValue> baseParams,
         CancellationToken ct)
     {
+        var results = new List<LlTestCaseEditModel>();
+
         // Prefer live body (DB Expression may be stale after SDK edits); then DB parse evidence.
         var liveBody = TryReadFunctionBodyFromSource(fn.FilePath, fn.FunctionName) ?? "";
         var dbExprs = await db.LlRegisterAccesses.AsNoTracking()
@@ -577,13 +587,19 @@ public sealed class LlTestCaseGenerator
             if (setClear.Success)
             {
                 var op = setClear.Groups["op"].Value.ToUpperInvariant();
-                var bodyMember = setClear.Groups["mem"].Value;
+                var pathText = setClear.Groups["path"].Success
+                    ? setClear.Groups["path"].Value
+                    : setClear.Groups["mem"].Value;
+                _ = TryParseRegAccessPath(pathText, out var accessPath);
+                var bodyMember = string.IsNullOrEmpty(accessPath.LeafMember)
+                    ? PathLeaf(setClear)
+                    : accessPath.LeafMember;
                 var bodyMskMacro = setClear.Groups["msk"].Value;
 
                 // DAC0_CR_OEN_Msk embeds CR — must match DACx->CR. Mismatch (e.g. ->SR + CR_OEN)
                 // asserts on the mask's register so the wrong write is caught.
                 var member = ResolveMemberAlignedToMask(
-                    bodyMember, bodyMskMacro, out var memberMaskMismatch, out var pairNote);
+                    bodyMember, bodyMskMacro, out _, out var pairNote);
 
                 // Trusted expected from function-name ↔ header #define / chip RegisterFields
                 // (NOT from SET_BIT/CLEAR_BIT argument in the body).
@@ -599,10 +615,7 @@ public sealed class LlTestCaseGenerator
                     member = ResolveMemberAlignedToMask(
                         member, mskMacro, out var trustedMismatch, out var trustedPair);
                     if (trustedMismatch)
-                    {
-                        memberMaskMismatch = true;
                         pairNote = trustedPair;
-                    }
                 }
                 else
                 {
@@ -615,100 +628,292 @@ public sealed class LlTestCaseGenerator
                     continue;
 
                 var isClear = op.Equals("CLEAR_BIT", StringComparison.OrdinalIgnoreCase);
-                var parameters = CloneParams(baseParams);
+                var checkSuffix = ResolveBitOpCheckSuffix(fn.FunctionName, isClear);
                 var fieldLabel = usedTrusted
                     ? StripMaskSuffix(mskMacro)
                     : TryFieldNameFromMskMacro(mskMacro, member, out var singleField)
                         ? singleField
                         : mskMacro;
 
-                // RMW check: preload unrelated bits so SET/CLEAR must read-modify-write,
-                // not overwrite the whole register (initial=0 would hide that bug).
-                var preserveBits = PickUnrelatedPreserveBits(maskBits);
-                var initialBits = isClear ? (preserveBits | maskBits) : preserveBits;
-                var expectedBits = isClear ? preserveBits : (preserveBits | maskBits);
-                var assertMask = preserveBits | maskBits;
-                if (assertMask == 0) assertMask = maskBits;
+                var arrayBound = ResolveArrayBound(accessPath.ArrayIndexExpr, fn.FilePath);
+                IReadOnlyList<uint> channelSamples = accessPath.ArrayIndexExpr is not null
+                    ? new uint[] { 0, 1, 2, arrayBound > 0 ? arrayBound - 1 : 0, arrayBound, arrayBound + 1 }
+                    : new uint[] { 0 };
 
-                var model = BaseModel(fn);
-                model.Name = $"{fn.FunctionName}/{instance}/{member}.{fieldLabel}/{(isClear ? "clear" : "set")}-check";
-                model.Status = nameof(LlTestCaseStatus.Ready);
-                model.IsAutoGenerated = true;
-                model.Parameters = parameters;
-                model.InitialRegisters =
-                [
-                    new LlTestInitialRegister
-                    {
-                        InstanceName = instance,
-                        MemberName = member,
-                        ValueHex = $"0x{initialBits:X}"
-                    }
-                ];
-
-                var trustNote = usedTrusted
-                    ? $"期望掩码来自函数名关联的可信源 {mskMacro}（非函数体内位操作实参；可检出错误掩码，即使重新生成）"
-                    : $"期望掩码来自体/解析证据 {mskMacro}（未找到函数名关联的 #define/位域；弱可信）";
-                var rmwNote = preserveBits != 0
-                    ? $"RMW：预置其它位 0x{preserveBits:X}，写后应保留并{(isClear ? "清除" : "置位")}目标位"
-                    : "目标掩码已覆盖全宽，无法另测保留位";
-                var assertions = new List<LlTestAssertionSpec>
+                foreach (var channelRaw in channelSamples.Distinct())
                 {
-                    new()
-                    {
-                        Kind = LlAssertionKind.RegisterValue,
-                        InstanceName = instance,
-                        MemberName = member,
-                        ExpectedHex = $"0x{expectedBits:X}",
-                        ExpectedMask = assertMask,
-                        RuleSource = usedTrusted
-                            ? LlAssertionRuleSource.AutoGeneratedFromSdkMacro
-                            : LlAssertionRuleSource.FromParseEvidence,
-                        RuleSourceDetail =
-                            $"{(isClear ? "CLEAR_BIT" : "SET_BIT")} 写后校验 {member} & 0x{assertMask:X}=0x{expectedBits:X}；{pairNote}；{rmwNote}；{trustNote}"
-                    }
-                };
+                    var channelIndex = accessPath.ArrayIndexExpr is not null
+                        ? channelRaw % Math.Max(1u, arrayBound)
+                        : 0u;
+                    var targetInstance = ResolveNestedInstance(
+                        instance, accessPath, channelIndex, bodyMskMacro);
 
-                // BitField: use resolved maskBits (chip/#define), not DB field.Mask.
-                if (!isClear && TryFieldNameFromMskMacro(mskMacro, member, out var bfName) && maskBits != 0)
-                {
-                    var bitPos = PosFromMask(maskBits);
-                    // SET_BIT places the full field mask; expected field value is mask>>pos.
-                    var bfExpected = maskBits >> bitPos;
+                    // RMW: preload unrelated bits so SET/CLEAR must read-modify-write.
+                    var preserveBits = PickUnrelatedPreserveBits(maskBits);
+                    var initialBits = isClear ? (preserveBits | maskBits) : preserveBits;
+                    var expectedBits = isClear ? preserveBits : (preserveBits | maskBits);
+                    var assertMask = preserveBits | maskBits;
+                    if (assertMask == 0) assertMask = maskBits;
+
+                    var parameters = CloneParams(baseParams);
+                    ApplyBitOpChannelParameters(
+                        parameters, fn, instance, targetInstance, accessPath, channelRaw);
+
+                    var channelTag = accessPath.ArrayIndexExpr is not null
+                        ? $"ch{channelRaw}->{channelIndex}"
+                        : (accessPath.NestedPrefix ?? "flat");
+
+                    var model = BaseModel(fn);
+                    model.Name =
+                        $"{fn.FunctionName}/{targetInstance}/{member}.{fieldLabel}/{channelTag}/{checkSuffix}";
+                    model.Status = nameof(LlTestCaseStatus.Ready);
+                    model.IsAutoGenerated = true;
+                    model.Parameters = parameters;
+                    model.InitialRegisters =
+                    [
+                        new LlTestInitialRegister
+                        {
+                            InstanceName = targetInstance,
+                            MemberName = member,
+                            ValueHex = $"0x{initialBits:X}"
+                        }
+                    ];
+
+                    var trustNote = usedTrusted
+                        ? $"期望掩码来自函数名关联的可信源 {mskMacro}（非函数体内位操作实参；可检出错误掩码，即使重新生成）"
+                        : $"期望掩码来自体/解析证据 {mskMacro}（未找到函数名关联的 #define/位域；弱可信）";
+                    var rmwNote = preserveBits != 0
+                        ? $"RMW：预置其它位 0x{preserveBits:X}，写后应保留并{(isClear ? "清除" : "置位")}目标位"
+                        : "目标掩码已覆盖全宽，无法另测保留位";
+                    var ruleSource = usedTrusted
+                        ? LlAssertionRuleSource.AutoGeneratedFromSdkMacro
+                        : LlAssertionRuleSource.FromParseEvidence;
+
+                    var assertions = new List<LlTestAssertionSpec>
+                    {
+                        new()
+                        {
+                            Kind = LlAssertionKind.RegisterWrite,
+                            InstanceName = targetInstance,
+                            MemberName = member,
+                            RuleSource = LlAssertionRuleSource.FromRegisterDefinition,
+                            RuleSourceDetail =
+                                $"必须写入 {targetInstance}.{member}（{(isClear ? "Disable/CLEAR" : "Enable/SET")}；轨迹校验）"
+                        },
+                        new()
+                        {
+                            Kind = LlAssertionKind.RegisterValue,
+                            InstanceName = targetInstance,
+                            MemberName = member,
+                            ExpectedHex = $"0x{expectedBits:X}",
+                            ExpectedMask = assertMask,
+                            RuleSource = ruleSource,
+                            RuleSourceDetail =
+                                $"{(isClear ? "CLEAR_BIT" : "SET_BIT")} 写后校验 {member} & 0x{assertMask:X}=0x{expectedBits:X}；{pairNote}；{rmwNote}；{trustNote}"
+                        },
+                        new()
+                        {
+                            Kind = LlAssertionKind.RegisterValue,
+                            InstanceName = targetInstance,
+                            MemberName = member,
+                            ExpectedHex = isClear ? "0x0" : $"0x{maskBits:X}",
+                            ExpectedMask = maskBits,
+                            RuleSource = ruleSource,
+                            RuleSourceDetail = isClear
+                                ? $"目标位清零：(actual & 0x{maskBits:X}) == 0"
+                                : $"目标位置位：(actual & 0x{maskBits:X}) == 0x{maskBits:X}"
+                        }
+                    };
+
+                    if (preserveBits != 0)
+                    {
+                        assertions.Add(new LlTestAssertionSpec
+                        {
+                            Kind = LlAssertionKind.PreserveBits,
+                            InstanceName = targetInstance,
+                            MemberName = member,
+                            ExpectedHex = $"0x{preserveBits:X}",
+                            ExpectedMask = preserveBits,
+                            RuleSource = LlAssertionRuleSource.FromRegisterDefinition,
+                            RuleSourceDetail =
+                                $"保留位：(actual & ~0x{maskBits:X}) == (initial & ~0x{maskBits:X}) = 0x{preserveBits:X}"
+                        });
+                    }
+
+                    // BitField: use resolved maskBits (chip/#define), not DB field.Mask.
+                    if (!isClear && TryFieldNameFromMskMacro(mskMacro, member, out var bfName) && maskBits != 0)
+                    {
+                        var bitPos = PosFromMask(maskBits);
+                        var bfExpected = maskBits >> bitPos;
+                        assertions.Add(new LlTestAssertionSpec
+                        {
+                            Kind = LlAssertionKind.BitField,
+                            InstanceName = targetInstance,
+                            MemberName = member,
+                            BitFieldName = bfName,
+                            ExpectedHex = $"0x{bfExpected:X}",
+                            ExpectedMask = maskBits,
+                            RuleSource = LlAssertionRuleSource.FromRegisterDefinition,
+                            RuleSourceDetail =
+                                $"BitField {bfName} after {op}: Expected=(mask>>pos)；" +
+                                $"SetMask=0x{maskBits:X} FieldMask=0x{maskBits:X} Pos={bitPos} " +
+                                $"Width={BitWidthFromMask(maskBits)} BitFieldExpected=0x{bfExpected:X}"
+                        });
+                    }
+
+                    if (accessPath.ArrayIndexExpr is not null)
+                    {
+                        assertions.Add(new LlTestAssertionSpec
+                        {
+                            Kind = LlAssertionKind.ArrayIndex,
+                            InstanceName = targetInstance,
+                            MemberName = member,
+                            ExpectedHex = channelIndex.ToString(),
+                            ExpectedExpression =
+                                $"{accessPath.ArrayIndexExpr} → {channelRaw}%{arrayBound}={channelIndex}",
+                            RuleSource = LlAssertionRuleSource.FromRegisterDefinition,
+                            RuleSourceDetail =
+                                $"数组索引：raw={channelRaw} → index={channelIndex} → {targetInstance}"
+                        });
+                    }
+
                     assertions.Add(new LlTestAssertionSpec
                     {
-                        Kind = LlAssertionKind.BitField,
-                        InstanceName = instance,
+                        Kind = LlAssertionKind.NoUnexpectedWrite,
+                        InstanceName = targetInstance,
                         MemberName = member,
-                        BitFieldName = bfName,
-                        ExpectedHex = $"0x{bfExpected:X}",
-                        ExpectedMask = maskBits,
+                        ExpectedAccessOrder = new[] { $"{targetInstance}.{member}", member },
                         RuleSource = LlAssertionRuleSource.FromRegisterDefinition,
-                        RuleSourceDetail =
-                            $"BitField {bfName} after {op}: Expected=(mask>>pos)；" +
-                            $"SetMask=0x{maskBits:X} FieldMask=0x{maskBits:X} Pos={bitPos} " +
-                            $"Width={BitWidthFromMask(maskBits)} BitFieldExpected=0x{bfExpected:X}"
+                        RuleSourceDetail = "禁止意外修改其他寄存器（LL 归因写入）"
                     });
+
+                    assertions.AddRange(DefaultTimeoutAssertions());
+                    model.Assertions = assertions;
+                    model.Notes = isClear
+                        ? $"自动 Disable/CLEAR RMW 监控：path={accessPath.RawPath} Target={targetInstance}.{member} " +
+                          $"Initial=0x{initialBits:X} Mask=0x{maskBits:X} Expected=0x{expectedBits:X}。{trustNote}。"
+                        : $"自动 Enable/SET RMW 监控：path={accessPath.RawPath} Target={targetInstance}.{member} " +
+                          $"Initial=0x{initialBits:X} Mask=0x{maskBits:X} Expected=0x{expectedBits:X}。{trustNote}。";
+                    results.Add(model);
                 }
 
-                assertions.AddRange(DefaultTimeoutAssertions());
-                model.Assertions = assertions;
-                model.Notes = isClear
-                    ? $"自动清位 RMW 校验：预置 {member}=0x{initialBits:X}，断言 &0x{assertMask:X}=0x{expectedBits:X}。{trustNote}。虚拟环境。"
-                    : $"自动置位 RMW 校验：预置 {member}=0x{initialBits:X}，断言 &0x{assertMask:X}=0x{expectedBits:X}。{trustNote}。虚拟环境。";
-                return model;
+                return results;
             }
 
             var write = WriteRegPattern.Match(text);
             if (!write.Success)
                 continue;
 
+            var writePathText = write.Groups["path"].Success
+                ? write.Groups["path"].Value
+                : "";
+            _ = TryParseRegAccessPath(writePathText, out var writePath);
+            var writeMember = string.IsNullOrEmpty(writePath.LeafMember)
+                ? PathLeaf(write)
+                : writePath.LeafMember;
+            var writeInstance = ResolveNestedInstance(instance, writePath, 0, null);
             var builtWrite = await TryBuildWriteRegCaseAsync(
-                db, fn, instance, baseParams, write.Groups["mem"].Value, write.Groups["val"].Value.Trim(), ct);
+                db, fn, writeInstance, baseParams, writeMember, write.Groups["val"].Value.Trim(), ct);
             if (builtWrite is not null)
-                return builtWrite;
+            {
+                EnrichWriteRegMonitoringAssertions(builtWrite, writeInstance, writeMember);
+                results.Add(builtWrite);
+                return results;
+            }
         }
 
-        return null;
+        return results;
+    }
+
+    /// <summary>Enable→enable-check, Disable→disable-check; otherwise set/clear-check.</summary>
+    private static string ResolveBitOpCheckSuffix(string? functionName, bool isClear)
+    {
+        var name = functionName ?? "";
+        if (!isClear
+            && name.Contains("Enable", StringComparison.OrdinalIgnoreCase)
+            && !name.Contains("Disable", StringComparison.OrdinalIgnoreCase))
+            return "enable-check";
+        if (isClear && name.Contains("Disable", StringComparison.OrdinalIgnoreCase))
+            return "disable-check";
+        return isClear ? "clear-check" : "set-check";
+    }
+
+    private static void ApplyBitOpChannelParameters(
+        List<LlTestParameterValue> parameters,
+        LlFunction fn,
+        string fallbackInstance,
+        string targetInstance,
+        RegAccessPath accessPath,
+        uint channelRaw)
+    {
+        foreach (var p in parameters.Where(TestHarnessGenerator.IsPeripheralTypeDefPointer))
+        {
+            p.ValueExpression = ResolveHostPeriPointer(
+                fn.PeripheralName, fallbackInstance, targetInstance, p.ValueExpression);
+        }
+
+        if (accessPath.ArrayIndexExpr is null)
+            return;
+
+        var idxNames = Regex.Matches(accessPath.ArrayIndexExpr, @"\b([A-Za-z_][A-Za-z0-9_]*)\b")
+            .Select(m => m.Groups[1].Value)
+            .Where(id => !id.StartsWith("LL_", StringComparison.Ordinal)
+                         && !id.Equals("U", StringComparison.OrdinalIgnoreCase)
+                         && !id.Equals("UL", StringComparison.OrdinalIgnoreCase))
+            .ToHashSet(StringComparer.OrdinalIgnoreCase);
+        var chParam = parameters.FirstOrDefault(p =>
+            !p.Type.Contains('*', StringComparison.Ordinal)
+            && idxNames.Contains(p.Name));
+        chParam ??= parameters.FirstOrDefault(p =>
+            !p.Type.Contains('*', StringComparison.Ordinal)
+            && (p.Name.Contains("Pwm", StringComparison.OrdinalIgnoreCase)
+                || p.Name.Contains("Ch", StringComparison.OrdinalIgnoreCase)
+                || p.Name.Contains("Idx", StringComparison.OrdinalIgnoreCase)
+                || p.Name.Contains("Index", StringComparison.OrdinalIgnoreCase)
+                || p.Name.Contains("Unit", StringComparison.OrdinalIgnoreCase)
+                || p.Name.Contains("Tim", StringComparison.OrdinalIgnoreCase)
+                || p.Name.Equals("Channel", StringComparison.OrdinalIgnoreCase)));
+
+        if (chParam is not null
+            && !chParam.Name.Contains("Mode", StringComparison.OrdinalIgnoreCase)
+            && !chParam.Name.Contains("Prescaler", StringComparison.OrdinalIgnoreCase)
+            && !chParam.Name.Contains("Value", StringComparison.OrdinalIgnoreCase))
+        {
+            chParam.ValueExpression = channelRaw.ToString();
+            chParam.RuleSource = nameof(LlAssertionRuleSource.FromRegisterDefinition);
+        }
+    }
+
+    /// <summary>Add RegisterWrite / NoUnexpectedWrite parity to WRITE_REG cases.</summary>
+    private static void EnrichWriteRegMonitoringAssertions(
+        LlTestCaseEditModel model, string instance, string member)
+    {
+        if (model.Assertions.All(a => a.Kind != LlAssertionKind.RegisterWrite))
+        {
+            model.Assertions.Insert(0, new LlTestAssertionSpec
+            {
+                Kind = LlAssertionKind.RegisterWrite,
+                InstanceName = instance,
+                MemberName = member,
+                RuleSource = LlAssertionRuleSource.FromRegisterDefinition,
+                RuleSourceDetail = $"必须写入 {instance}.{member}（WRITE_REG；轨迹校验）"
+            });
+        }
+
+        if (model.Assertions.All(a => a.Kind != LlAssertionKind.NoUnexpectedWrite))
+        {
+            var insertAt = model.Assertions.FindLastIndex(a => a.Kind != LlAssertionKind.Timeout) + 1;
+            if (insertAt < 0) insertAt = 0;
+            model.Assertions.Insert(insertAt, new LlTestAssertionSpec
+            {
+                Kind = LlAssertionKind.NoUnexpectedWrite,
+                InstanceName = instance,
+                MemberName = member,
+                ExpectedAccessOrder = new[] { $"{instance}.{member}", member },
+                RuleSource = LlAssertionRuleSource.FromRegisterDefinition,
+                RuleSourceDetail = "禁止意外修改其他寄存器（LL 归因写入）"
+            });
+        }
     }
 
     private static async Task<LlTestCaseEditModel?> TryBuildWriteRegCaseAsync(
@@ -1439,10 +1644,20 @@ public sealed class LlTestCaseGenerator
         return score;
     }
 
+    private static string PathLeaf(Match m)
+    {
+        if (m.Groups["path"].Success && TryParseRegAccessPath(m.Groups["path"].Value, out var parsed))
+            return parsed.LeafMember;
+        if (m.Groups["mem"].Success)
+            return m.Groups["mem"].Value;
+        return "";
+    }
+
     /// <summary>
     /// MODIFY_REG cases using CMSIS semantics:
     /// <c>expected = (initial &amp; ~clearMask) | setMask</c>.
-    /// clearMask/Pos from body macros + chip.h; setMask from the same param used at execute time.
+    /// Supports flat <c>reg-&gt;MEM</c>, nested <c>Master.MCR0</c>, and array
+    /// <c>PWM[(Idx)%N].REG.MEM</c> for any peripheral (instance from chip mask peri prefix).
     /// </summary>
     private static async Task<List<LlTestCaseEditModel>> TryBuildModifyRegWriteCasesAsync(
         AppDbContext db,
@@ -1468,13 +1683,17 @@ public sealed class LlTestCaseGenerator
                 return results;
         }
 
-        var bodyMember = liveFull.Success ? liveFull.Groups["mem"].Value : simple!.Groups["mem"].Value;
+        var pathText = liveFull.Success ? liveFull.Groups["path"].Value : simple!.Groups["path"].Value;
+        if (!TryParseRegAccessPath(pathText, out var accessPath))
+            return results;
+
+        var bodyMember = accessPath.LeafMember;
         var bodyMskMacro = liveFull.Success ? liveFull.Groups["msk"].Value : simple!.Groups["msk"].Value;
         var rhs = liveFull.Success ? liveFull.Groups["rhs"].Value : "";
         var member = ResolveMemberAlignedToMask(bodyMember, bodyMskMacro, out _, out var modifyPairNote);
 
-        // Prefer BODY mask (what compiled LL clears) + chip.h literals — not a guessed trusted narrow mask.
-        if (!TryFieldNameFromMskMacro(bodyMskMacro, member, out var fieldName))
+        if (!TryFieldNameFromMskMacro(bodyMskMacro, member, out var fieldName)
+            && !TryParseChipMaskRegAndField(bodyMskMacro, out _, out fieldName))
             fieldName = bodyMskMacro;
 
         var fieldDef = await FindRegisterFieldAsync(db, fn.SdkProjectId, member, fieldName, ct);
@@ -1483,21 +1702,17 @@ public sealed class LlTestCaseGenerator
         if (!TryResolveFieldMaskPos(fn.FilePath, fieldDef, bodyMskMacro, posMacro, out var clearMask, out var pos)
             || clearMask == 0)
         {
-            // Fallback: DB / expand
             clearMask = await ResolveClearMaskAsync(db, fn, member, bodyMskMacro, ct);
             if (clearMask == 0)
                 return results;
             pos = fieldDef?.BitPosition ?? PosFromMask(clearMask);
         }
 
-        // Field-value style: ((Prescaler) << Pos) or ((Mode) & Val) << Pos
-        // Mask style: MODIFY_REG(..., Mask) — arg already register-aligned.
         var isFieldValueStyle = rhs.Contains("<<", StringComparison.Ordinal)
             && (rhs.Contains("_Val", StringComparison.OrdinalIgnoreCase)
                 || rhs.Contains("_Pos", StringComparison.OrdinalIgnoreCase)
                 || Regex.IsMatch(rhs, @"\(\s*\(?\s*[A-Za-z_][A-Za-z0-9_]*\s*\)?\s*<<"));
 
-        // Optional Val clamp in RHS: (Param & Xxx_Val)
         uint? valClamp = null;
         var valTok = Regex.Match(rhs, @"&\s*(?<val>[A-Za-z0-9_]+_Val)\b");
         if (valTok.Success)
@@ -1510,6 +1725,10 @@ public sealed class LlTestCaseGenerator
                     break;
                 }
             }
+
+            // CONT_Val = Msk>>Pos often not a literal — derive from clearMask.
+            if (valClamp is null or 0)
+                valClamp = clearMask >> pos;
         }
 
         var maxField = clearMask >> pos;
@@ -1524,142 +1743,252 @@ public sealed class LlTestCaseGenerator
         }
         else
         {
-            // Pre-shifted / mask-arg style: param is already in register bit positions.
             samples = EnumerateModifyMaskArgSamples(clearMask);
         }
 
-        foreach (var (tag, paramRaw, withInterference) in samples)
+        // Array expansion: Idx % NUMS (any module — not HRPWM-only).
+        var arrayBound = ResolveArrayBound(accessPath.ArrayIndexExpr, fn.FilePath);
+        IReadOnlyList<uint> channelSamples = accessPath.ArrayIndexExpr is not null
+            ? new uint[] { 0, 1, 2, arrayBound > 0 ? arrayBound - 1 : 0, arrayBound, arrayBound + 1 }
+            : new uint[] { 0 };
+
+        foreach (var channelRaw in channelSamples.Distinct())
         {
-            uint paramBits;
-            uint setMask;
-            if (isFieldValueStyle)
-            {
-                paramBits = valClamp is uint vc ? paramRaw & vc : paramRaw;
-                setMask = (paramBits << pos) & clearMask;
-            }
-            else
-            {
-                paramBits = paramRaw & clearMask;
-                setMask = paramBits;
-            }
+            var channelIndex = accessPath.ArrayIndexExpr is not null
+                ? channelRaw % Math.Max(1u, arrayBound)
+                : 0u;
+            var targetInstance = ResolveNestedInstance(instance, accessPath, channelIndex, bodyMskMacro);
 
-            var preserveBits = withInterference ? PickUnrelatedPreserveBits(clearMask) : 0u;
-            var oldFieldBits = (~setMask) & clearMask;
-            if (oldFieldBits == 0 && clearMask != 0 && setMask != clearMask)
-                oldFieldBits = clearMask;
-            var initial = preserveBits | oldFieldBits;
-            var expected = ComputeModifyRegExpected(initial, clearMask, setMask);
-            EnsureModifyExpectationConsistent($"{instance}.{member}", initial, clearMask, setMask, expected);
-
-            var parameters = baseParams.Select(p => new LlTestParameterValue
+            foreach (var (tag, paramRaw, withInterference) in samples)
             {
-                Name = p.Name,
-                Type = p.Type,
-                ValueExpression = p.ValueExpression,
-                RuleSource = p.RuleSource
-            }).ToList();
-            var modeParam = parameters.FirstOrDefault(p =>
-                !p.Type.Contains('*', StringComparison.Ordinal)
-                && !string.Equals(p.ValueExpression, instance, StringComparison.OrdinalIgnoreCase));
-            if (modeParam is not null)
-            {
-                modeParam.ValueExpression = $"0x{paramBits:X}";
-                modeParam.RuleSource = nameof(LlAssertionRuleSource.FromRegisterDefinition);
-            }
-
-            var fieldLabel = fieldName;
-            var model = BaseModel(fn);
-            model.Name = $"{fn.FunctionName}/{instance}/{member}.{fieldLabel}/{tag}/write-check";
-            model.Status = nameof(LlTestCaseStatus.Ready);
-            model.IsAutoGenerated = true;
-            model.Parameters = parameters;
-            model.InitialRegisters =
-            [
-                new LlTestInitialRegister
+                uint paramBits;
+                uint setMask;
+                if (isFieldValueStyle)
                 {
-                    InstanceName = instance,
-                    MemberName = member,
-                    ValueHex = $"0x{initial:X}"
+                    paramBits = valClamp is uint vc ? paramRaw & vc : paramRaw;
+                    setMask = (paramBits << pos) & clearMask;
                 }
-            ];
-
-            var assertions = new List<LlTestAssertionSpec>
-            {
-                // Full register expected (CMSIS MODIFY_REG).
-                new()
+                else
                 {
-                    Kind = LlAssertionKind.RegisterValue,
-                    InstanceName = instance,
-                    MemberName = member,
-                    ExpectedHex = $"0x{expected:X}",
-                    ExpectedMask = 0xFFFFFFFFu,
-                    RuleSource = LlAssertionRuleSource.FromRegisterDefinition,
-                    RuleSourceDetail =
-                        $"MODIFY_REG：(initial=0x{initial:X} & ~0x{clearMask:X}) | 0x{setMask:X} = 0x{expected:X}；" +
-                        $"Param=0x{paramBits:X}；{modifyPairNote}；体宏 {bodyMskMacro} pos={pos}"
-                },
-                // Target field bits only.
-                new()
-                {
-                    Kind = LlAssertionKind.RegisterValue,
-                    InstanceName = instance,
-                    MemberName = member,
-                    ExpectedHex = $"0x{setMask:X}",
-                    ExpectedMask = clearMask,
-                    RuleSource = LlAssertionRuleSource.FromRegisterDefinition,
-                    RuleSourceDetail = $"目标位域：(actual & 0x{clearMask:X}) == 0x{setMask:X}"
+                    paramBits = paramRaw & clearMask;
+                    setMask = paramBits;
                 }
-            };
 
-            if (preserveBits != 0)
-            {
+                var preserveBits = withInterference ? PickUnrelatedPreserveBits(clearMask) : 0u;
+                var oldFieldBits = (~setMask) & clearMask;
+                if (oldFieldBits == 0 && clearMask != 0 && setMask != clearMask)
+                    oldFieldBits = clearMask;
+                var initial = preserveBits | oldFieldBits;
+                var expected = ComputeModifyRegExpected(initial, clearMask, setMask);
+                EnsureModifyExpectationConsistent($"{targetInstance}.{member}", initial, clearMask, setMask, expected);
+
+                var parameters = baseParams.Select(p => new LlTestParameterValue
+                {
+                    Name = p.Name,
+                    Type = p.Type,
+                    ValueExpression = p.ValueExpression,
+                    RuleSource = p.RuleSource
+                }).ToList();
+
+                // Host peri pointer: multi-bank TypeDef modules use module cast (HRPWM), else default instance.
+                foreach (var p in parameters.Where(TestHarnessGenerator.IsPeripheralTypeDefPointer))
+                {
+                    p.ValueExpression = ResolveHostPeriPointer(
+                        fn.PeripheralName, instance, targetInstance, p.ValueExpression);
+                }
+
+                // Index param: prefer name appearing in the C index expression.
+                if (accessPath.ArrayIndexExpr is not null)
+                {
+                    var idxNames = Regex.Matches(accessPath.ArrayIndexExpr, @"\b([A-Za-z_][A-Za-z0-9_]*)\b")
+                        .Select(m => m.Groups[1].Value)
+                        .Where(id => !id.StartsWith("LL_", StringComparison.Ordinal)
+                                     && !id.Equals("U", StringComparison.OrdinalIgnoreCase)
+                                     && !id.Equals("UL", StringComparison.OrdinalIgnoreCase))
+                        .ToHashSet(StringComparer.OrdinalIgnoreCase);
+                    var chParam = parameters.FirstOrDefault(p =>
+                        !p.Type.Contains('*', StringComparison.Ordinal)
+                        && idxNames.Contains(p.Name));
+                    chParam ??= parameters.FirstOrDefault(p =>
+                        !p.Type.Contains('*', StringComparison.Ordinal)
+                        && (p.Name.Contains("Pwm", StringComparison.OrdinalIgnoreCase)
+                            || p.Name.Contains("Ch", StringComparison.OrdinalIgnoreCase)
+                            || p.Name.Contains("Idx", StringComparison.OrdinalIgnoreCase)
+                            || p.Name.Contains("Index", StringComparison.OrdinalIgnoreCase)
+                            || p.Name.Contains("Unit", StringComparison.OrdinalIgnoreCase)
+                            || p.Name.Contains("Tim", StringComparison.OrdinalIgnoreCase)
+                            || p.Name.Equals("Channel", StringComparison.OrdinalIgnoreCase)));
+
+                    if (chParam is not null
+                        && !chParam.Name.Contains("Mode", StringComparison.OrdinalIgnoreCase)
+                        && !chParam.Name.Contains("Prescaler", StringComparison.OrdinalIgnoreCase)
+                        && !chParam.Name.Contains("Value", StringComparison.OrdinalIgnoreCase))
+                    {
+                        chParam.ValueExpression = channelRaw.ToString();
+                        chParam.RuleSource = nameof(LlAssertionRuleSource.FromRegisterDefinition);
+                    }
+                }
+
+                var indexParamNames = accessPath.ArrayIndexExpr is null
+                    ? new HashSet<string>(StringComparer.OrdinalIgnoreCase)
+                    : Regex.Matches(accessPath.ArrayIndexExpr, @"\b([A-Za-z_][A-Za-z0-9_]*)\b")
+                        .Select(m => m.Groups[1].Value)
+                        .ToHashSet(StringComparer.OrdinalIgnoreCase);
+
+                var modeParam = parameters.LastOrDefault(p =>
+                    !p.Type.Contains('*', StringComparison.Ordinal)
+                    && !indexParamNames.Contains(p.Name)
+                    && (p.Name.Contains("Mode", StringComparison.OrdinalIgnoreCase)
+                        || p.Name.Contains("Prescaler", StringComparison.OrdinalIgnoreCase)
+                        || p.Name.Contains("Value", StringComparison.OrdinalIgnoreCase)
+                        || p.Name.Contains("Div", StringComparison.OrdinalIgnoreCase)
+                        || p.Name.Contains("Data", StringComparison.OrdinalIgnoreCase)
+                        || p.Name.Contains("Cfg", StringComparison.OrdinalIgnoreCase)));
+                if (modeParam is null)
+                {
+                    modeParam = parameters.LastOrDefault(p =>
+                        !p.Type.Contains('*', StringComparison.Ordinal)
+                        && !indexParamNames.Contains(p.Name));
+                }
+
+                if (modeParam is not null)
+                {
+                    modeParam.ValueExpression = $"0x{paramBits:X}";
+                    modeParam.RuleSource = nameof(LlAssertionRuleSource.FromRegisterDefinition);
+                }
+
+                var channelTag = accessPath.ArrayIndexExpr is not null
+                    ? $"ch{channelRaw}->SLV{channelIndex}"
+                    : (accessPath.NestedPrefix ?? "flat");
+                var fieldLabel = fieldName;
+                var model = BaseModel(fn);
+                model.Name =
+                    $"{fn.FunctionName}/{targetInstance}/{member}.{fieldLabel}/{channelTag}/{tag}/write-check";
+                model.Status = nameof(LlTestCaseStatus.Ready);
+                model.IsAutoGenerated = true;
+                model.Parameters = parameters;
+                model.InitialRegisters =
+                [
+                    new LlTestInitialRegister
+                    {
+                        InstanceName = targetInstance,
+                        MemberName = member,
+                        ValueHex = $"0x{initial:X}"
+                    }
+                ];
+
+                var assertions = new List<LlTestAssertionSpec>
+                {
+                    new()
+                    {
+                        Kind = LlAssertionKind.RegisterWrite,
+                        InstanceName = targetInstance,
+                        MemberName = member,
+                        RuleSource = LlAssertionRuleSource.FromRegisterDefinition,
+                        RuleSourceDetail = $"必须写入 {targetInstance}.{member}（无 Get；轨迹校验）"
+                    },
+                    new()
+                    {
+                        Kind = LlAssertionKind.RegisterValue,
+                        InstanceName = targetInstance,
+                        MemberName = member,
+                        ExpectedHex = $"0x{expected:X}",
+                        ExpectedMask = 0xFFFFFFFFu,
+                        RuleSource = LlAssertionRuleSource.FromRegisterDefinition,
+                        RuleSourceDetail =
+                            $"MODIFY_REG：(initial=0x{initial:X} & ~0x{clearMask:X}) | 0x{setMask:X} = 0x{expected:X}；" +
+                            $"Param=0x{paramBits:X}；path={accessPath.RawPath}；{modifyPairNote}；体宏 {bodyMskMacro} pos={pos}"
+                    },
+                    new()
+                    {
+                        Kind = LlAssertionKind.RegisterValue,
+                        InstanceName = targetInstance,
+                        MemberName = member,
+                        ExpectedHex = $"0x{setMask:X}",
+                        ExpectedMask = clearMask,
+                        RuleSource = LlAssertionRuleSource.FromRegisterDefinition,
+                        RuleSourceDetail = $"目标位域：(actual & 0x{clearMask:X}) == 0x{setMask:X}"
+                    }
+                };
+
+                if (preserveBits != 0)
+                {
+                    assertions.Add(new LlTestAssertionSpec
+                    {
+                        Kind = LlAssertionKind.PreserveBits,
+                        InstanceName = targetInstance,
+                        MemberName = member,
+                        ExpectedHex = $"0x{preserveBits:X}",
+                        ExpectedMask = preserveBits,
+                        RuleSource = LlAssertionRuleSource.FromRegisterDefinition,
+                        RuleSourceDetail =
+                            $"保留位：(actual & ~0x{clearMask:X}) == (initial & ~0x{clearMask:X}) = 0x{preserveBits:X}"
+                    });
+                }
+
+                if (!string.IsNullOrWhiteSpace(fieldName)
+                    && !fieldName.EndsWith("_Msk", StringComparison.OrdinalIgnoreCase)
+                    && clearMask != 0)
+                {
+                    var bfExpected = (setMask & clearMask) >> pos;
+                    var fieldWidth = BitWidthFromMask(clearMask);
+                    assertions.Add(new LlTestAssertionSpec
+                    {
+                        Kind = LlAssertionKind.BitField,
+                        InstanceName = targetInstance,
+                        MemberName = member,
+                        BitFieldName = fieldName,
+                        ExpectedHex = $"0x{bfExpected:X}",
+                        ExpectedMask = clearMask,
+                        RuleSource = LlAssertionRuleSource.FromRegisterDefinition,
+                        RuleSourceDetail =
+                            $"BitField {fieldName}: Expected=(SetMask&FieldMask)>>Pos；" +
+                            $"ParamRaw=0x{paramBits:X} SetMask=0x{setMask:X} FieldMask=0x{clearMask:X} " +
+                            $"Pos={pos} Width={fieldWidth} BitFieldExpected=0x{bfExpected:X}" +
+                            (fieldDef?.Mask is uint dbm && dbm != clearMask
+                                ? $"；已忽略 DB.Mask=0x{dbm:X}"
+                                : "")
+                    });
+                }
+
+                if (accessPath.ArrayIndexExpr is not null)
+                {
+                    assertions.Add(new LlTestAssertionSpec
+                    {
+                        Kind = LlAssertionKind.ArrayIndex,
+                        InstanceName = targetInstance,
+                        MemberName = member,
+                        ExpectedHex = channelIndex.ToString(),
+                        ExpectedExpression = $"{accessPath.ArrayIndexExpr} → {channelRaw}%{arrayBound}={channelIndex}",
+                        RuleSource = LlAssertionRuleSource.FromRegisterDefinition,
+                        RuleSourceDetail =
+                            $"数组索引：raw={channelRaw} → index={channelIndex} → {targetInstance}"
+                    });
+                }
+
                 assertions.Add(new LlTestAssertionSpec
                 {
-                    Kind = LlAssertionKind.RegisterValue,
-                    InstanceName = instance,
+                    Kind = LlAssertionKind.NoUnexpectedWrite,
+                    InstanceName = targetInstance,
                     MemberName = member,
-                    ExpectedHex = $"0x{preserveBits:X}",
-                    ExpectedMask = preserveBits,
+                    ExpectedAccessOrder = new[] { $"{targetInstance}.{member}", member },
                     RuleSource = LlAssertionRuleSource.FromRegisterDefinition,
-                    RuleSourceDetail =
-                        $"保留位：(actual & ~0x{clearMask:X}) == (initial & ~0x{clearMask:X}) = 0x{preserveBits:X}"
+                    RuleSourceDetail = "禁止意外修改其他寄存器（LL 归因写入）"
                 });
-            }
 
-            // BitField expected MUST use the same chip-resolved clearMask/pos as RegisterValue —
-            // never stale DB fieldDef.Mask (e.g. wrong 0x7 / 3-bit PSC caused Expected=6/7).
-            if (!string.IsNullOrWhiteSpace(fieldName)
-                && !fieldName.EndsWith("_Msk", StringComparison.OrdinalIgnoreCase)
-                && clearMask != 0)
-            {
-                var bfExpected = (setMask & clearMask) >> pos;
-                var fieldWidth = BitWidthFromMask(clearMask);
-                assertions.Add(new LlTestAssertionSpec
-                {
-                    Kind = LlAssertionKind.BitField,
-                    InstanceName = instance,
-                    MemberName = member,
-                    BitFieldName = fieldName,
-                    ExpectedHex = $"0x{bfExpected:X}",
-                    ExpectedMask = clearMask,
-                    RuleSource = LlAssertionRuleSource.FromRegisterDefinition,
-                    RuleSourceDetail =
-                        $"BitField {fieldName}: Expected=(SetMask&FieldMask)>>Pos；" +
-                        $"ParamRaw=0x{paramBits:X} SetMask=0x{setMask:X} FieldMask=0x{clearMask:X} " +
-                        $"Pos={pos} Width={fieldWidth} BitFieldExpected=0x{bfExpected:X}" +
-                        (fieldDef?.Mask is uint dbm && dbm != clearMask
-                            ? $"；已忽略 DB.Mask=0x{dbm:X}"
-                            : "")
-                });
-            }
+                assertions.AddRange(DefaultTimeoutAssertions());
+                model.Assertions = assertions;
+                model.Notes =
+                    $"自动 MODIFY[{tag}/{channelTag}]：path={accessPath.RawPath} " +
+                    $"Target={targetInstance}.{member} Initial=0x{initial:X} Param=0x{paramBits:X} " +
+                    $"ClearMask=0x{clearMask:X} SetMask=0x{setMask:X} Expected=0x{expected:X} " +
+                    $"（无 Get；虚拟寄存器最终态 + 轨迹）。";
+                results.Add(model);
 
-            assertions.AddRange(DefaultTimeoutAssertions());
-            model.Assertions = assertions;
-            model.Notes =
-                $"自动 MODIFY[{tag}]：Initial=0x{initial:X} Param=0x{paramBits:X} " +
-                $"ClearMask=0x{clearMask:X} SetMask=0x{setMask:X} Expected=0x{expected:X} " +
-                $"（CMSIS：(init&~clear)|set）。虚拟环境。";
-            results.Add(model);
+                // Keep case volume bounded for array paths: one mode sample per channel is enough for edges.
+                if (accessPath.ArrayIndexExpr is not null)
+                    break;
+            }
         }
 
         return results;
@@ -2599,8 +2928,9 @@ public sealed class LlTestCaseGenerator
     }
 
     /// <summary>
-    /// Parse chip mask <c>DAC0_CR_OEN_Msk</c> / <c>RCU_XOSCCR_XEN_Msk</c> → register member + field.
-    /// Rejects multi-segment composites like <c>LL_ADC_CFGR1_PREPARING_START_MSK</c>.
+    /// Parse chip mask → register member + field.
+    /// Supports <c>DAC0_CR_OEN_Msk</c> (3 seg) and <c>HRPWM_SLV0_PWMCR0_CONT_Msk</c> / <c>HRPWM_MST_MCR0_CONT_Msk</c> (4+ seg).
+    /// Rejects multi-word composites like <c>LL_ADC_CFGR1_PREPARING_START_MSK</c>.
     /// </summary>
     private static bool TryParseChipMaskRegAndField(string mskMacro, out string regMember, out string fieldName)
     {
@@ -2612,15 +2942,246 @@ public sealed class LlTestCaseGenerator
             return false;
 
         var core = mskMacro[..^4];
-        // Exactly 3 segments: Periph(_N)? + Reg + Field (no extra underscores in field).
-        var m = Regex.Match(core,
-            @"^(?<peri>[A-Za-z]+\d*)_(?<reg>[A-Za-z][A-Za-z0-9]*)_(?<field>[A-Za-z][A-Za-z0-9]*)$",
-            RegexOptions.CultureInvariant);
-        if (!m.Success) return false;
-        regMember = m.Groups["reg"].Value;
-        fieldName = m.Groups["field"].Value;
-        return regMember.Length > 0 && fieldName.Length > 0;
+        var parts = core.Split('_', StringSplitOptions.RemoveEmptyEntries);
+        if (parts.Length < 3) return false;
+        // Last = field, second-last = register member; field must be a single token (no further _).
+        fieldName = parts[^1];
+        regMember = parts[^2];
+        if (fieldName.Length == 0 || regMember.Length == 0) return false;
+        // Reject long composite LL masks: field often looks like START / MODE with many peri tokens
+        // and contains ALL / PREPARING style — keep simple alphanumeric field only.
+        if (!Regex.IsMatch(fieldName, @"^[A-Za-z][A-Za-z0-9]*$")) return false;
+        if (!Regex.IsMatch(regMember, @"^[A-Za-z][A-Za-z0-9]*$")) return false;
+        if (parts.Length >= 5
+            && parts[0].Equals("LL", StringComparison.OrdinalIgnoreCase))
+            return false;
+        return true;
     }
+
+    /// <summary>Parsed <c>Inst-&gt;path</c> leaf register access (flat / nested / array).</summary>
+    private sealed record RegAccessPath(
+        string LeafMember,
+        string RawPath,
+        string? ArrayIndexExpr,
+        string? NestedPrefix);
+
+    private static bool TryParseRegAccessPath(string? path, out RegAccessPath parsed)
+    {
+        parsed = new RegAccessPath("", "", null, null);
+        if (string.IsNullOrWhiteSpace(path)) return false;
+        var p = path.Trim();
+        // PWM[(Pwmx) % LL_HRPWM_PWMx_NUMS].REG.PWMCR0
+        var arr = Regex.Match(p,
+            @"^(?<arr>[A-Za-z_][A-Za-z0-9_]*)\s*\[\s*(?<idx>.+?)\s*\]\s*(?:\.\s*(?:REG\s*\.)?\s*)?(?<leaf>[A-Za-z_][A-Za-z0-9_]*)\s*$",
+            RegexOptions.CultureInvariant | RegexOptions.Singleline);
+        if (arr.Success)
+        {
+            parsed = new RegAccessPath(
+                arr.Groups["leaf"].Value,
+                p,
+                arr.Groups["idx"].Value.Trim(),
+                arr.Groups["arr"].Value);
+            return true;
+        }
+
+        // Master.MCR0 / Common.XXX
+        var nest = Regex.Match(p,
+            @"^(?<pref>[A-Za-z_][A-Za-z0-9_]*)\s*\.\s*(?<leaf>[A-Za-z_][A-Za-z0-9_]*)\s*$",
+            RegexOptions.CultureInvariant);
+        if (nest.Success)
+        {
+            parsed = new RegAccessPath(
+                nest.Groups["leaf"].Value,
+                p,
+                null,
+                nest.Groups["pref"].Value);
+            return true;
+        }
+
+        // Flat MEM
+        var flat = Regex.Match(p, @"^(?<leaf>[A-Za-z_][A-Za-z0-9_]*)\s*$", RegexOptions.CultureInvariant);
+        if (flat.Success)
+        {
+            parsed = new RegAccessPath(flat.Groups["leaf"].Value, p, null, null);
+            return true;
+        }
+
+        // Fallback: last identifier after . or ]
+        var last = Regex.Matches(p, @"[A-Za-z_][A-Za-z0-9_]*");
+        if (last.Count == 0) return false;
+        parsed = new RegAccessPath(last[^1].Value, p, null, null);
+        return true;
+    }
+
+    /// <summary>
+    /// Bound for <c>idx % LL_*_NUMS</c> (any peripheral). Falls back to literal after % or 8.
+    /// </summary>
+    private static uint ResolveArrayBound(string? indexExpr, string? sourceFile)
+    {
+        const uint fallback = 8u;
+        if (!string.IsNullOrWhiteSpace(indexExpr))
+        {
+            var numsMacro = Regex.Match(indexExpr, @"\b(LL_[A-Za-z0-9_]+_NUMS)\b");
+            if (numsMacro.Success && !string.IsNullOrWhiteSpace(sourceFile))
+            {
+                foreach (var path in CandidateDefineFiles(sourceFile, null))
+                {
+                    if (TryParseUintDefineFromFile(path, numsMacro.Groups[1].Value, out var n) && n > 0)
+                        return n;
+                }
+            }
+
+            var lit = Regex.Match(indexExpr, @"%\s*(?<n>\d+)");
+            if (lit.Success && uint.TryParse(lit.Groups["n"].Value, out var ln) && ln > 0)
+                return ln;
+        }
+
+        if (!string.IsNullOrWhiteSpace(sourceFile))
+        {
+            foreach (var path in CandidateDefineFiles(sourceFile, null))
+            {
+                // Prefer any LL_*_NUMS define in the same header family.
+                try
+                {
+                    var text = File.ReadAllText(path);
+                    var m = Regex.Match(text, @"#define\s+(LL_[A-Za-z0-9_]+_NUMS)\s+\(?\s*(?<n>\d+)");
+                    if (m.Success && uint.TryParse(m.Groups["n"].Value, out var n) && n > 0)
+                        return n;
+                }
+                catch { /* ignore */ }
+            }
+        }
+
+        return fallback;
+    }
+
+    /// <summary>Chip mask peri prefix: <c>ADC0_CFGR0_X_Msk</c>→ADC0, <c>HRPWM_SLV0_PWMCR0_X_Msk</c>→HRPWM_SLV0.</summary>
+    private static bool TryPeriPrefixFromMask(string? mskMacro, out string peri)
+    {
+        peri = "";
+        if (string.IsNullOrWhiteSpace(mskMacro)) return false;
+        if (!mskMacro.EndsWith("_Msk", StringComparison.OrdinalIgnoreCase)
+            && !mskMacro.EndsWith("_MSK", StringComparison.OrdinalIgnoreCase))
+            return false;
+        if (!TryParseChipMaskRegAndField(mskMacro, out _, out _))
+            return false;
+        var core = mskMacro[..^4];
+        var parts = core.Split('_', StringSplitOptions.RemoveEmptyEntries);
+        if (parts.Length < 3) return false;
+        peri = string.Join('_', parts.Take(parts.Length - 2));
+        return peri.Length > 0;
+    }
+
+    /// <summary>
+    /// Map nested/array access to virtual MCU instance for any module.
+    /// Array banks: replace trailing digits on mask peri (SLV0/CH0/…) with computed index.
+    /// Nested Master/Common: prefer *_MST / *_COM family from mask peri.
+    /// </summary>
+    private static string ResolveNestedInstance(
+        string fallbackInstance,
+        RegAccessPath path,
+        uint channelIndex,
+        string? mskMacro)
+    {
+        TryPeriPrefixFromMask(mskMacro, out var periFromMask);
+
+        if (path.ArrayIndexExpr is not null)
+        {
+            if (!string.IsNullOrWhiteSpace(periFromMask))
+            {
+                var bank = Regex.Replace(periFromMask, @"\d+$", channelIndex.ToString());
+                if (!bank.Equals(periFromMask, StringComparison.Ordinal)
+                    || Regex.IsMatch(periFromMask, @"\d+$"))
+                    return bank;
+                // Peri has no trailing digits (rare): Module + index
+                return periFromMask + channelIndex;
+            }
+
+            // No mask peri: Module_ArrayPrefixIndex e.g. fallback HRPWM + PWM → keep fallback if already banked
+            if (Regex.IsMatch(fallbackInstance, @"\d+$"))
+                return Regex.Replace(fallbackInstance, @"\d+$", channelIndex.ToString());
+            return $"{fallbackInstance}_{path.NestedPrefix}{channelIndex}";
+        }
+
+        if (!string.IsNullOrWhiteSpace(path.NestedPrefix))
+        {
+            var pref = path.NestedPrefix!;
+            if (!string.IsNullOrWhiteSpace(periFromMask))
+            {
+                // Master / Common / shared block: swap bank token
+                if (pref.Equals("Master", StringComparison.OrdinalIgnoreCase)
+                    || pref.Equals("MST", StringComparison.OrdinalIgnoreCase))
+                {
+                    var mst = Regex.Replace(periFromMask, @"_(SLV|CH|UNIT|TIM)\d+$", "_MST",
+                        RegexOptions.IgnoreCase);
+                    if (mst.Equals(periFromMask, StringComparison.OrdinalIgnoreCase)
+                        && !periFromMask.Contains("_MST", StringComparison.OrdinalIgnoreCase))
+                    {
+                        var root = Regex.Match(periFromMask, @"^[A-Za-z]+");
+                        mst = root.Success ? $"{root.Value}_MST" : periFromMask;
+                    }
+                    return mst;
+                }
+
+                if (pref.Equals("Common", StringComparison.OrdinalIgnoreCase)
+                    || pref.Equals("COM", StringComparison.OrdinalIgnoreCase)
+                    || pref.Equals("Shared", StringComparison.OrdinalIgnoreCase))
+                {
+                    var com = Regex.Replace(periFromMask, @"_(SLV|CH|UNIT|TIM|MST)\d*$", "_COM",
+                        RegexOptions.IgnoreCase);
+                    if (com.Equals(periFromMask, StringComparison.OrdinalIgnoreCase)
+                        && !periFromMask.Contains("_COM", StringComparison.OrdinalIgnoreCase))
+                    {
+                        var root = Regex.Match(periFromMask, @"^[A-Za-z]+");
+                        com = root.Success ? $"{root.Value}_COM" : periFromMask;
+                    }
+                    return com;
+                }
+
+                // Other nested: use mask peri as-is (e.g. still SLV0 template)
+                return periFromMask;
+            }
+
+            if (pref.Equals("Master", StringComparison.OrdinalIgnoreCase))
+                return Regex.Replace(fallbackInstance, @"_(SLV|CH)\d+$", "_MST", RegexOptions.IgnoreCase);
+            if (pref.Equals("Common", StringComparison.OrdinalIgnoreCase))
+                return Regex.Replace(fallbackInstance, @"_(SLV|CH|MST)\d*$", "_COM", RegexOptions.IgnoreCase);
+        }
+
+        if (!string.IsNullOrWhiteSpace(periFromMask))
+            return periFromMask;
+        return fallbackInstance;
+    }
+
+    /// <summary>Host TypeDef cast name for multi-bank aggregates (single image); else numbered instance.</summary>
+    private static string ResolveHostPeriPointer(
+        string? peripheralName,
+        string fallbackInstance,
+        string targetInstance,
+        string? current)
+    {
+        if (IsHostAggregateModule(peripheralName) || IsHostAggregateInstance(targetInstance))
+            return string.IsNullOrWhiteSpace(peripheralName) ? "HRPWM" : peripheralName!;
+
+        if (!string.IsNullOrWhiteSpace(current)
+            && !current.Equals("0", StringComparison.Ordinal)
+            && !IsHostAggregateInstance(current))
+            return current;
+
+        return string.IsNullOrWhiteSpace(fallbackInstance)
+            ? (peripheralName ?? "PERI")
+            : fallbackInstance;
+    }
+
+    private static bool IsHostAggregateModule(string? module)
+        => string.Equals(module, "HRPWM", StringComparison.OrdinalIgnoreCase);
+
+    private static bool IsHostAggregateInstance(string? instance)
+        => !string.IsNullOrWhiteSpace(instance)
+           && (instance.StartsWith("HRPWM_SLV", StringComparison.OrdinalIgnoreCase)
+               || instance.StartsWith("HRPWM_MST", StringComparison.OrdinalIgnoreCase)
+               || instance.StartsWith("HRPWM_COM", StringComparison.OrdinalIgnoreCase)
+               || string.Equals(instance, "HRPWM", StringComparison.OrdinalIgnoreCase));
 
     /// <summary>
     /// Chip mask embeds the register (<c>DAC0_CR_OEN_Msk</c> → CR). If body uses a different
@@ -2689,9 +3250,9 @@ public sealed class LlTestCaseGenerator
         }
 
         foreach (Match m in SetClearBitPattern.Matches(body))
-            Check(m.Groups["op"].Value, m.Groups["mem"].Value, m.Groups["msk"].Value);
+            Check(m.Groups["op"].Value, PathLeaf(m), m.Groups["msk"].Value);
         foreach (Match m in ModifyRegPattern.Matches(body))
-            Check("MODIFY_REG", m.Groups["mem"].Value, m.Groups["msk"].Value);
+            Check("MODIFY_REG", PathLeaf(m), m.Groups["msk"].Value);
         foreach (Match m in ReadBitShiftPattern.Matches(body))
             Check("READ_BIT_SHIFT", m.Groups["mem"].Value, m.Groups["msk"].Value);
         foreach (Match m in ReadBitThenShiftPattern.Matches(body))
@@ -2702,7 +3263,7 @@ public sealed class LlTestCaseGenerator
         {
             var mskTok = Regex.Match(m.Groups["val"].Value, @"\b(?<msk>[A-Za-z0-9_]+_(?:Msk|MSK))\b");
             if (mskTok.Success)
-                Check("WRITE_REG", m.Groups["mem"].Value, mskTok.Groups["msk"].Value);
+                Check("WRITE_REG", PathLeaf(m), mskTok.Groups["msk"].Value);
         }
 
         return notes;

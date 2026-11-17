@@ -12,11 +12,11 @@ namespace TAE32.LLVirtualTest.Infrastructure.TestEngine;
 public sealed class LlShiftStaticAnalyzer
 {
     private static readonly Regex ModifyRegFull = new(
-        @"MODIFY_REG\s*\(\s*(?<inst>[A-Za-z0-9_]+)\s*->\s*(?<mem>[A-Za-z0-9_]+)\s*,\s*(?<msk>[^,]+?)\s*,\s*(?<rhs>[^;]+?)\)\s*;",
+        @"MODIFY_REG\s*\(\s*(?<inst>[A-Za-z0-9_]+)\s*->\s*(?<path>[^,]+?)\s*,\s*(?<msk>[^,]+?)\s*,\s*(?<rhs>[^;]+?)\)\s*;",
         RegexOptions.Compiled | RegexOptions.CultureInvariant | RegexOptions.IgnoreCase | RegexOptions.Singleline);
 
     private static readonly Regex SetClearBit = new(
-        @"\b(?<op>SET_BIT|CLEAR_BIT)\s*\(\s*(?<inst>[A-Za-z0-9_]+)\s*->\s*(?<mem>[A-Za-z0-9_]+)\s*,\s*(?<msk>[^)]+?)\)",
+        @"\b(?<op>SET_BIT|CLEAR_BIT)\s*\(\s*(?<inst>[A-Za-z0-9_]+)\s*->\s*(?<path>[^,]+?)\s*,\s*(?<msk>[^)]+?)\)",
         RegexOptions.Compiled | RegexOptions.CultureInvariant | RegexOptions.IgnoreCase);
 
     private static readonly Regex ShiftExpr = new(
@@ -76,7 +76,7 @@ public sealed class LlShiftStaticAnalyzer
         // MODIFY_REG / SET_BIT / CLEAR_BIT contexts for register-field matching.
         foreach (Match mod in ModifyRegFull.Matches(body))
         {
-            var mem = mod.Groups["mem"].Value.Trim();
+            var mem = LeafMemberFromPath(mod.Groups["path"].Success ? mod.Groups["path"].Value : mod.Groups["mem"].Value);
             var mskExpr = mod.Groups["msk"].Value.Trim();
             var rhs = mod.Groups["rhs"].Value.Trim();
             var line = bodyStartLine + CountNewlines(body, mod.Index);
@@ -86,7 +86,7 @@ public sealed class LlShiftStaticAnalyzer
 
         foreach (Match sc in SetClearBit.Matches(body))
         {
-            var mem = sc.Groups["mem"].Value.Trim();
+            var mem = LeafMemberFromPath(sc.Groups["path"].Success ? sc.Groups["path"].Value : sc.Groups["mem"].Value);
             var mskExpr = sc.Groups["msk"].Value.Trim();
             var line = bodyStartLine + CountNewlines(body, sc.Index);
             AnalyzeMaskOperand(catalog, functionName, fileLabel, line, mem, mskExpr, sc.Groups["op"].Value, diagnostics);
@@ -318,6 +318,15 @@ public sealed class LlShiftStaticAnalyzer
         var arrow = Regex.Matches(before, @"->\s*(?<mem>[A-Za-z0-9_]+)");
         if (arrow.Count == 0) return null;
         return arrow[^1].Groups["mem"].Value;
+    }
+
+    /// <summary>Flat MEM or nested/array path → leaf register member (e.g. PWM[i].REG.PWMCR0 → PWMCR0).</summary>
+    private static string LeafMemberFromPath(string? path)
+    {
+        if (string.IsNullOrWhiteSpace(path)) return "";
+        var p = path.Trim();
+        var ids = Regex.Matches(p, @"[A-Za-z_][A-Za-z0-9_]*");
+        return ids.Count == 0 ? p : ids[^1].Value;
     }
 
     private static string? SuggestPosFor(SdkMacroSemanticInfo mask)

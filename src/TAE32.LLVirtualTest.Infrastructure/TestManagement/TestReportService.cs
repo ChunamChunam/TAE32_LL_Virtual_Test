@@ -52,6 +52,9 @@ public sealed class TestReportService : ITestReportService
                 or nameof(LlTestRunStatus.Error)
                 or nameof(LlTestRunStatus.Timeout))
             .ToList();
+        var skippedDetails = runDetails
+            .Where(x => x.Status == nameof(LlTestRunStatus.Skipped))
+            .ToList();
         var passedDetails = runDetails
             .Where(x => x.Status == nameof(LlTestRunStatus.Passed))
             .ToList();
@@ -86,14 +89,14 @@ public sealed class TestReportService : ITestReportService
                 // Lightweight printable HTML saved as .pdf.html (open in browser → 打印为 PDF).
                 path = Path.Combine(outDir, $"report_{stamp}.pdf.html");
                 await File.WriteAllTextAsync(path,
-                    BuildHtml(title, disclaimer, project, batch, effectiveScope, stats, coverage, runDetails, failures, passedDetails, printable: true),
+                    BuildHtml(title, disclaimer, project, batch, effectiveScope, stats, coverage, runDetails, failures, skippedDetails, passedDetails, printable: true),
                     Encoding.UTF8, cancellationToken);
                 format = "Pdf";
                 break;
             default:
                 path = Path.Combine(outDir, $"report_{stamp}.html");
                 await File.WriteAllTextAsync(path,
-                    BuildHtml(title, disclaimer, project, batch, effectiveScope, stats, coverage, runDetails, failures, passedDetails, printable: false),
+                    BuildHtml(title, disclaimer, project, batch, effectiveScope, stats, coverage, runDetails, failures, skippedDetails, passedDetails, printable: false),
                     Encoding.UTF8, cancellationToken);
                 format = "Html";
                 break;
@@ -227,13 +230,14 @@ public sealed class TestReportService : ITestReportService
         CoverageStats coverage,
         IReadOnlyList<FailureAnalysisItem> runDetails,
         IReadOnlyList<FailureAnalysisItem> failures,
+        IReadOnlyList<FailureAnalysisItem> skippedDetails,
         IReadOnlyList<FailureAnalysisItem> passedDetails,
         bool printable)
     {
         var sb = new StringBuilder();
         sb.AppendLine("<!DOCTYPE html><html><head><meta charset='utf-8'/>");
         sb.AppendLine($"<title>{Escape(title)}</title>");
-        sb.AppendLine("<style>body{font-family:Segoe UI,Arial,sans-serif;margin:24px;color:#1a1a1a}h1,h2{color:#0f766e}.warn{background:#fff7ed;border:1px solid #fdba74;padding:12px;margin:12px 0}table{border-collapse:collapse;width:100%;margin:12px 0}th,td{border:1px solid #ddd;padding:6px 8px;font-size:13px}th{background:#f3f4f6;text-align:left}.meta{color:#555}pre{background:#f8fafc;padding:8px;overflow:auto;font-size:12px}details{margin:8px 0;border:1px solid #e5e7eb;border-radius:6px;padding:4px 8px}details>summary{cursor:pointer;font-weight:600}.pass summary{color:#047857}.fail summary{color:#b45309}</style>");
+        sb.AppendLine("<style>body{font-family:Segoe UI,Arial,sans-serif;margin:24px;color:#1a1a1a}h1,h2{color:#0f766e}.warn{background:#fff7ed;border:1px solid #fdba74;padding:12px;margin:12px 0}table{border-collapse:collapse;width:100%;margin:12px 0}th,td{border:1px solid #ddd;padding:6px 8px;font-size:13px}th{background:#f3f4f6;text-align:left}.meta{color:#555}pre{background:#f8fafc;padding:8px;overflow:auto;font-size:12px}details{margin:8px 0;border:1px solid #e5e7eb;border-radius:6px;padding:4px 8px}details>summary{cursor:pointer;font-weight:600}.pass summary{color:#047857}.fail summary{color:#b45309}.skip summary{color:#6b7280}</style>");
         if (printable) sb.AppendLine("<style>@media print{body{margin:12px}}</style>");
         sb.AppendLine("</head><body>");
         sb.AppendLine($"<h1>{Escape(title)}</h1>");
@@ -269,7 +273,7 @@ public sealed class TestReportService : ITestReportService
         sb.AppendLine($"<h2>4. 执行结果汇总（{runDetails.Count} 条）</h2>");
         sb.AppendLine("<p class='meta'>");
         sb.AppendLine(DescribeReportRunScope(runScope, runDetails.Count, batch));
-        sb.AppendLine($"Passed={passedDetails.Count}，失败/错误/超时={failures.Count}。");
+        sb.AppendLine($"Passed={passedDetails.Count}，失败/错误/超时={failures.Count}，跳过={skippedDetails.Count}。");
         if (batch is not null && batch.TotalCount > runDetails.Count)
             sb.AppendLine($"<br/><b>注意：</b>批次登记 {batch.TotalCount} 次运行，本报告载入 {runDetails.Count} 条明细（无导出条数上限；缺口多为库中运行记录已删）。");
         sb.AppendLine("</p>");
@@ -292,9 +296,10 @@ public sealed class TestReportService : ITestReportService
         }
 
         AppendRunDetailSection(sb, "5. 失败 / 错误 / 超时 — 详细记录", failures, cssClass: "fail", expand: true);
-        AppendRunDetailSection(sb, "6. 通过 — 详细测试记录", passedDetails, cssClass: "pass", expand: false);
+        AppendRunDetailSection(sb, "6. 跳过 — 详细测试记录（含操作过程）", skippedDetails, cssClass: "skip", expand: true);
+        AppendRunDetailSection(sb, "7. 通过 — 详细测试记录", passedDetails, cssClass: "pass", expand: false);
 
-        sb.AppendLine("<h2>7. 测试结论</h2>");
+        sb.AppendLine("<h2>8. 测试结论</h2>");
         sb.AppendLine($"<p>在虚拟 MCU 环境下，选定范围内通过率 {stats.PassRate:F1}%。");
         sb.AppendLine("本结论仅反映软件模拟验证，不能替代板级硬件测试。</p>");
         sb.AppendLine("</body></html>");
@@ -328,6 +333,17 @@ public sealed class TestReportService : ITestReportService
             if (!string.IsNullOrWhiteSpace(r.FailureReason))
                 sb.AppendLine($"<li>说明: {Escape(r.FailureReason)}</li>");
             sb.AppendLine("</ul>");
+            if (string.Equals(r.Status, nameof(LlTestRunStatus.Skipped), StringComparison.OrdinalIgnoreCase))
+            {
+                sb.AppendLine("<p class='meta'>跳过不等于未执行：多数情况仍走过环境检查/编译/执行；"
+                    + "因缺少语义断言（常见仅超时断言）或缺少 Clang 而不计 Passed。"
+                    + "下方为该次运行的操作过程。</p>");
+            }
+            if (!string.IsNullOrWhiteSpace(r.StagesJson) && r.StagesJson.Trim() is not ("[]" or "null"))
+            {
+                sb.AppendLine("<p><b>操作过程（执行阶段）</b></p>");
+                sb.AppendLine($"<pre>{Escape(FormatAssertionJsonForReport(r.StagesJson))}</pre>");
+            }
             if (!string.IsNullOrWhiteSpace(r.ParametersJson))
             {
                 sb.AppendLine("<p><b>用例参数（传入 LL 的实参）</b></p>");

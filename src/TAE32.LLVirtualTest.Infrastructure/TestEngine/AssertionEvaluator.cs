@@ -25,10 +25,15 @@ internal static class AssertionEvaluator
                 LlAssertionKind.ReturnValue => EvalReturn(spec, returnValue),
                 LlAssertionKind.RegisterValue => await EvalRegister(mcu, mcuId, spec, ct),
                 LlAssertionKind.BitField => await EvalBitField(mcu, mcuId, spec, ct),
+                LlAssertionKind.PreserveBits => await EvalRegister(mcu, mcuId, spec, ct),
                 LlAssertionKind.RegisterAccessOrder => EvalAccessOrder(spec, trace),
                 LlAssertionKind.FunctionCall => EvalFunctionCall(spec, trace),
                 LlAssertionKind.Exception => EvalException(spec, executionException),
                 LlAssertionKind.Timeout => EvalTimeout(spec, elapsedMs),
+                LlAssertionKind.RegisterWrite => EvalRegisterWrite(spec, trace),
+                LlAssertionKind.RegisterAddress => await EvalRegisterAddress(mcu, mcuId, spec, ct),
+                LlAssertionKind.NoUnexpectedWrite => EvalNoUnexpectedWrite(spec, trace),
+                LlAssertionKind.ArrayIndex => EvalArrayIndex(spec),
                 _ => Fail(spec, "未支持的断言类型")
             });
         }
@@ -180,8 +185,103 @@ internal static class AssertionEvaluator
             ok ? "未超时" : "原生执行超时");
     }
 
+    private static LlTestAssertionResult EvalRegisterWrite(
+        LlTestAssertionSpec spec, IReadOnlyList<VirtualAccessRecord> trace)
+    {
+        if (string.IsNullOrWhiteSpace(spec.InstanceName) || string.IsNullOrWhiteSpace(spec.MemberName))
+            return Fail(spec, "RegisterWrite 缺少 instance/member");
+        var key = $"{spec.InstanceName}.{spec.MemberName}";
+        var writes = trace
+            .Where(IsLlAttributedAccess)
+            .Where(t => t.AccessKind is VirtualAccessKind.Write or VirtualAccessKind.SetBits
+                or VirtualAccessKind.ClearBits or VirtualAccessKind.ModifyBits or VirtualAccessKind.WriteBitField)
+            .Where(t =>
+                (t.RegisterName?.Contains(spec.MemberName!, StringComparison.OrdinalIgnoreCase) ?? false)
+                && (string.IsNullOrWhiteSpace(t.InstanceName)
+                    || t.InstanceName.Equals(spec.InstanceName, StringComparison.OrdinalIgnoreCase)
+                    || (t.RegisterName?.Contains(spec.InstanceName!, StringComparison.OrdinalIgnoreCase) ?? false)))
+            .ToList();
+        var ok = writes.Count > 0;
+        return Result(spec, ok, key, ok ? $"{writes.Count} write(s)" : "无写入",
+            ok ? "检测到目标寄存器写入（虚拟轨迹）" : "未检测到目标寄存器写入");
+    }
+
+    private static async Task<LlTestAssertionResult> EvalRegisterAddress(
+        IVirtualMcuService mcu, Guid mcuId, LlTestAssertionSpec spec, CancellationToken ct)
+    {
+        if (string.IsNullOrWhiteSpace(spec.InstanceName) || string.IsNullOrWhiteSpace(spec.MemberName))
+            return Fail(spec, "RegisterAddress 缺少 instance/member");
+        var reg = await mcu.GetRegisterAsync(mcuId, spec.InstanceName!, spec.MemberName!, ct);
+        if (reg is null) return Fail(spec, "寄存器不存在于虚拟 MCU");
+        if (reg.AbsoluteAddress is null)
+            return Fail(spec, "虚拟寄存器无 AbsoluteAddress");
+        var expected = TestHarnessGenerator.ParseUIntExpression(spec.ExpectedHex ?? spec.ExpectedExpression);
+        var actual = reg.AbsoluteAddress.Value;
+        var ok = actual == expected;
+        return Result(spec, ok, $"0x{expected:X8}", $"0x{actual:X8}",
+            ok ? "寄存器地址匹配" : "寄存器地址不匹配");
+    }
+
+    private static LlTestAssertionResult EvalNoUnexpectedWrite(
+        LlTestAssertionSpec spec, IReadOnlyList<VirtualAccessRecord> trace)
+    {
+        var allow = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        if (!string.IsNullOrWhiteSpace(spec.InstanceName) && !string.IsNullOrWhiteSpace(spec.MemberName))
+            allow.Add($"{spec.InstanceName}.{spec.MemberName}");
+        if (spec.ExpectedAccessOrder is { Count: > 0 })
+        {
+            foreach (var a in spec.ExpectedAccessOrder)
+                if (!string.IsNullOrWhiteSpace(a))
+                    allow.Add(a.Trim());
+        }
+
+        if (allow.Count == 0)
+            return Fail(spec, "NoUnexpectedWrite 未指定允许的寄存器");
+
+        var unexpected = new List<string>();
+        foreach (var t in trace.Where(IsLlAttributedAccess)
+                     .Where(x => x.AccessKind is VirtualAccessKind.Write or VirtualAccessKind.SetBits
+                         or VirtualAccessKind.ClearBits or VirtualAccessKind.ModifyBits
+                         or VirtualAccessKind.WriteBitField))
+        {
+            var name = !string.IsNullOrWhiteSpace(t.InstanceName) && !string.IsNullOrWhiteSpace(t.RegisterName)
+                ? $"{t.InstanceName}.{t.RegisterName}"
+                : (t.RegisterName ?? "");
+            var ok = allow.Any(a =>
+                name.Equals(a, StringComparison.OrdinalIgnoreCase)
+                || name.EndsWith("." + a, StringComparison.OrdinalIgnoreCase)
+                || (t.RegisterName?.Equals(a, StringComparison.OrdinalIgnoreCase) ?? false)
+                || name.Contains(a, StringComparison.OrdinalIgnoreCase));
+            if (!ok && !string.IsNullOrWhiteSpace(name))
+                unexpected.Add(name);
+        }
+
+        var passed = unexpected.Count == 0;
+        return Result(spec, passed,
+            string.Join(", ", allow),
+            unexpected.Count == 0 ? "(无意外写入)" : string.Join(", ", unexpected.Distinct().Take(12)),
+            passed ? "无意外寄存器写入" : "检测到非目标寄存器写入");
+    }
+
+    private static LlTestAssertionResult EvalArrayIndex(LlTestAssertionSpec spec)
+    {
+        // Generation embeds computed index in ExpectedHex and resolved instance in InstanceName.
+        // Runtime re-check: InstanceName ends with the index digit(s) when pattern HRPWM_SLVn.
+        var expected = TestHarnessGenerator.ParseUIntExpression(spec.ExpectedHex ?? spec.ExpectedExpression);
+        var inst = spec.InstanceName ?? "";
+        var m = System.Text.RegularExpressions.Regex.Match(inst, @"(\d+)\s*$");
+        if (!m.Success)
+            return Result(spec, true, $"index={expected}", inst,
+                "ArrayIndex：实例名无尾缀数字，已按生成期计算接受");
+        var actual = uint.Parse(m.Groups[1].Value);
+        var ok = actual == expected;
+        return Result(spec, ok, $"index={expected}", $"instance={inst} → {actual}",
+            ok ? "数组索引与实例一致" : "数组索引与实例不一致");
+    }
+
     /// <summary>
-    /// Exclude test preload / unchanged harness sync noise from "LL access order" checks.
+    /// Exclude test preload / unchanged harness sync noise from LL write/order checks.
+    /// Keep records attributed to the LL function (including Note=ll-native-write).
     /// </summary>
     private static bool IsLlAttributedAccess(VirtualAccessRecord t)
     {

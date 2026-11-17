@@ -32,7 +32,17 @@ public enum LlAssertionKind
     RegisterAccessOrder,
     FunctionCall,
     Exception,
-    Timeout
+    Timeout,
+    /// <summary>Trace must contain a write to Instance/Member (no Get required).</summary>
+    RegisterWrite,
+    /// <summary>Virtual register AbsoluteAddress matches ExpectedHex.</summary>
+    RegisterAddress,
+    /// <summary>Non-target bits preserved: (actual &amp; mask) == expected.</summary>
+    PreserveBits,
+    /// <summary>No LL-attributed write outside Instance/Member (and optional ExpectedAccessOrder allow-list).</summary>
+    NoUnexpectedWrite,
+    /// <summary>Array channel index: ExpectedHex holds computed index; InstanceName should be SLV{index}.</summary>
+    ArrayIndex
 }
 
 public enum LlAssertionRuleSource

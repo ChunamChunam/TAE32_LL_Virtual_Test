@@ -1,6 +1,7 @@
 using System.Diagnostics;
 using System.Runtime.InteropServices;
 using System.Text.Json;
+using System.Text.RegularExpressions;
 using TAE32.LLVirtualTest.Core.Interfaces;
 using TAE32.LLVirtualTest.Core.Models;
 using TAE32.LLVirtualTest.Infrastructure.VirtualMcu;
@@ -126,6 +127,9 @@ internal sealed class NativeTestHost : IDisposable
         }
     }
 
+    /// <summary>
+    /// Map value: <c>Member</c> or <c>Instance::Member</c> (multi-bank TypeDef images e.g. HRPWM).
+    /// </summary>
     public static async Task<(IntPtr ptr, int size, Dictionary<int, string> offsetToMember)> AllocateAndFillAsync(
         IVirtualMcuService mcu,
         Guid mcuId,
@@ -133,15 +137,21 @@ internal sealed class NativeTestHost : IDisposable
         CancellationToken ct,
         string? moduleName = null)
     {
-        var regs = await mcu.GetRegistersAsync(mcuId, moduleName, instanceName, ct);
-        var withOff = regs
-            .Where(r => r.AbsoluteAddress is not null)
+        var multiBank = IsMultiBankModule(moduleName, instanceName);
+        var regs = multiBank
+            ? await mcu.GetRegistersAsync(mcuId, moduleName ?? "HRPWM", null, ct)
+            : await mcu.GetRegistersAsync(mcuId, moduleName, instanceName, ct);
+
+        var addressed = regs.Where(r => r.AbsoluteAddress is not null).ToList();
+        uint moduleBase = 0;
+        if (addressed.Count > 0)
+            moduleBase = addressed.Min(x => x.AbsoluteAddress!.Value);
+
+        var withOff = addressed
             .Select(r => new
             {
-                r.MemberName,
-                Offset = (int)(r.AbsoluteAddress!.Value
-                               - regs.Where(x => x.AbsoluteAddress is not null)
-                                   .Min(x => x.AbsoluteAddress!.Value)),
+                Key = multiBank ? $"{r.InstanceName}::{r.MemberName}" : r.MemberName,
+                Offset = (int)(r.AbsoluteAddress!.Value - moduleBase),
                 r.CurrentValue,
                 r.WidthBits
             })
@@ -164,7 +174,9 @@ internal sealed class NativeTestHost : IDisposable
             for (var i = 0; i < list.Count; i++)
             {
                 var off = i * 4;
-                map[off] = list[i].MemberName;
+                map[off] = multiBank
+                    ? $"{list[i].InstanceName}::{list[i].MemberName}"
+                    : list[i].MemberName;
                 Marshal.WriteInt32(ptr, off, unchecked((int)list[i].CurrentValue));
             }
             return (ptr, size, map);
@@ -180,10 +192,34 @@ internal sealed class NativeTestHost : IDisposable
         var offsetMap = new Dictionary<int, string>();
         foreach (var r in withOff)
         {
-            offsetMap[r.Offset] = r.MemberName;
+            offsetMap[r.Offset] = r.Key;
             Marshal.WriteInt32(basePtr, r.Offset, unchecked((int)r.CurrentValue));
         }
         return (basePtr, bufSize, offsetMap);
+    }
+
+    /// <summary>
+    /// Multi-bank = one host TypeDef image covering several chip bases (e.g. HRPWM MST/SLVn/COM).
+    /// Not ADC0/ADC1 (separate TypeDefs / separate host casts).
+    /// </summary>
+    private static bool IsMultiBankModule(string? moduleName, string? instanceName)
+    {
+        if (string.Equals(moduleName, "HRPWM", StringComparison.OrdinalIgnoreCase))
+            return true;
+        if (string.IsNullOrWhiteSpace(instanceName))
+            return false;
+        // Module_SUBBANK: HRPWM_SLV0, FOO_MST, BAR_COM, BAZ_CH3 (not FOO0/FOO1 numbered peripherals).
+        return Regex.IsMatch(instanceName,
+            @"^[A-Za-z]+_(MST|COM|SLV\d+|CH\d+|UNIT\d+|TIM\d+)$",
+            RegexOptions.IgnoreCase);
+    }
+
+    internal static (string Instance, string Member) SplitSlotKey(string key, string fallbackInstance)
+    {
+        var idx = key.IndexOf("::", StringComparison.Ordinal);
+        if (idx <= 0)
+            return (fallbackInstance, key);
+        return (key[..idx], key[(idx + 2)..]);
     }
 
     /// <summary>
@@ -195,12 +231,12 @@ internal sealed class NativeTestHost : IDisposable
         var bsrOff = -1;
         var dorOff = -1;
         var odrOff = -1;
-        foreach (var (offset, member) in offsetToMember)
+        foreach (var (offset, key) in offsetToMember)
         {
-            var m = member.ToUpperInvariant();
-            if (m is "BSR" or "BSRR") bsrOff = offset;
-            else if (m == "DOR") dorOff = offset;
-            else if (m == "ODR") odrOff = offset;
+            var member = SplitSlotKey(key, "").Member.ToUpperInvariant();
+            if (member is "BSR" or "BSRR") bsrOff = offset;
+            else if (member == "DOR") dorOff = offset;
+            else if (member == "ODR") odrOff = offset;
         }
 
         // Prefer DOR; only fall back to ODR for STM32-style layouts without DOR.
@@ -240,7 +276,7 @@ internal sealed class NativeTestHost : IDisposable
         CancellationToken ct,
         IReadOnlyDictionary<int, uint>? beforeExecute = null)
     {
-        foreach (var (offset, member) in offsetToMember)
+        foreach (var (offset, key) in offsetToMember)
         {
             var value = unchecked((uint)Marshal.ReadInt32(periBase, offset));
             if (beforeExecute is not null
@@ -250,7 +286,8 @@ internal sealed class NativeTestHost : IDisposable
                 continue;
             }
 
-            await mcu.WriteAsync(mcuId, instanceName, member, value, ctx, ct);
+            var (inst, member) = SplitSlotKey(key, instanceName);
+            await mcu.WriteAsync(mcuId, inst, member, value, ctx, ct);
         }
     }
 

@@ -99,6 +99,7 @@ public partial class TestManagementViewModel : ObservableObject
         nameof(LlTestRunStatus.Failed),
         nameof(LlTestRunStatus.Error),
         nameof(LlTestRunStatus.Timeout),
+        nameof(LlTestRunStatus.Skipped),
         nameof(LlTestRunStatus.StaticAnalysisFailed)
     };
     [ObservableProperty] private string _selectedPlanStatusFilter = "全部状态";
@@ -1105,8 +1106,21 @@ public partial class TestManagementViewModel : ObservableObject
         value.Item.ParametersJson = v.ParametersJson;
         value.Item.InitialRegistersJson = v.InitialRegistersJson;
         value.Item.RegisterWritesSummary = v.RegisterWritesSummary;
+        value.Item.StagesJson = v.StagesJson;
         FailureDetail =
-            $"用例: {v.CaseName}\n函数: {v.FunctionName}\n源码: {v.SourceFile}\n状态: {v.Status}\n原因: {v.FailureReason}\n寄存器: {v.RelatedRegisters}\n\n--- 编译摘录 ---\n{v.CompileLogExcerpt}\n\n--- 断言 ---\n{v.AssertionResultsJson}\n\n--- 轨迹 ---\n{v.AccessTraceJson}";
+            $"用例: {v.CaseName}\n函数: {v.FunctionName}\n源码: {v.SourceFile}\n状态: {v.Status}\n原因: {v.FailureReason}\n寄存器: {v.RelatedRegisters}\n\n"
+            + "--- 操作过程（执行阶段） ---\n"
+            + (string.IsNullOrWhiteSpace(v.StagesJson) ? "（无）" : v.StagesJson.Trim()) + "\n\n"
+            + "--- 执行日志 ---\n"
+            + (string.IsNullOrWhiteSpace(v.ExecutionLogExcerpt) ? "（无）" : v.ExecutionLogExcerpt.Trim()) + "\n\n"
+            + "--- 编译摘录 ---\n"
+            + (string.IsNullOrWhiteSpace(v.CompileLogExcerpt) ? "（无）" : v.CompileLogExcerpt.Trim()) + "\n\n"
+            + "--- 断言 ---\n"
+            + (string.IsNullOrWhiteSpace(v.AssertionResultsJson) ? "（无）" : v.AssertionResultsJson.Trim()) + "\n\n"
+            + "--- 寄存器写入一览 ---\n"
+            + (string.IsNullOrWhiteSpace(v.RegisterWritesSummary) ? "（无）" : v.RegisterWritesSummary.Trim()) + "\n\n"
+            + "--- 轨迹 ---\n"
+            + (string.IsNullOrWhiteSpace(v.AccessTraceJson) ? "（无）" : v.AccessTraceJson.Trim());
     }
 
     partial void OnIsAllFailuresOnPageSelectedChanged(bool value)
