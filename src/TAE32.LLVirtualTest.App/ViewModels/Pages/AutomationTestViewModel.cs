@@ -295,8 +295,8 @@ public partial class AutomationTestViewModel : ObservableObject
             StatusText =
                 $"生成完成：处理 {ids.Count} 个函数 → 写入 {casesWritten} 条用例（{funcWithCases} 个函数有产出，" +
                 $"{funcEmpty} 个无模板，{funcFailed} 个失败）。{filterNote}。" +
-                "说明：多数函数 1 条 draft；仅当虚拟模型里确有 ISR 才额外生成 clear-check。" +
-                "宿主 harness 已支持 REG_OFFSET/指针缓冲/CAN/HRPWM 轮询；「标 Ready」会包含历史 Unsupported。重复生成会新增行。";
+                "请运行名称含 write-check / enable-check / read-check 的用例（不要跑 /draft 仅超时草稿）。" +
+                "若本次已生成语义用例，同函数的旧「仅超时」自动草稿会被清理。";
         }
         catch (Exception ex)
         {

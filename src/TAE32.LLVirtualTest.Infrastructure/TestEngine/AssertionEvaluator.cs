@@ -191,8 +191,15 @@ internal static class AssertionEvaluator
         if (string.IsNullOrWhiteSpace(spec.InstanceName) || string.IsNullOrWhiteSpace(spec.MemberName))
             return Fail(spec, "RegisterWrite 缺少 instance/member");
         var key = $"{spec.InstanceName}.{spec.MemberName}";
-        var writes = trace
-            .Where(IsLlAttributedAccess)
+        var llTrace = trace.Where(IsLlAttributedAccess).ToList();
+        if (llTrace.Count == 0)
+        {
+            return Result(spec, false, key, "轨迹为空/不完整",
+                "未捕获到寄存器访问轨迹：不能判定已写入。可能是宿主映像偏移与 AbsoluteAddress 不一致，" +
+                "或 MODIFY_REG 写到了未映射地址（非确认“未发生写入”）。");
+        }
+
+        var writes = llTrace
             .Where(t => t.AccessKind is VirtualAccessKind.Write or VirtualAccessKind.SetBits
                 or VirtualAccessKind.ClearBits or VirtualAccessKind.ModifyBits or VirtualAccessKind.WriteBitField)
             .Where(t =>
@@ -202,8 +209,8 @@ internal static class AssertionEvaluator
                     || (t.RegisterName?.Contains(spec.InstanceName!, StringComparison.OrdinalIgnoreCase) ?? false)))
             .ToList();
         var ok = writes.Count > 0;
-        return Result(spec, ok, key, ok ? $"{writes.Count} write(s)" : "无写入",
-            ok ? "检测到目标寄存器写入（虚拟轨迹）" : "未检测到目标寄存器写入");
+        return Result(spec, ok, key, ok ? $"{writes.Count} write(s)" : "无目标写入",
+            ok ? "检测到目标寄存器写入（虚拟轨迹）" : "轨迹非空但未检测到目标寄存器写入");
     }
 
     private static async Task<LlTestAssertionResult> EvalRegisterAddress(
@@ -238,11 +245,23 @@ internal static class AssertionEvaluator
         if (allow.Count == 0)
             return Fail(spec, "NoUnexpectedWrite 未指定允许的寄存器");
 
+        var llWrites = trace.Where(IsLlAttributedAccess)
+            .Where(x => x.AccessKind is VirtualAccessKind.Write or VirtualAccessKind.SetBits
+                or VirtualAccessKind.ClearBits or VirtualAccessKind.ModifyBits
+                or VirtualAccessKind.WriteBitField)
+            .ToList();
+
+        // Empty/incomplete capture must NOT pass as "no unexpected writes".
+        if (llWrites.Count == 0)
+        {
+            return Result(spec, false,
+                string.Join(", ", allow),
+                "轨迹为空/不完整",
+                "访问轨迹为空或不完整：不能判定“无意外写入”（可能未捕获到 MMIO，而非确认没有副作用）。");
+        }
+
         var unexpected = new List<string>();
-        foreach (var t in trace.Where(IsLlAttributedAccess)
-                     .Where(x => x.AccessKind is VirtualAccessKind.Write or VirtualAccessKind.SetBits
-                         or VirtualAccessKind.ClearBits or VirtualAccessKind.ModifyBits
-                         or VirtualAccessKind.WriteBitField))
+        foreach (var t in llWrites)
         {
             var name = !string.IsNullOrWhiteSpace(t.InstanceName) && !string.IsNullOrWhiteSpace(t.RegisterName)
                 ? $"{t.InstanceName}.{t.RegisterName}"

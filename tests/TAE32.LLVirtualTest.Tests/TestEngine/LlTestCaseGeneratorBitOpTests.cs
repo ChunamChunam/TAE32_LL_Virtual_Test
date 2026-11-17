@@ -102,8 +102,13 @@ public class LlTestCaseGeneratorBitOpTests
         var generator = new LlTestCaseGenerator(new SharedConnectionFactory(options));
         var cases = await generator.GenerateAsync(fnId);
 
-        cases.Should().ContainSingle(c => c.Name.Contains("set-check", StringComparison.OrdinalIgnoreCase));
-        var setCase = cases.First(c => c.Name.Contains("set-check", StringComparison.OrdinalIgnoreCase));
+        // Assert* SET_BIT → assert-check (legacy set-check also accepted).
+        cases.Should().Contain(c =>
+            c.Name.Contains("assert-check", StringComparison.OrdinalIgnoreCase)
+            || c.Name.Contains("set-check", StringComparison.OrdinalIgnoreCase));
+        var setCase = cases.First(c =>
+            c.Name.Contains("assert-check", StringComparison.OrdinalIgnoreCase)
+            || c.Name.Contains("set-check", StringComparison.OrdinalIgnoreCase));
         setCase.Status.Should().Be(nameof(LlTestCaseStatus.Ready));
         // RMW: preload unrelated bits 0xA5A55A50, after SET expect 0xA5A55A5B (preserve|0xB).
         const uint mask = 0xBu;
@@ -135,7 +140,9 @@ public class LlTestCaseGeneratorBitOpTests
             """);
 
         var regenerated = await generator.GenerateAsync(fnId);
-        var regenCase = regenerated.First(c => c.Name.Contains("set-check", StringComparison.OrdinalIgnoreCase));
+        var regenCase = regenerated.First(c =>
+            c.Name.Contains("assert-check", StringComparison.OrdinalIgnoreCase)
+            || c.Name.Contains("set-check", StringComparison.OrdinalIgnoreCase));
         var expected = regenCase.Assertions.First(a => a.Kind == LlAssertionKind.RegisterValue);
         expected.ExpectedHex.Should().BeEquivalentTo($"0x{expectedAfter:X}");
         expected.ExpectedMask.Should().Be(expectedAfter);

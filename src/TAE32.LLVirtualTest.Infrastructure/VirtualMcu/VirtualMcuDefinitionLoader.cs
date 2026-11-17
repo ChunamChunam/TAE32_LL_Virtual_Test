@@ -73,9 +73,12 @@ internal static class VirtualMcuDefinitionLoader
             var behavior = RegisterSemanticsEngine.ResolveBehavior(
                 r.AccessAttribute, options.DefaultUnknownAccessToReadWrite,
                 out var limAccess, out var noteAccess);
-            var moduleHint = r.Peripheral?.Name
-                             ?? r.PeripheralInstance?.ModuleName
-                             ?? InferModule(r.StructName, r.PeripheralInstance?.Name);
+            var moduleHint = NormalizeModuleToken(
+                                 r.Peripheral?.Name
+                                 ?? r.PeripheralInstance?.ModuleName
+                                 ?? InferModule(r.StructName, r.PeripheralInstance?.Name))
+                             ?? r.Peripheral?.Name
+                             ?? r.PeripheralInstance?.ModuleName;
             behavior = VirtualRegisterSemanticsOverrides.OverrideBehavior(moduleHint, r.MemberName, behavior);
 
             var reset = RegisterSemanticsEngine.ParseResetValue(r.ResetValue, out var limReset);
@@ -90,10 +93,16 @@ internal static class VirtualMcuDefinitionLoader
                                        : null);
 
             uint? addr = null;
+            // Prefer instance bank Type (HRPWM_MST_Type) over aggregate TypeDef — nested Master.MCR0
+            // is not a direct member of HRPWM_TypeDef, so StructName=HRPWM_TypeDef would miss AbsoluteAddress.
             if (chipAddresses is not null
-                && chipAddresses.TryResolveAbsolute(
-                    instanceNameHint, r.StructName, r.MemberName,
-                    out var chipAbs, out var chipBase, out var chipOff))
+                && (chipAddresses.TryResolveAbsolute(
+                        instanceNameHint, r.StructName, r.MemberName,
+                        out var chipAbs, out var chipBase, out var chipOff)
+                    || (!string.IsNullOrWhiteSpace(instanceNameHint)
+                        && chipAddresses.TryResolveAbsolute(
+                            instanceNameHint, instanceNameHint + "_Type", r.MemberName,
+                            out chipAbs, out chipBase, out chipOff))))
             {
                 addr = chipAbs;
                 // Keep DB/instance in sync mentally: chip header wins.
@@ -210,7 +219,11 @@ internal static class VirtualMcuDefinitionLoader
                                ?? (r.StructName.EndsWith("_Type", StringComparison.Ordinal)
                                    ? r.StructName[..^5]
                                    : null);
-            var moduleName = r.Peripheral?.Name
+            var moduleName = NormalizeModuleToken(
+                                 r.Peripheral?.Name
+                                 ?? r.PeripheralInstance?.ModuleName
+                                 ?? InferModule(r.StructName, instanceName))
+                             ?? r.Peripheral?.Name
                              ?? r.PeripheralInstance?.ModuleName
                              ?? InferModule(r.StructName, instanceName);
 
@@ -314,18 +327,37 @@ internal static class VirtualMcuDefinitionLoader
     private static string? InferModule(string structName, string? instanceName)
     {
         if (structName.EndsWith("_TypeDef", StringComparison.Ordinal))
-            return structName[..^8];
+            return NormalizeModuleToken(structName[..^8]);
         if (structName.EndsWith("_Type", StringComparison.Ordinal))
-        {
-            var inst = structName[..^5];
-            var m = System.Text.RegularExpressions.Regex.Match(inst, @"^([A-Z]+?)(\d+|[A-F])?$");
-            return m.Success ? m.Groups[1].Value : inst;
-        }
+            return NormalizeModuleToken(structName[..^5]);
         if (!string.IsNullOrEmpty(instanceName))
-        {
-            var m = System.Text.RegularExpressions.Regex.Match(instanceName, @"^([A-Z]+?)(\d+|[A-F])?$");
-            return m.Success ? m.Groups[1].Value : instanceName;
-        }
+            return NormalizeModuleToken(instanceName);
         return null;
+    }
+
+    /// <summary>
+    /// Collapse banked names to the host TypeDef module:
+    /// HRPWM_MST / HRPWM_SLV0 / HRPWM_COM → HRPWM; ADC0 → ADC; GPIOA → GPIO.
+    /// </summary>
+    internal static string? NormalizeModuleToken(string? token)
+    {
+        if (string.IsNullOrWhiteSpace(token)) return null;
+        var t = token.Trim();
+
+        // Multi-bank aggregates used by Native host TypeDef images.
+        var bank = System.Text.RegularExpressions.Regex.Match(
+            t, @"^([A-Za-z]+)_(MST|COM|SLV\d+|CH\d+|UNIT\d+|TIM\d+)$",
+            System.Text.RegularExpressions.RegexOptions.IgnoreCase);
+        if (bank.Success)
+            return bank.Groups[1].Value.ToUpperInvariant();
+
+        // Numbered / lettered instances: ADC0, GPIOA, TMR9.
+        var numbered = System.Text.RegularExpressions.Regex.Match(
+            t, @"^([A-Za-z]+?)(\d+|[A-F])$",
+            System.Text.RegularExpressions.RegexOptions.IgnoreCase);
+        if (numbered.Success)
+            return numbered.Groups[1].Value.ToUpperInvariant();
+
+        return t.ToUpperInvariant();
     }
 }

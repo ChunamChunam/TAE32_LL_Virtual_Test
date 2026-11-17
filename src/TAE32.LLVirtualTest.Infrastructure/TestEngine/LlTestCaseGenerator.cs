@@ -64,14 +64,21 @@ public sealed class LlTestCaseGenerator
             .Take(2)
             .ToList();
 
-        var instances = await db.PeripheralInstances.AsNoTracking()
+        // Prefer TypeDef-base banks (HRPWM_MST) over alphabetical first (HRPWM_COM).
+        var instanceRows = await db.PeripheralInstances.AsNoTracking()
             .Where(x => x.SdkProjectId == fn.SdkProjectId
                         && (x.ModuleName == fn.PeripheralName
                             || (fn.PeripheralName != null && x.Name.StartsWith(fn.PeripheralName))))
-            .OrderBy(x => x.Name)
             .Select(x => x.Name)
-            .Take(2)
             .ToListAsync(cancellationToken);
+        var instances = instanceRows
+            .OrderBy(n => n.EndsWith("_COM", StringComparison.OrdinalIgnoreCase) ? 2
+                : n.Contains("_SLV", StringComparison.OrdinalIgnoreCase) ? 1
+                : n.EndsWith("_MST", StringComparison.OrdinalIgnoreCase) ? 0
+                : 0)
+            .ThenBy(n => n, StringComparer.OrdinalIgnoreCase)
+            .Take(2)
+            .ToList();
 
         var parameters = fn.ParseParameters.OrderBy(p => p.Position).ToList();
         if (parameters.Count == 0)
@@ -414,6 +421,13 @@ public sealed class LlTestCaseGenerator
                     builtSpecial = true;
                 }
             }
+
+            // Assert↔Release / Enable↔Disable … complementary pair (prelude + main).
+            if (await TryBuildComplementBitOpPairAsync(
+                    db, fn, inst, bitOpChecks[0], draftParams, cancellationToken) is { } pairCase)
+            {
+                cases.Add(pairCase);
+            }
         }
 
         if (!builtSpecial)
@@ -500,35 +514,41 @@ public sealed class LlTestCaseGenerator
 
     // Flat or nested: Inst->MEM / Inst->Master.MCR0 / Inst->PWM[(Pwmx)%N].REG.PWMCR0
     private static readonly Regex ModifyRegPattern = new(
-        @"MODIFY_REG\s*\(\s*(?<inst>[A-Za-z0-9_]+)\s*->\s*(?<path>[^,]+?)\s*,\s*(?<msk>[A-Za-z0-9_]+_(?:Msk|MSK))\s*,",
+        @"MODIFY_REG\s*\(\s*\(?\s*(?<inst>[A-Za-z0-9_]+)\s*\)?\s*->\s*(?<path>[^,]+?)\s*,\s*(?<msk>[A-Za-z0-9_]+_(?:Msk|MSK))\s*,",
         RegexOptions.Compiled | RegexOptions.CultureInvariant | RegexOptions.IgnoreCase);
 
     /// <summary>Full MODIFY_REG including RHS (field-value << Pos vs pre-shifted Mask).</summary>
     private static readonly Regex ModifyRegFullPattern = new(
-        @"MODIFY_REG\s*\(\s*(?<inst>[A-Za-z0-9_]+)\s*->\s*(?<path>[^,]+?)\s*,\s*(?<msk>[A-Za-z0-9_]+_(?:Msk|MSK))\s*,\s*(?<rhs>[^;]+?)\)\s*;",
+        @"MODIFY_REG\s*\(\s*\(?\s*(?<inst>[A-Za-z0-9_]+)\s*\)?\s*->\s*(?<path>[^,]+?)\s*,\s*(?<msk>[A-Za-z0-9_]+_(?:Msk|MSK))\s*,\s*(?<rhs>[^;]+?)\)\s*;",
         RegexOptions.Compiled | RegexOptions.CultureInvariant | RegexOptions.IgnoreCase | RegexOptions.Singleline);
 
-    /// <summary>SET_BIT / CLEAR_BIT(reg-> path, MASK_Msk|_MSK).</summary>
+    /// <summary>
+    /// SET_BIT / CLEAR_BIT(reg-> path, MASK_Msk|_MSK) or runtime Mask param
+    /// (e.g. LL_HRPWM_MST_EnableIT(..., Mask)).
+    /// </summary>
+    // Allow (SPIx)->REG as well as SPIx->REG (common in SPI/I2C-style LL).
     private static readonly Regex SetClearBitPattern = new(
-        @"\b(?<op>SET_BIT|CLEAR_BIT)\s*\(\s*(?<inst>[A-Za-z0-9_]+)\s*->\s*(?<path>[^,]+?)\s*,\s*(?<msk>[A-Za-z0-9_]+_(?:Msk|MSK))\s*\)",
+        @"\b(?<op>SET_BIT|CLEAR_BIT)\s*\(\s*\(?\s*(?<inst>[A-Za-z0-9_]+)\s*\)?\s*->\s*(?<path>[^,]+?)\s*,\s*(?<msk>[A-Za-z_][A-Za-z0-9_]*)\s*\)",
         RegexOptions.Compiled | RegexOptions.CultureInvariant | RegexOptions.IgnoreCase);
 
     /// <summary>WRITE_REG(reg->path, VALUE) — VALUE may be literal or named mask macro.</summary>
     private static readonly Regex WriteRegPattern = new(
-        @"\bWRITE_REG\s*\(\s*(?<inst>[A-Za-z0-9_]+)\s*->\s*(?<path>[^,]+?)\s*,\s*(?<val>[^;]+?)\s*\)",
+        @"\bWRITE_REG\s*\(\s*\(?\s*(?<inst>[A-Za-z0-9_]+)\s*\)?\s*->\s*(?<path>[^,]+?)\s*,\s*(?<val>[^;]+?)\s*\)",
         RegexOptions.Compiled | RegexOptions.CultureInvariant | RegexOptions.IgnoreCase | RegexOptions.Singleline);
 
+    // 3+ segment chip masks: ADC0_CR_OEN_Msk and HRPWM_MST_MCR1_BDMADIS_Msk.
     private static readonly Regex ChipFieldMskToken = new(
-        @"\b(?<tok>[A-Za-z0-9]+_[A-Za-z0-9]+_[A-Za-z0-9]+_Msk)\b",
+        @"\b(?<tok>[A-Za-z0-9]+(?:_[A-Za-z0-9]+)+_Msk)\b",
         RegexOptions.Compiled | RegexOptions.CultureInvariant | RegexOptions.IgnoreCase);
 
+    // Flat ADCx->CR or nested HRPWMx->Master.MCR1 / (SPIx)->ENABLE.
     private static readonly Regex ReadBitShiftPattern = new(
-        @"READ_BIT_SHIFT\s*\(\s*[A-Za-z0-9_]+\s*->\s*(?<mem>[A-Za-z0-9_]+)\s*,\s*(?<msk>[A-Za-z0-9_]+_Msk)\s*,\s*(?<pos>[A-Za-z0-9_]+_Pos)",
+        @"READ_BIT_SHIFT\s*\(\s*\(?\s*[A-Za-z0-9_]+\s*\)?\s*->\s*(?<path>[^,]+?)\s*,\s*(?<msk>[A-Za-z0-9_]+_Msk)\s*,\s*(?<pos>[A-Za-z0-9_]+_Pos)",
         RegexOptions.Compiled | RegexOptions.CultureInvariant | RegexOptions.IgnoreCase);
 
     /// <summary>Channel flag: READ_BIT_SHIFT(ADCx->DISR, BIT(((Ch)%N)), ((Ch)%M)).</summary>
     private static readonly Regex ReadBitShiftChannelBitPattern = new(
-        @"READ_BIT_SHIFT\s*\(\s*[A-Za-z0-9_]+\s*->\s*(?<mem>[A-Za-z0-9_]+)\s*,\s*BIT\s*\(",
+        @"READ_BIT_SHIFT\s*\(\s*\(?\s*[A-Za-z0-9_]+\s*\)?\s*->\s*(?<path>[^,]+?)\s*,\s*BIT\s*\(",
         RegexOptions.Compiled | RegexOptions.CultureInvariant | RegexOptions.IgnoreCase);
 
     /// <summary>
@@ -536,16 +556,26 @@ public sealed class LlTestCaseGenerator
     /// Equivalent to READ_BIT_SHIFT for expected-value generation.
     /// </summary>
     private static readonly Regex ReadBitThenShiftPattern = new(
-        @"READ_BIT(?!_SHIFT)\s*\(\s*[A-Za-z0-9_]+\s*->\s*(?<mem>[A-Za-z0-9_]+)\s*,\s*(?<msk>[A-Za-z0-9_]+_Msk)\s*\)\s*>>\s*(?<pos>[A-Za-z0-9_]+_Pos)",
+        @"READ_BIT(?!_SHIFT)\s*\(\s*\(?\s*[A-Za-z0-9_]+\s*\)?\s*->\s*(?<path>[^,]+?)\s*,\s*(?<msk>[A-Za-z0-9_]+_Msk)\s*\)\s*>>\s*(?<pos>[A-Za-z0-9_]+_Pos)",
         RegexOptions.Compiled | RegexOptions.CultureInvariant | RegexOptions.IgnoreCase);
 
-    // Boolean-style: (READ_BIT(..._Msk) ? 1UL : 0UL) — exclude READ_BIT_SHIFT.
-    private static readonly Regex ReadBitBoolPattern = new(
-        @"READ_BIT(?!_SHIFT)\s*\(\s*[A-Za-z0-9_]+\s*->\s*(?<mem>[A-Za-z0-9_]+)\s*,\s*(?<msk>[A-Za-z0-9_]+_Msk)\s*\)",
+    // READ_BIT(..._Msk|_MSK) — boolean (? 1UL) or masked-return (AllIntPnd_Get / IT_FLAG_MSK).
+    private static readonly Regex ReadBitMaskPattern = new(
+        @"READ_BIT(?!_SHIFT)\s*\(\s*\(?\s*[A-Za-z0-9_]+\s*\)?\s*->\s*(?<path>[^,]+?)\s*,\s*(?<msk>[A-Za-z0-9_]+_(?:Msk|MSK))\s*\)",
         RegexOptions.Compiled | RegexOptions.CultureInvariant | RegexOptions.IgnoreCase);
+
+    /// <summary>
+    /// IsEnabledIT-style: (READ_BIT(reg, Mask) == (Mask)) ? 1UL : 0UL — Mask is a runtime param.
+    /// </summary>
+    private static readonly Regex ReadBitParamEqBoolPattern = new(
+        @"READ_BIT(?!_SHIFT)\s*\(\s*\(?\s*[A-Za-z0-9_]+\s*\)?\s*->\s*(?<path>[^,]+?)\s*,\s*(?<msk>[A-Za-z_][A-Za-z0-9_]*)\s*\)\s*==\s*\(\s*\k<msk>\s*\)",
+        RegexOptions.Compiled | RegexOptions.CultureInvariant | RegexOptions.IgnoreCase);
+
+    // Kept name for CollectBody* callers.
+    private static readonly Regex ReadBitBoolPattern = ReadBitMaskPattern;
 
     private static readonly Regex ReadRegPattern = new(
-        @"READ_REG\s*\(\s*[A-Za-z0-9_]+\s*->\s*(?<mem>[A-Za-z0-9_]+)\s*\)",
+        @"READ_REG\s*\(\s*\(?\s*[A-Za-z0-9_]+\s*\)?\s*->\s*(?<path>[^,]+?)\s*\)",
         RegexOptions.Compiled | RegexOptions.CultureInvariant | RegexOptions.IgnoreCase);
 
     /// <summary>
@@ -576,10 +606,18 @@ public sealed class LlTestCaseGenerator
             .Select(a => a.Expression)
             .ToListAsync(ct);
 
+        // Live body wins exclusively when it contains SET/CLEAR — never fall back to possibly
+        // stale/wrong LlRegisterAccesses (e.g. DisablePWM2 attributed as CEN1).
         var candidates = new List<string>();
-        if (!string.IsNullOrWhiteSpace(liveBody))
+        var liveHasBitOp = !string.IsNullOrWhiteSpace(liveBody) && SetClearBitPattern.IsMatch(liveBody);
+        if (liveHasBitOp)
             candidates.Add(liveBody);
-        candidates.AddRange(dbExprs.Where(e => !string.IsNullOrWhiteSpace(e))!);
+        else
+        {
+            if (!string.IsNullOrWhiteSpace(liveBody))
+                candidates.Add(liveBody);
+            candidates.AddRange(dbExprs.Where(e => !string.IsNullOrWhiteSpace(e))!);
+        }
 
         foreach (var text in candidates)
         {
@@ -595,45 +633,59 @@ public sealed class LlTestCaseGenerator
                     ? PathLeaf(setClear)
                     : accessPath.LeafMember;
                 var bodyMskMacro = setClear.Groups["msk"].Value;
-
-                // DAC0_CR_OEN_Msk embeds CR — must match DACx->CR. Mismatch (e.g. ->SR + CR_OEN)
-                // asserts on the mask's register so the wrong write is caught.
-                var member = ResolveMemberAlignedToMask(
-                    bodyMember, bodyMskMacro, out _, out var pairNote);
-
-                // Trusted expected from function-name ↔ header #define / chip RegisterFields
-                // (NOT from SET_BIT/CLEAR_BIT argument in the body).
-                var trusted = await TryResolveTrustedMaskAsync(db, fn, member, ct);
+                var isRuntimeMaskParam = !IsCompileTimeMaskToken(bodyMskMacro);
                 string mskMacro;
                 uint maskBits;
-                bool usedTrusted;
-                if (trusted is { Bits: > 0 })
+                var usedTrusted = false;
+                string pairNote;
+                string trustDetail;
+
+                if (isRuntimeMaskParam)
                 {
-                    mskMacro = trusted.Label;
-                    maskBits = trusted.Bits;
-                    usedTrusted = true;
-                    member = ResolveMemberAlignedToMask(
-                        member, mskMacro, out var trustedMismatch, out var trustedPair);
-                    if (trustedMismatch)
-                        pairNote = trustedPair;
+                    if (!TryResolveRuntimeMaskParam(
+                            fn.FilePath, fn.FunctionName, bodyMskMacro,
+                            out mskMacro, out maskBits, out var chipTok))
+                        continue;
+                    bodyMskMacro = chipTok ?? mskMacro;
+                    pairNote = $"运行时参数 {setClear.Groups["msk"].Value}→SDK {mskMacro}";
+                    trustDetail = $"期望掩码来自 @ref 组宏 {mskMacro}=0x{maskBits:X}";
                 }
                 else
                 {
-                    mskMacro = bodyMskMacro;
-                    maskBits = await ResolveClearMaskAsync(db, fn, member, bodyMskMacro, ct);
-                    usedTrusted = false;
+                    // DAC0_CR_OEN_Msk embeds CR — must match DACx->CR. Mismatch (e.g. ->SR + CR_OEN)
+                    // asserts on the mask's register so the wrong write is caught.
+                    _ = ResolveMemberAlignedToMask(
+                        bodyMember, bodyMskMacro, out _, out pairNote);
+
+                    // Behavioral expected = what the compiled body will do (body mask), corrected when
+                    // function-name channel digit disagrees (DisablePWM2 must not assert CEN1).
+                    var resolved = await ResolveBitOpMaskAsync(
+                        db, fn, bodyMember, bodyMskMacro, ct);
+                    mskMacro = resolved.Macro;
+                    maskBits = resolved.Bits;
+                    usedTrusted = resolved.UsedNameCorrelation;
+                    if (!string.IsNullOrEmpty(resolved.PairNote))
+                        pairNote = resolved.PairNote;
+                    trustDetail = string.IsNullOrEmpty(resolved.Detail)
+                        ? (usedTrusted
+                            ? $"期望掩码 {mskMacro}（函数名编号与体一致）"
+                            : $"期望掩码来自函数体 {mskMacro}")
+                        : resolved.Detail;
                 }
+
+                var member = ResolveMemberAlignedToMask(
+                    bodyMember, mskMacro, out var alignedMismatch, out var alignedPair);
+                if (alignedMismatch)
+                    pairNote = alignedPair;
 
                 if (maskBits == 0)
                     continue;
 
                 var isClear = op.Equals("CLEAR_BIT", StringComparison.OrdinalIgnoreCase);
                 var checkSuffix = ResolveBitOpCheckSuffix(fn.FunctionName, isClear);
-                var fieldLabel = usedTrusted
-                    ? StripMaskSuffix(mskMacro)
-                    : TryFieldNameFromMskMacro(mskMacro, member, out var singleField)
-                        ? singleField
-                        : mskMacro;
+                var fieldLabel = TryFieldNameFromMskMacro(mskMacro, member, out var singleField)
+                    ? singleField
+                    : StripMaskSuffix(mskMacro);
 
                 var arrayBound = ResolveArrayBound(accessPath.ArrayIndexExpr, fn.FilePath);
                 IReadOnlyList<uint> channelSamples = accessPath.ArrayIndexExpr is not null
@@ -658,6 +710,8 @@ public sealed class LlTestCaseGenerator
                     var parameters = CloneParams(baseParams);
                     ApplyBitOpChannelParameters(
                         parameters, fn, instance, targetInstance, accessPath, channelRaw);
+                    if (isRuntimeMaskParam)
+                        AssignRuntimeMaskParam(parameters, setClear.Groups["msk"].Value, maskBits, mskMacro);
 
                     var channelTag = accessPath.ArrayIndexExpr is not null
                         ? $"ch{channelRaw}->{channelIndex}"
@@ -679,13 +733,11 @@ public sealed class LlTestCaseGenerator
                         }
                     ];
 
-                    var trustNote = usedTrusted
-                        ? $"期望掩码来自函数名关联的可信源 {mskMacro}（非函数体内位操作实参；可检出错误掩码，即使重新生成）"
-                        : $"期望掩码来自体/解析证据 {mskMacro}（未找到函数名关联的 #define/位域；弱可信）";
+                    var trustNote = trustDetail;
                     var rmwNote = preserveBits != 0
                         ? $"RMW：预置其它位 0x{preserveBits:X}，写后应保留并{(isClear ? "清除" : "置位")}目标位"
                         : "目标掩码已覆盖全宽，无法另测保留位";
-                    var ruleSource = usedTrusted
+                    var ruleSource = usedTrusted || isRuntimeMaskParam
                         ? LlAssertionRuleSource.AutoGeneratedFromSdkMacro
                         : LlAssertionRuleSource.FromParseEvidence;
 
@@ -811,11 +863,32 @@ public sealed class LlTestCaseGenerator
             var writeMember = string.IsNullOrEmpty(writePath.LeafMember)
                 ? PathLeaf(write)
                 : writePath.LeafMember;
-            var writeInstance = ResolveNestedInstance(instance, writePath, 0, null);
+            var writeVal = write.Groups["val"].Value.Trim();
+            var writeMskTok = Regex.Match(writeVal, @"\b(?<msk>[A-Za-z0-9_]+_(?:Msk|MSK))\b",
+                RegexOptions.CultureInvariant | RegexOptions.IgnoreCase);
+            // Nested/array only: pass chip mask (Master.MISR + HRPWM_MST_* → HRPWM_MST).
+            // Flat paths (ADC/UART ISR…) keep prior instance — do not remap via mask peri.
+            var writeMskForNest = (writePath.NestedPrefix is not null || writePath.ArrayIndexExpr is not null)
+                                  && writeMskTok.Success
+                ? writeMskTok.Groups["msk"].Value
+                : null;
+            var writeInstance = ResolveNestedInstance(instance, writePath, 0, writeMskForNest);
             var builtWrite = await TryBuildWriteRegCaseAsync(
-                db, fn, writeInstance, baseParams, writeMember, write.Groups["val"].Value.Trim(), ct);
+                db, fn, writeInstance, baseParams, writeMember, writeVal, ct);
             if (builtWrite is not null)
             {
+                // Only HRPWM multi-bank aggregate needs TypeDef host pointer remap.
+                if (IsHostAggregateModule(fn.PeripheralName)
+                    || IsHostAggregateInstance(writeInstance))
+                {
+                    foreach (var p in builtWrite.Parameters.Where(
+                                 TestHarnessGenerator.IsPeripheralTypeDefPointer))
+                    {
+                        p.ValueExpression = ResolveHostPeriPointer(
+                            fn.PeripheralName, instance, writeInstance, p.ValueExpression);
+                    }
+                }
+
                 EnrichWriteRegMonitoringAssertions(builtWrite, writeInstance, writeMember);
                 results.Add(builtWrite);
                 return results;
@@ -829,13 +902,283 @@ public sealed class LlTestCaseGenerator
     private static string ResolveBitOpCheckSuffix(string? functionName, bool isClear)
     {
         var name = functionName ?? "";
+        if (name.Contains("Assert", StringComparison.OrdinalIgnoreCase) && !isClear)
+            return "assert-check";
+        if (name.Contains("Release", StringComparison.OrdinalIgnoreCase) && isClear)
+            return "release-check";
         if (!isClear
             && name.Contains("Enable", StringComparison.OrdinalIgnoreCase)
             && !name.Contains("Disable", StringComparison.OrdinalIgnoreCase))
             return "enable-check";
-        if (isClear && name.Contains("Disable", StringComparison.OrdinalIgnoreCase))
+        if (isClear
+            && name.Contains("Disable", StringComparison.OrdinalIgnoreCase)
+            && !name.Contains("Release", StringComparison.OrdinalIgnoreCase)
+            && !name.Contains("Assert", StringComparison.OrdinalIgnoreCase))
             return "disable-check";
         return isClear ? "clear-check" : "set-check";
+    }
+
+    /// <summary>
+    /// Build complementary pair case when a SET_BIT/CLEAR_BIT companion exists
+    /// (Assert↔Release, Enable↔Disable, …) sharing the same register + mask.
+    /// </summary>
+    private static async Task<LlTestCaseEditModel?> TryBuildComplementBitOpPairAsync(
+        AppDbContext db,
+        LlFunction fn,
+        string instance,
+        LlTestCaseEditModel primaryBitOp,
+        List<LlTestParameterValue> draftParams,
+        CancellationToken ct)
+    {
+        var companionName = SuggestComplementFunctionName(fn.FunctionName);
+        if (companionName is null || !HeaderDeclares(fn.FilePath, companionName))
+            return null;
+
+        var primaryBody = TryReadFunctionBodyFromSource(fn.FilePath, fn.FunctionName) ?? "";
+        var companionBody = TryReadFunctionBodyFromSource(fn.FilePath, companionName) ?? "";
+        var primaryOp = SetClearBitPattern.Match(primaryBody);
+        var companionOp = SetClearBitPattern.Match(companionBody);
+        if (!primaryOp.Success || !companionOp.Success)
+            return null;
+
+        var primaryIsClear = primaryOp.Groups["op"].Value.Equals("CLEAR_BIT", StringComparison.OrdinalIgnoreCase);
+        var companionIsClear = companionOp.Groups["op"].Value.Equals("CLEAR_BIT", StringComparison.OrdinalIgnoreCase);
+        if (primaryIsClear == companionIsClear)
+            return null; // must be complementary SET vs CLEAR
+
+        _ = TryParseRegAccessPath(primaryOp.Groups["path"].Value, out var primaryPath);
+        _ = TryParseRegAccessPath(companionOp.Groups["path"].Value, out var companionPath);
+        var primaryMskTok = primaryOp.Groups["msk"].Value;
+        var companionMskTok = companionOp.Groups["msk"].Value;
+        string? primaryChipTok = primaryMskTok;
+        string? companionChipTok = companionMskTok;
+        string primaryAlignMacro = primaryMskTok;
+        string companionAlignMacro = companionMskTok;
+
+        uint mask;
+        if (IsCompileTimeMaskToken(primaryMskTok))
+        {
+            var primaryMemberProbe = ResolveMemberAlignedToMask(
+                primaryPath.LeafMember, primaryMskTok, out _, out _);
+            mask = await ResolveClearMaskAsync(db, fn, primaryMemberProbe, primaryMskTok, ct);
+        }
+        else if (TryResolveRuntimeMaskParam(
+                     fn.FilePath, fn.FunctionName, primaryMskTok,
+                     out primaryAlignMacro, out mask, out primaryChipTok))
+        {
+            /* runtime Mask via @ref */
+        }
+        else
+            return null;
+
+        if (mask == 0 && IsCompileTimeMaskToken(companionMskTok))
+        {
+            var companionMemberProbe = ResolveMemberAlignedToMask(
+                companionPath.LeafMember, companionMskTok, out _, out _);
+            mask = await ResolveClearMaskAsync(db, fn, companionMemberProbe, companionMskTok, ct);
+        }
+        else if (mask == 0
+                 && TryResolveRuntimeMaskParam(
+                     fn.FilePath, companionName, companionMskTok,
+                     out companionAlignMacro, out mask, out companionChipTok))
+        {
+            /* companion runtime Mask */
+        }
+
+        if (mask == 0)
+            return null;
+
+        var primaryMember = ResolveMemberAlignedToMask(
+            primaryPath.LeafMember, primaryAlignMacro, out _, out _);
+        var companionMember = ResolveMemberAlignedToMask(
+            companionPath.LeafMember, companionAlignMacro, out _, out _);
+        if (!string.Equals(primaryMember, companionMember, StringComparison.OrdinalIgnoreCase))
+            return null;
+
+        // Same mask (or companion mask equals primary) for high confidence.
+        uint companionMask = 0;
+        if (IsCompileTimeMaskToken(companionMskTok))
+        {
+            companionMask = await ResolveClearMaskAsync(
+                db, fn, companionMember, companionMskTok, ct);
+        }
+        else if (TryResolveRuntimeMaskParam(
+                     fn.FilePath, companionName, companionMskTok,
+                     out companionAlignMacro, out companionMask, out companionChipTok))
+        {
+            /* ok */
+        }
+
+        var confidence = companionMask == mask ? "高" : companionMask == 0 ? "中" : "低";
+        if (companionMask != 0 && companionMask != mask)
+            return null;
+
+        var nestMsk = primaryChipTok ?? primaryAlignMacro;
+        var targetInstance = ResolveNestedInstance(instance, primaryPath, 0, nestMsk);
+        var preserveBits = PickUnrelatedPreserveBits(mask);
+        var parameters = CloneParams(draftParams);
+        foreach (var p in parameters.Where(TestHarnessGenerator.IsPeripheralTypeDefPointer))
+            p.ValueExpression = ResolveHostPeriPointer(
+                fn.PeripheralName, instance, targetInstance, p.ValueExpression);
+        if (!IsCompileTimeMaskToken(primaryMskTok))
+            AssignRuntimeMaskParam(parameters, primaryMskTok, mask, primaryAlignMacro);
+
+        // Direction: SET companion as prelude when main CLEARs (Assert→Release);
+        // CLEAR companion as prelude when main SETs (Release→Assert).
+        //
+        // Initial MUST differ from final expected so host delta sync records a Write.
+        // Wrong (old): Assert→Release with bit already 0 → Assert sets then Release clears
+        // → net zero vs snapshot → empty trace → false RegisterWrite failure.
+        // Right: Assert→Release starts with bit SET; Release→Assert starts with bit CLEAR.
+        var preludeIsSet = primaryIsClear;
+        var initial = primaryIsClear ? (preserveBits | mask) : preserveBits;
+        var expected = primaryIsClear ? preserveBits : (preserveBits | mask);
+        var assertMask = preserveBits | mask;
+        if (assertMask == 0) assertMask = mask;
+
+        var companionParams = CloneParams(parameters);
+        var model = BaseModel(fn);
+        var dirTag = preludeIsSet ? "assert-then-release" : "release-then-assert";
+        if (fn.FunctionName.Contains("Enable", StringComparison.OrdinalIgnoreCase)
+            || companionName.Contains("Enable", StringComparison.OrdinalIgnoreCase))
+            dirTag = preludeIsSet ? "enable-then-disable" : "disable-then-enable";
+
+        model.Name =
+            $"{fn.FunctionName}/{targetInstance}/{primaryMember}/{dirTag}/pair-check";
+        model.Status = nameof(LlTestCaseStatus.Ready);
+        model.IsAutoGenerated = true;
+        model.Parameters = parameters;
+        model.PreludeCalls =
+        [
+            new LlTestCallStep
+            {
+                FunctionName = companionName,
+                Parameters = companionParams
+            }
+        ];
+        model.InitialRegisters =
+        [
+            new LlTestInitialRegister
+            {
+                InstanceName = targetInstance,
+                MemberName = primaryMember,
+                ValueHex = $"0x{initial:X}"
+            }
+        ];
+        model.Assertions =
+        [
+            new LlTestAssertionSpec
+            {
+                Kind = LlAssertionKind.RegisterWrite,
+                InstanceName = targetInstance,
+                MemberName = primaryMember,
+                RuleSource = LlAssertionRuleSource.FromRegisterDefinition,
+                RuleSourceDetail = $"配对主函数写入 {targetInstance}.{primaryMember}"
+            },
+            new LlTestAssertionSpec
+            {
+                Kind = LlAssertionKind.RegisterValue,
+                InstanceName = targetInstance,
+                MemberName = primaryMember,
+                ExpectedHex = $"0x{expected:X}",
+                ExpectedMask = assertMask,
+                RuleSource = LlAssertionRuleSource.FromParseEvidence,
+                RuleSourceDetail =
+                    $"成对 {companionName} → {fn.FunctionName}：最终 (reg&0x{assertMask:X})=0x{expected:X}；" +
+                    $"Mask=0x{mask:X}；可信度={confidence}"
+            },
+            new LlTestAssertionSpec
+            {
+                Kind = LlAssertionKind.RegisterValue,
+                InstanceName = targetInstance,
+                MemberName = primaryMember,
+                ExpectedHex = primaryIsClear ? "0x0" : $"0x{mask:X}",
+                ExpectedMask = mask,
+                RuleSource = LlAssertionRuleSource.FromParseEvidence,
+                RuleSourceDetail = primaryIsClear
+                    ? $"配对后目标位清零：(actual & 0x{mask:X}) == 0"
+                    : $"配对后目标位置位：(actual & 0x{mask:X}) == 0x{mask:X}"
+            },
+            ..DefaultTimeoutAssertions()
+        ];
+        if (preserveBits != 0)
+        {
+            model.Assertions.Insert(model.Assertions.Count - 1, new LlTestAssertionSpec
+            {
+                Kind = LlAssertionKind.PreserveBits,
+                InstanceName = targetInstance,
+                MemberName = primaryMember,
+                ExpectedHex = $"0x{preserveBits:X}",
+                ExpectedMask = preserveBits,
+                RuleSource = LlAssertionRuleSource.FromRegisterDefinition,
+                RuleSourceDetail = $"配对保留位 0x{preserveBits:X}"
+            });
+        }
+
+        model.Notes =
+            $"自动成对校验：主={fn.FunctionName} 关联={companionName}；" +
+            $"寄存器={targetInstance}.{primaryMember}；Mask=0x{mask:X}；" +
+            $"方式={(preludeIsSet ? "SET→CLEAR" : "CLEAR→SET")}；" +
+            $"Initial=0x{initial:X} Expected=0x{expected:X}（保证净变化可同步轨迹）；" +
+            $"依据=同路径同Mask互补；可信度={confidence}。";
+        _ = ct;
+        return model;
+    }
+
+    /// <summary>
+    /// Map Assert↔Release, Enable↔Disable, Start↔Stop, Lock↔Unlock, …
+    /// </summary>
+    internal static string? SuggestComplementFunctionName(string functionName)
+    {
+        var pairs = new (string A, string B)[]
+        {
+            ("Assert", "Release"),
+            ("Release", "Assert"),
+            ("Enable", "Disable"),
+            ("Disable", "Enable"),
+            ("Start", "Stop"),
+            ("Stop", "Start"),
+            ("Lock", "Unlock"),
+            ("Unlock", "Lock"),
+            ("Connect", "Disconnect"),
+            ("Disconnect", "Connect"),
+            ("Open", "Close"),
+            ("Close", "Open"),
+            ("Activate", "Deactivate"),
+            ("Deactivate", "Activate"),
+        };
+
+        foreach (var (a, b) in pairs)
+        {
+            var idx = functionName.IndexOf(a, StringComparison.OrdinalIgnoreCase);
+            if (idx < 0) continue;
+            // Prefer longer verbs first — pairs list already orders Assert before Enable etc.
+            // Avoid Enable matching inside Disable: handled by Disable entry separately.
+            if (a.Equals("Enable", StringComparison.OrdinalIgnoreCase)
+                && functionName.Contains("Disable", StringComparison.OrdinalIgnoreCase))
+                continue;
+            return functionName.Remove(idx, a.Length).Insert(idx, MatchCase(functionName, idx, a.Length, b));
+        }
+
+        // SetX ↔ ClearX only when verb is a dedicated segment (_Set / _Clear).
+        var set = Regex.Match(functionName, @"_(Set)([A-Z]|$)");
+        if (set.Success)
+            return functionName.Remove(set.Groups[1].Index, 3).Insert(set.Groups[1].Index, "Clear");
+        var clear = Regex.Match(functionName, @"_(Clear)([A-Z]|$)");
+        if (clear.Success)
+            return functionName.Remove(clear.Groups[1].Index, 5).Insert(clear.Groups[1].Index, "Set");
+
+        return null;
+    }
+
+    private static string MatchCase(string source, int index, int length, string replacement)
+    {
+        if (length <= 0 || index >= source.Length) return replacement;
+        var sample = source.Substring(index, Math.Min(length, source.Length - index));
+        if (sample.All(char.IsUpper)) return replacement.ToUpperInvariant();
+        if (char.IsUpper(sample[0]))
+            return char.ToUpperInvariant(replacement[0]) + replacement[1..];
+        return replacement.ToLowerInvariant();
     }
 
     private static void ApplyBitOpChannelParameters(
@@ -1105,6 +1448,122 @@ public sealed class LlTestCaseGenerator
         return p2 & ~excludeBits;
     }
 
+    private readonly record struct BitOpMaskResolve(
+        string Macro, uint Bits, bool UsedNameCorrelation, string Detail, string PairNote);
+
+    /// <summary>
+    /// Resolve SET/CLEAR expected mask.
+    /// Order: (1) PWM/CH digit mismatch correction (DisablePWM2≠CEN1);
+    /// (2) function-name trusted (catches wrong body, e.g. AWDG2/PREPARING_START);
+    /// (3) body mask.
+    /// </summary>
+    private static async Task<BitOpMaskResolve> ResolveBitOpMaskAsync(
+        AppDbContext db, LlFunction fn, string member, string bodyMskMacro, CancellationToken ct)
+    {
+        var bodyBits = await ResolveClearMaskAsync(db, fn, member, bodyMskMacro, ct);
+        TryParseChipMaskRegAndField(bodyMskMacro, out _, out var bodyField);
+        if (string.IsNullOrEmpty(bodyField))
+            _ = TryFieldNameFromMskMacro(bodyMskMacro, member, out bodyField);
+
+        var nameDigit = TryExtractChannelDigit(fn.FunctionName);
+        var bodyDigit = TryExtractTrailingDigit(bodyField);
+
+        // Narrow: only PWM{n}/CH{n} names, and only when body field digit disagrees.
+        if (nameDigit is int nd)
+        {
+            var nameField = SuggestChannelFieldAlias(fn.FunctionName, nd);
+            if (!string.IsNullOrEmpty(nameField)
+                && bodyDigit is int bd
+                && bd != nd)
+            {
+                var correctedMacro = await TryFindChipFieldMaskMacroAsync(
+                    db, fn, member, nameField, ct);
+                if (correctedMacro is null
+                    && TryPeriPrefixFromMask(bodyMskMacro, out var peri)
+                    && TryParseChipMaskRegAndField(bodyMskMacro, out var reg, out _))
+                    correctedMacro = $"{peri}_{reg}_{nameField}_Msk";
+
+                if (correctedMacro is not null)
+                {
+                    var correctedBits = await ResolveClearMaskAsync(
+                        db, fn, member, correctedMacro, ct);
+                    if (correctedBits != 0)
+                    {
+                        return new BitOpMaskResolve(
+                            correctedMacro, correctedBits, UsedNameCorrelation: true,
+                            Detail:
+                            $"期望掩码按函数名编号纠正为 {correctedMacro}（体为 {bodyMskMacro}；" +
+                            $"PWM/CH 编号不一致会假 Passed）",
+                            PairNote:
+                            $"函数名通道 {nd} 与体字段 {bodyField} 不一致，已按 {nameField} 纠正");
+                    }
+                }
+            }
+        }
+
+        // Trusted from function name — keep ADC AWDG2 / PREPARING_START wrong-body detection.
+        var trusted = await TryResolveTrustedMaskAsync(db, fn, member, ct);
+        if (trusted is { Bits: > 0 })
+        {
+            return new BitOpMaskResolve(
+                trusted.Label, trusted.Bits, UsedNameCorrelation: true,
+                Detail:
+                $"期望掩码来自函数名关联的可信源 {trusted.Label}（非函数体内位操作实参；可检出错误掩码）",
+                PairNote: "");
+        }
+
+        if (bodyBits != 0)
+        {
+            return new BitOpMaskResolve(
+                bodyMskMacro, bodyBits, UsedNameCorrelation: false,
+                Detail: $"期望掩码来自函数体 {bodyMskMacro}（未找到函数名关联的 #define/位域；弱可信）",
+                PairNote: "");
+        }
+
+        return new BitOpMaskResolve(bodyMskMacro, 0, false, "", "");
+    }
+
+    private static int? TryExtractChannelDigit(string? functionName)
+    {
+        if (string.IsNullOrWhiteSpace(functionName)) return null;
+        // Only explicit channel tokens — do not match Tim/Unit/AWDG (too broad).
+        var m = Regex.Match(functionName,
+            @"(?:PWM|Channel|CH)(?<d>\d+)",
+            RegexOptions.CultureInvariant | RegexOptions.IgnoreCase);
+        if (m.Success && int.TryParse(m.Groups["d"].Value, out var d))
+            return d;
+        return null;
+    }
+
+    private static int? TryExtractTrailingDigit(string? fieldName)
+    {
+        if (string.IsNullOrWhiteSpace(fieldName)) return null;
+        var m = Regex.Match(fieldName, @"(\d+)$");
+        if (m.Success && int.TryParse(m.Groups[1].Value, out var d))
+            return d;
+        return null;
+    }
+
+    /// <summary>PWM2 → CEN2; Channel3/CH3 → CH3. Null if name has no PWM/CH token.</summary>
+    private static string? SuggestChannelFieldAlias(string? functionName, int digit)
+    {
+        var name = functionName ?? "";
+        if (name.Contains("PWM", StringComparison.OrdinalIgnoreCase))
+            return $"CEN{digit}";
+        if (Regex.IsMatch(name, @"CH(?:annel)?\d+", RegexOptions.IgnoreCase))
+            return $"CH{digit}";
+        return null;
+    }
+
+    private static async Task<string?> TryFindChipFieldMaskMacroAsync(
+        AppDbContext db, LlFunction fn, string member, string fieldName, CancellationToken ct)
+    {
+        var field = await FindRegisterFieldAsync(db, fn.SdkProjectId, member, fieldName, ct);
+        if (!string.IsNullOrWhiteSpace(field?.MskMacroName))
+            return field!.MskMacroName;
+        return null;
+    }
+
     /// <summary>
     /// Trusted mask bits for SET/CLEAR expectations — never from the body argument.
     /// Order: header LL #define / alias → chip RegisterFields name match.
@@ -1310,6 +1769,9 @@ public sealed class LlTestCaseGenerator
 
         name = Regex.Replace(name, @"^LL_", "", RegexOptions.CultureInvariant);
         name = Regex.Replace(name, @"^[A-Z0-9]+_", "", RegexOptions.CultureInvariant);
+        // HRPWM_MST_DisablePWM2 → after peri strip still MST_DisablePWM2
+        name = Regex.Replace(name, @"^(MST|COM|SLV\d+|CH\d+|UNIT\d+)_", "",
+            RegexOptions.CultureInvariant | RegexOptions.IgnoreCase);
 
         foreach (var verb in new[]
                  {
@@ -1404,6 +1866,14 @@ public sealed class LlTestCaseGenerator
             && (functionName.Contains("Enable", StringComparison.OrdinalIgnoreCase)
                 || functionName.Contains("Disable", StringComparison.OrdinalIgnoreCase)))
             yield return "EN";
+
+        // HRPWM Master: DisablePWM2 / EnablePWM2 → CEN2 (not CEN1).
+        var pwmN = Regex.Match(functionName, @"PWM(?<d>\d+)", RegexOptions.IgnoreCase);
+        if (pwmN.Success
+            && (member.StartsWith("MCR", StringComparison.OrdinalIgnoreCase)
+                || member.StartsWith("PWMCR", StringComparison.OrdinalIgnoreCase)
+                || string.IsNullOrEmpty(member)))
+            yield return "CEN" + pwmN.Groups["d"].Value;
         if (functionName.Contains("ClearCaptureDirectionError", StringComparison.OrdinalIgnoreCase))
             yield return "CDE";
         if (functionName.Contains("ClearCaptureOverflowError", StringComparison.OrdinalIgnoreCase))
@@ -1766,7 +2236,9 @@ public sealed class LlTestCaseGenerator
                 if (isFieldValueStyle)
                 {
                     paramBits = valClamp is uint vc ? paramRaw & vc : paramRaw;
-                    setMask = (paramBits << pos) & clearMask;
+                    // CMSIS SETMASK is the shifted field value as written by LL (may land
+                    // outside CLEARMASK when SDK uses a wrong _Pos — still mirror native).
+                    setMask = paramBits << pos;
                 }
                 else
                 {
@@ -1930,7 +2402,9 @@ public sealed class LlTestCaseGenerator
                     && !fieldName.EndsWith("_Msk", StringComparison.OrdinalIgnoreCase)
                     && clearMask != 0)
                 {
-                    var bfExpected = (setMask & clearMask) >> pos;
+                    // Field value uses CLEARMASK natural pos (not a possibly-wrong RHS _Pos).
+                    var fieldPos = PosFromMask(clearMask);
+                    var bfExpected = (setMask & clearMask) >> fieldPos;
                     var fieldWidth = BitWidthFromMask(clearMask);
                     assertions.Add(new LlTestAssertionSpec
                     {
@@ -1942,9 +2416,9 @@ public sealed class LlTestCaseGenerator
                         ExpectedMask = clearMask,
                         RuleSource = LlAssertionRuleSource.FromRegisterDefinition,
                         RuleSourceDetail =
-                            $"BitField {fieldName}: Expected=(SetMask&FieldMask)>>Pos；" +
+                            $"BitField {fieldName}: Expected=(SetMask&FieldMask)>>FieldPos；" +
                             $"ParamRaw=0x{paramBits:X} SetMask=0x{setMask:X} FieldMask=0x{clearMask:X} " +
-                            $"Pos={pos} Width={fieldWidth} BitFieldExpected=0x{bfExpected:X}" +
+                            $"RhsPos={pos} FieldPos={fieldPos} Width={fieldWidth} BitFieldExpected=0x{bfExpected:X}" +
                             (fieldDef?.Mask is uint dbm && dbm != clearMask
                                 ? $"；已忽略 DB.Mask=0x{dbm:X}"
                                 : "")
@@ -1995,8 +2469,9 @@ public sealed class LlTestCaseGenerator
     }
 
     /// <summary>CMSIS MODIFY_REG: (REG &amp; ~CLEARMASK) | SETMASK</summary>
+    /// <summary>CMSIS <c>MODIFY_REG</c>: <c>(REG &amp; ~CLEARMASK) | SETMASK</c> (SETMASK not re-masked).</summary>
     private static uint ComputeModifyRegExpected(uint initial, uint clearMask, uint setMask)
-        => (initial & ~clearMask) | (setMask & clearMask);
+        => (initial & ~clearMask) | setMask;
 
     private static void EnsureModifyExpectationConsistent(
         string registerName, uint initial, uint clearMask, uint setMask, uint expected)
@@ -2143,15 +2618,19 @@ public sealed class LlTestCaseGenerator
         var chBit = ReadBitShiftChannelBitPattern.Match(body);
         if (chBit.Success)
         {
-            var member = chBit.Groups["mem"].Value;
+            _ = TryParseRegAccessPath(chBit.Groups["path"].Value.Trim(), out var chPath);
+            var member = string.IsNullOrEmpty(chPath.LeafMember)
+                ? chBit.Groups["path"].Value.Trim()
+                : chPath.LeafMember;
+            var targetInstance = ResolveNestedInstance(instance, chPath, 0, null);
             const uint ch = 3;
             var bitMask = 1u << (int)ch;
             var preserve = PickUnrelatedPreserveBits(bitMask);
             var preloadFull = bitMask | preserve;
             var expected = (preloadFull & bitMask) >> (int)ch;
-            EnsureReadExpectationConsistent($"{instance}.{member}", preloadFull, bitMask, (int)ch, expected);
+            EnsureReadExpectationConsistent($"{targetInstance}.{member}", preloadFull, bitMask, (int)ch, expected);
 
-            var parameters = CloneParams();
+            var parameters = PrepareReadParameters(fn, instance, targetInstance, CloneParams());
             var chParam = parameters.FirstOrDefault(p =>
                 !p.Type.Contains('*', StringComparison.Ordinal)
                 && (p.Name.Equals("Ch", StringComparison.OrdinalIgnoreCase)
@@ -2166,7 +2645,7 @@ public sealed class LlTestCaseGenerator
             }
 
             results.Add(BuildReadCheckModel(
-                fn, instance, parameters, member, preloadFull, expected,
+                fn, targetInstance, parameters, member, preloadFull, expected,
                 nameSuffix: $"{member}.BIT{ch}/read-check",
                 detail:
                 $"Ch={ch}；Initial=0x{preloadFull:X} Mask=0x{bitMask:X} Pos={ch} Expected=0x{expected:X}",
@@ -2182,27 +2661,44 @@ public sealed class LlTestCaseGenerator
             shift = ReadBitThenShiftPattern.Match(body);
         if (shift.Success)
         {
-            var bodyMember = shift.Groups["mem"].Value;
+            _ = TryParseRegAccessPath(shift.Groups["path"].Value.Trim(), out var accessPath);
+            var bodyMember = string.IsNullOrEmpty(accessPath.LeafMember)
+                ? shift.Groups["path"].Value.Trim()
+                : accessPath.LeafMember;
             var bodyMskMacro = shift.Groups["msk"].Value;
             var bodyPosMacro = shift.Groups["pos"].Success ? shift.Groups["pos"].Value : null;
             var member = ResolveMemberAlignedToMask(bodyMember, bodyMskMacro, out _, out var readPairNote);
+            var targetInstance = ResolveNestedInstance(instance, accessPath, 0, bodyMskMacro);
 
-            if (!TryFieldNameFromMskMacro(bodyMskMacro, member, out var fieldName))
+            if (!TryFieldNameFromMskMacro(bodyMskMacro, member, out var fieldName)
+                && !TryParseChipMaskRegAndField(bodyMskMacro, out _, out fieldName))
+                fieldName = bodyMskMacro;
+
+            if (string.IsNullOrWhiteSpace(fieldName))
                 return results;
 
             var field = await FindRegisterFieldAsync(db, fn.SdkProjectId, member, fieldName, ct);
-            if (!TryResolveFieldMaskPos(fn.FilePath, field, bodyMskMacro, bodyPosMacro, out var mask, out var pos))
-                return results;
+            if (!TryResolveFieldMaskPos(fn.FilePath, field, bodyMskMacro, bodyPosMacro, out var mask, out var pos)
+                || mask == 0)
+            {
+                // Chip-header fallback when DB has no nested Master.MCR1 fields.
+                if (!TryParseUintDefineFromFileCandidates(fn.FilePath, bodyMskMacro, out mask) || mask == 0)
+                    return results;
+                pos = bodyPosMacro is not null
+                      && TryParseUintDefineFromFileCandidates(fn.FilePath, bodyPosMacro, out var posLit)
+                    ? (int)posLit
+                    : PosFromMask(mask);
+            }
 
             var maxVal = mask >> pos;
             if (maxVal == 0) return results;
 
-            var fieldSource = $"体宏 {bodyMskMacro}/{bodyPosMacro ?? $"pos={pos}"}";
+            var fieldSource = $"体宏 {bodyMskMacro}/{bodyPosMacro ?? $"pos={pos}"} path={accessPath.RawPath}";
             foreach (var (tag, fieldValue, withInterference) in EnumerateFieldReadSamples(maxVal))
             {
                 var initial = BuildFieldReadInitial(fieldValue, mask, pos, withInterference);
                 var expected = DeriveFieldReadExpected(initial, mask, pos);
-                EnsureReadExpectationConsistent($"{instance}.{member}.{fieldName}", initial, mask, pos, expected);
+                EnsureReadExpectationConsistent($"{targetInstance}.{member}.{fieldName}", initial, mask, pos, expected);
                 if (expected != fieldValue)
                 {
                     // Interference must never bleed into the field — generator bug.
@@ -2212,10 +2708,12 @@ public sealed class LlTestCaseGenerator
                 }
 
                 results.Add(BuildReadCheckModel(
-                    fn, instance, CloneParams(), member, initial, expected,
+                    fn, targetInstance,
+                    PrepareReadParameters(fn, instance, targetInstance, CloneParams()),
+                    member, initial, expected,
                     nameSuffix: $"{member}.{fieldName}/{tag}/read-check",
                     detail:
-                    $"Register={instance}.{member} Field={fieldName} Initial=0x{initial:X} " +
+                    $"Register={targetInstance}.{member} Field={fieldName} Initial=0x{initial:X} " +
                     $"Mask=0x{mask:X} Pos={pos} ExpectedReturn=0x{expected:X}（{fieldSource}；{readPairNote}）",
                     notes:
                     $"自动读校验[{tag}]：InitialRegisterValue=0x{initial:X}；" +
@@ -2225,37 +2723,142 @@ public sealed class LlTestCaseGenerator
             return results;
         }
 
-        // Boolean READ_BIT(..._Msk) ? 1 : 0
-        var bitBool = ReadBitBoolPattern.Match(body);
-        if (bitBool.Success && body.Contains("? 1UL", StringComparison.Ordinal))
+        // IsEnabledIT: (READ_BIT(reg, Mask) == (Mask)) ? 1UL : 0UL — Mask is a function param.
+        // Draft previously left Mask=0 → always returns 1 with timeout-only Skipped.
+        var paramEq = ReadBitParamEqBoolPattern.Match(body);
+        if (paramEq.Success && !IsCompileTimeMaskToken(paramEq.Groups["msk"].Value))
         {
-            var bodyMember = bitBool.Groups["mem"].Value;
-            var bodyMskMacro = bitBool.Groups["msk"].Value;
-            var member = ResolveMemberAlignedToMask(bodyMember, bodyMskMacro, out _, out var boolPairNote);
-            if (!TryFieldNameFromMskMacro(bodyMskMacro, member, out var fieldName))
+            var maskParamName = paramEq.Groups["msk"].Value;
+            if (!TryResolveRuntimeMaskParam(
+                    fn.FilePath, fn.FunctionName, maskParamName,
+                    out var llMacro, out var mask, out var chipTok)
+                || mask == 0)
                 return results;
 
-            var field = await FindRegisterFieldAsync(db, fn.SdkProjectId, member, fieldName, ct);
-            if (!TryResolveFieldMaskPos(fn.FilePath, field, bodyMskMacro, posMacro: null, out var mask, out _))
-                return results;
-
-            var invert = body.Contains("(!READ_BIT", StringComparison.Ordinal)
-                         || body.Contains("(! READ_BIT", StringComparison.Ordinal);
+            _ = TryParseRegAccessPath(paramEq.Groups["path"].Value.Trim(), out var bitPath);
+            var bodyMember = string.IsNullOrEmpty(bitPath.LeafMember)
+                ? paramEq.Groups["path"].Value.Trim()
+                : bitPath.LeafMember;
+            var member = ResolveMemberAlignedToMask(bodyMember, llMacro, out _, out var bitPairNote);
+            var nestMsk = chipTok ?? llMacro;
+            var targetInstance = ResolveNestedInstance(instance, bitPath, 0, nestMsk);
+            var label = TryFieldNameFromMskMacro(llMacro, member, out var fnField)
+                ? fnField
+                : StripMaskSuffix(llMacro);
             var preserve = PickUnrelatedPreserveBits(mask);
-            // true-case and false-case
-            foreach (var (tag, setFlag) in new[] { ("true", !invert), ("false", invert) })
+
+            // (reg & Mask) == Mask → true only when all Mask bits are set.
+            foreach (var (tag, fieldBits, expected) in new[]
+                     {
+                         ("false", 0u, 0u),
+                         ("partial", LowestSetBit(mask) == mask ? 0u : LowestSetBit(mask), 0u),
+                         ("true", mask, 1u)
+                     })
             {
-                var initial = setFlag ? (mask | preserve) : preserve;
-                var expected = invert
-                    ? ((initial & mask) == 0 ? 1u : 0u)
-                    : ((initial & mask) != 0 ? 1u : 0u);
+                if (tag == "partial" && fieldBits == 0)
+                    continue; // single-bit mask: no distinct partial sample
+
+                var initial = fieldBits | preserve;
+                var parameters = PrepareReadParameters(fn, instance, targetInstance, CloneParams());
+                AssignRuntimeMaskParam(parameters, maskParamName, mask, llMacro);
                 results.Add(BuildReadCheckModel(
-                    fn, instance, CloneParams(), member, initial, expected,
-                    nameSuffix: $"{member}.{fieldName}/{tag}/read-check",
+                    fn, targetInstance, parameters, member, initial, expected,
+                    nameSuffix: $"{member}.{label}/{tag}/read-check",
                     detail:
-                    $"布尔读：Initial=0x{initial:X} Mask=0x{mask:X} Expected=0x{expected:X}（{boolPairNote}）",
+                    $"参数掩码布尔：(reg&Mask)==Mask；Mask={llMacro}=0x{mask:X}；" +
+                    $"Initial=0x{initial:X} Expected=0x{expected:X}；path={bitPath.RawPath}；{bitPairNote}",
                     notes:
-                    $"自动读校验（布尔/{tag}）：Initial=0x{initial:X} Expected=0x{expected:X}；读后不变。虚拟环境。"));
+                    $"自动读校验（IsEnabled/Mask/{tag}）：Mask=0x{mask:X} Initial=0x{initial:X} " +
+                    $"Expected=0x{expected:X}；读后不变。虚拟环境。"));
+            }
+
+            return results;
+        }
+
+        // READ_BIT(..._Msk|_MSK): boolean (? 1UL) OR masked-return (reg & mask), e.g.
+        // LL_HRPWM_Mst_AllIntPnd_Get → READ_BIT(Master.MISR, LL_HRPWM_MISR_MST_IT_FLAG_MSK).
+        var bitMaskRead = ReadBitMaskPattern.Match(body);
+        if (bitMaskRead.Success)
+        {
+            _ = TryParseRegAccessPath(bitMaskRead.Groups["path"].Value.Trim(), out var bitPath);
+            var bodyMember = string.IsNullOrEmpty(bitPath.LeafMember)
+                ? bitMaskRead.Groups["path"].Value.Trim()
+                : bitPath.LeafMember;
+            var bodyMskMacro = bitMaskRead.Groups["msk"].Value;
+            var member = ResolveMemberAlignedToMask(bodyMember, bodyMskMacro, out _, out var bitPairNote);
+            // Nested Master + LL_HRPWM_*_MSK: peri prefix may not parse; pass expanded chip token.
+            var nestMsk = bodyMskMacro;
+            if (bodyMskMacro.StartsWith("LL_", StringComparison.OrdinalIgnoreCase))
+            {
+                var expanded = ExpandDefineBody(fn.FilePath, bodyMskMacro) ?? "";
+                var chipTok = ChipFieldMskToken.Match(expanded);
+                if (chipTok.Success)
+                    nestMsk = chipTok.Groups["tok"].Value;
+            }
+
+            var targetInstance = ResolveNestedInstance(instance, bitPath, 0, nestMsk);
+            var mask = await ResolveClearMaskAsync(db, fn, member, bodyMskMacro, ct);
+            if (mask == 0
+                && !TryParseUintDefineFromFileCandidates(fn.FilePath, bodyMskMacro, out mask))
+                return results;
+            if (mask == 0)
+                return results;
+
+            var label = TryFieldNameFromMskMacro(bodyMskMacro, member, out var fnField)
+                        || TryParseChipMaskRegAndField(bodyMskMacro, out _, out fnField)
+                ? fnField
+                : StripMaskSuffix(bodyMskMacro);
+
+            var isBool = body.Contains("? 1UL", StringComparison.Ordinal)
+                         || body.Contains("?1UL", StringComparison.Ordinal)
+                         || Regex.IsMatch(body, @"!!\s*READ_BIT");
+            var preserve = PickUnrelatedPreserveBits(mask);
+
+            if (isBool)
+            {
+                var invert = body.Contains("(!READ_BIT", StringComparison.Ordinal)
+                             || body.Contains("(! READ_BIT", StringComparison.Ordinal)
+                             || body.Contains("!READ_BIT", StringComparison.Ordinal);
+                foreach (var (tag, setFlag) in new[] { ("true", !invert), ("false", invert) })
+                {
+                    var initial = setFlag ? (mask | preserve) : preserve;
+                    var expected = invert
+                        ? ((initial & mask) == 0 ? 1u : 0u)
+                        : ((initial & mask) != 0 ? 1u : 0u);
+                    results.Add(BuildReadCheckModel(
+                        fn, targetInstance,
+                        PrepareReadParameters(fn, instance, targetInstance, CloneParams()),
+                        member, initial, expected,
+                        nameSuffix: $"{member}.{label}/{tag}/read-check",
+                        detail:
+                        $"布尔读：Initial=0x{initial:X} Mask=0x{mask:X} Expected=0x{expected:X}（{bitPairNote}）",
+                        notes:
+                        $"自动读校验（布尔/{tag}）：Initial=0x{initial:X} Expected=0x{expected:X}；读后不变。虚拟环境。"));
+                }
+
+                return results;
+            }
+
+            // Masked return: READ_BIT → (reg & mask). Covers AllIntPnd_Get / IT_FLAG_MSK / IT_EN_MSK.
+            foreach (var (tag, fieldBits) in new[]
+                     {
+                         ("zero", 0u),
+                         ("partial", LowestSetBit(mask)),
+                         ("all", mask)
+                     })
+            {
+                var initial = fieldBits | preserve;
+                var expected = initial & mask;
+                results.Add(BuildReadCheckModel(
+                    fn, targetInstance,
+                    PrepareReadParameters(fn, instance, targetInstance, CloneParams()),
+                    member, initial, expected,
+                    nameSuffix: $"{member}.{label}/{tag}/read-check",
+                    detail:
+                    $"掩码读：Initial=0x{initial:X} Mask=0x{mask:X} ExpectedReturn=(initial&mask)=0x{expected:X}；" +
+                    $"path={bitPath.RawPath}；体宏 {bodyMskMacro}；{bitPairNote}",
+                    notes:
+                    $"自动读校验[READ_BIT/{tag}]：Initial=0x{initial:X} Expected=0x{expected:X}；读后不变。虚拟环境。"));
             }
 
             return results;
@@ -2266,9 +2869,13 @@ public sealed class LlTestCaseGenerator
         if (readReg.Success && !body.Contains("LL_ADC_REG_OFFSET", StringComparison.Ordinal)
             && !body.Contains("OFFSET", StringComparison.Ordinal))
         {
-            var bodyMember = readReg.Groups["mem"].Value;
+            _ = TryParseRegAccessPath(readReg.Groups["path"].Value.Trim(), out var regPath);
+            var bodyMember = string.IsNullOrEmpty(regPath.LeafMember)
+                ? readReg.Groups["path"].Value.Trim()
+                : regPath.LeafMember;
             var trustedMember = await TryResolveTrustedMemberAsync(db, fn, ct);
             var member = !string.IsNullOrWhiteSpace(trustedMember) ? trustedMember! : bodyMember;
+            var targetInstance = ResolveNestedInstance(instance, regPath, 0, null);
             foreach (var (tag, preload) in new[]
                      {
                          ("zero", 0u),
@@ -2278,7 +2885,9 @@ public sealed class LlTestCaseGenerator
             {
                 var expected = preload; // READ_REG returns full value
                 results.Add(BuildReadCheckModel(
-                    fn, instance, CloneParams(), member, preload, expected,
+                    fn, targetInstance,
+                    PrepareReadParameters(fn, instance, targetInstance, CloneParams()),
+                    member, preload, expected,
                     nameSuffix: $"{member}/{tag}/read-check",
                     detail: $"READ_REG：Initial=0x{preload:X} Expected=0x{expected:X}",
                     notes: $"自动读校验[READ_REG/{tag}]：Initial=Expected=0x{preload:X}；读后不变。虚拟环境。"));
@@ -2286,6 +2895,18 @@ public sealed class LlTestCaseGenerator
         }
 
         return results;
+    }
+
+    private static List<LlTestParameterValue> PrepareReadParameters(
+        LlFunction fn, string fallbackInstance, string targetInstance, List<LlTestParameterValue> parameters)
+    {
+        foreach (var p in parameters.Where(TestHarnessGenerator.IsPeripheralTypeDefPointer))
+        {
+            p.ValueExpression = ResolveHostPeriPointer(
+                fn.PeripheralName, fallbackInstance, targetInstance, p.ValueExpression);
+        }
+
+        return parameters;
     }
 
     private static LlTestCaseEditModel BuildReadCheckModel(
@@ -2531,7 +3152,10 @@ public sealed class LlTestCaseGenerator
         var shift = ReadBitShiftPattern.Match(getBody);
         if (shift.Success)
         {
-            var bodyMember = shift.Groups["mem"].Value;
+            _ = TryParseRegAccessPath(shift.Groups["path"].Value.Trim(), out var getPath);
+            var bodyMember = string.IsNullOrEmpty(getPath.LeafMember)
+                ? shift.Groups["path"].Value.Trim()
+                : getPath.LeafMember;
             var bodyMskMacro = shift.Groups["msk"].Value;
             var member = ResolveMemberAlignedToMask(bodyMember, bodyMskMacro, out _, out _);
             // Prefer Get function-name trusted field over possibly-wrong Get body mask.
@@ -2579,7 +3203,10 @@ public sealed class LlTestCaseGenerator
         else if (ReadRegPattern.Match(getBody) is { Success: true } rr
                  && !getBody.Contains("OFFSET", StringComparison.Ordinal))
         {
-            var member = rr.Groups["mem"].Value;
+            _ = TryParseRegAccessPath(rr.Groups["path"].Value.Trim(), out var rrPath);
+            var member = string.IsNullOrEmpty(rrPath.LeafMember)
+                ? rr.Groups["path"].Value.Trim()
+                : rrPath.LeafMember;
             var reg = writeCheck.Assertions.FirstOrDefault(a =>
                 a.Kind == LlAssertionKind.RegisterValue
                 && string.Equals(a.MemberName, member, StringComparison.OrdinalIgnoreCase));
@@ -2715,6 +3342,14 @@ public sealed class LlTestCaseGenerator
                 return m;
         }
 
+        // Chip/header literal: HRPWM_MST_MCR1_BDMADIS_Msk (0x80000000UL) — required when DB
+        // has no RegisterFields yet (nested Master.MCR1 banks often missing from scan).
+        foreach (var path in CandidateDefineFiles(fn.FilePath, null))
+        {
+            if (TryParseUintDefineFromFile(path, mskMacro, out var lit) && lit != 0)
+                return lit;
+        }
+
         // Composite LL mask: expand #define and OR chip *_Msk tokens.
         var expanded = ExpandDefineBody(fn.FilePath, mskMacro);
         if (string.IsNullOrWhiteSpace(expanded))
@@ -2724,6 +3359,12 @@ public sealed class LlTestCaseGenerator
         foreach (Match tok in ChipFieldMskToken.Matches(expanded))
         {
             var chipMsk = tok.Groups["tok"].Value;
+            if (TryParseUintDefineFromFileCandidates(fn.FilePath, chipMsk, out var chipLit) && chipLit != 0)
+            {
+                combined |= chipLit;
+                continue;
+            }
+
             if (!TryFieldNameFromMskMacro(chipMsk, member, out var fnName))
                 continue;
             var field = await FindRegisterFieldAsync(db, fn.SdkProjectId, member, fnName, ct);
@@ -2732,6 +3373,18 @@ public sealed class LlTestCaseGenerator
         }
 
         return combined;
+    }
+
+    private static bool TryParseUintDefineFromFileCandidates(string? llFilePath, string macroName, out uint value)
+    {
+        value = 0;
+        foreach (var path in CandidateDefineFiles(llFilePath, null))
+        {
+            if (TryParseUintDefineFromFile(path, macroName, out value) && value != 0)
+                return true;
+        }
+
+        return false;
     }
 
     private static async Task<RegisterField?> FindRegisterFieldAsync(
@@ -3142,15 +3795,172 @@ public sealed class LlTestCaseGenerator
                 return periFromMask;
             }
 
-            if (pref.Equals("Master", StringComparison.OrdinalIgnoreCase))
-                return Regex.Replace(fallbackInstance, @"_(SLV|CH)\d+$", "_MST", RegexOptions.IgnoreCase);
-            if (pref.Equals("Common", StringComparison.OrdinalIgnoreCase))
-                return Regex.Replace(fallbackInstance, @"_(SLV|CH|MST)\d*$", "_COM", RegexOptions.IgnoreCase);
+            // Master/Common bank remap is HRPWM-only (SDK has no other ->Master./->Common.).
+            if (IsHrpwmBankFamily(fallbackInstance, periFromMask, mskMacro))
+            {
+                if (pref.Equals("Master", StringComparison.OrdinalIgnoreCase)
+                    || pref.Equals("MST", StringComparison.OrdinalIgnoreCase))
+                    return ToHrpwmBankedInstance(fallbackInstance, "_MST");
+                if (pref.Equals("Common", StringComparison.OrdinalIgnoreCase)
+                    || pref.Equals("COM", StringComparison.OrdinalIgnoreCase)
+                    || pref.Equals("Shared", StringComparison.OrdinalIgnoreCase))
+                    return ToHrpwmBankedInstance(fallbackInstance, "_COM");
+            }
         }
 
         if (!string.IsNullOrWhiteSpace(periFromMask))
             return periFromMask;
         return fallbackInstance;
+    }
+
+    private static bool IsHrpwmBankFamily(string? fallback, string? periFromMask, string? mskMacro)
+        => (!string.IsNullOrWhiteSpace(fallback)
+            && fallback.StartsWith("HRPWM", StringComparison.OrdinalIgnoreCase))
+           || (!string.IsNullOrWhiteSpace(periFromMask)
+               && periFromMask.StartsWith("HRPWM", StringComparison.OrdinalIgnoreCase))
+           || (!string.IsNullOrWhiteSpace(mskMacro)
+               && (mskMacro.StartsWith("HRPWM_", StringComparison.OrdinalIgnoreCase)
+                   || mskMacro.StartsWith("LL_HRPWM_", StringComparison.OrdinalIgnoreCase)));
+
+    private static uint LowestSetBit(uint mask)
+    {
+        if (mask == 0) return 0;
+        return mask & ~(mask - 1u);
+    }
+
+    private static bool IsCompileTimeMaskToken(string? token)
+        => !string.IsNullOrWhiteSpace(token)
+           && (token.EndsWith("_Msk", StringComparison.OrdinalIgnoreCase)
+               || token.EndsWith("_MSK", StringComparison.OrdinalIgnoreCase));
+
+    private static void AssignRuntimeMaskParam(
+        List<LlTestParameterValue> parameters,
+        string maskParamName,
+        uint maskBits,
+        string llMacro)
+    {
+        var p = parameters.FirstOrDefault(x =>
+            x.Name.Equals(maskParamName, StringComparison.OrdinalIgnoreCase));
+        if (p is null) return;
+        // Pure hex only — ParseUIntExpression rejects "0xN /* MACRO */" and would pass Mask=0.
+        p.ValueExpression = $"0x{maskBits:X}";
+        p.RuleSource = nameof(LlAssertionRuleSource.AutoGeneratedFromSdkMacro);
+    }
+
+    /// <summary>
+    /// Resolve runtime Mask argument from doxygen <c>@ref LL_*TypeDef</c> to a concrete
+    /// SDK #define in that @name group (never invent bits).
+    /// </summary>
+    private static bool TryResolveRuntimeMaskParam(
+        string? filePath,
+        string functionName,
+        string maskParamName,
+        out string llMacro,
+        out uint bits,
+        out string? chipMskToken)
+    {
+        llMacro = "";
+        bits = 0;
+        chipMskToken = null;
+        try
+        {
+            var resolved = ResolveLlHeaderPath(filePath);
+            if (resolved is null) return false;
+            var text = File.ReadAllText(resolved);
+            var fnIdx = text.IndexOf(functionName + "(", StringComparison.Ordinal);
+            if (fnIdx < 0) return false;
+
+            var commentStart = text.LastIndexOf("/**", fnIdx, StringComparison.Ordinal);
+            if (commentStart < 0 || fnIdx - commentStart > 1600)
+                return false;
+            var comment = text[commentStart..fnIdx];
+            var refMatch = Regex.Match(
+                comment,
+                $@"@param\s+{Regex.Escape(maskParamName)}\b[\s\S]*?@ref\s+(?<td>LL_[A-Za-z0-9_]+)",
+                RegexOptions.CultureInvariant | RegexOptions.IgnoreCase);
+            if (!refMatch.Success)
+                return false;
+            var typeDef = refMatch.Groups["td"].Value;
+
+            // Prefer first single-bit #define under /** @name TypeDef */
+            var nameIdx = text.IndexOf($"@name {typeDef}", StringComparison.Ordinal);
+            if (nameIdx >= 0)
+            {
+                var chunkLen = Math.Min(4000, text.Length - nameIdx);
+                var chunk = text.Substring(nameIdx, chunkLen);
+                var close = Regex.Match(chunk, @"/\*\*\s*@\}");
+                if (close.Success)
+                    chunk = chunk[..close.Index];
+
+                foreach (Match dm in Regex.Matches(
+                             chunk,
+                             @"#define\s+(?<n>LL_[A-Za-z0-9_]+)\s+\((?<c>[A-Za-z0-9_]+_Msk)\)",
+                             RegexOptions.CultureInvariant))
+                {
+                    var name = dm.Groups["n"].Value;
+                    if (name.Equals(typeDef, StringComparison.OrdinalIgnoreCase))
+                        continue;
+                    if (TryParseUintDefineFromFileCandidates(filePath, name, out bits) && bits != 0)
+                    {
+                        llMacro = name;
+                        chipMskToken = dm.Groups["c"].Value;
+                        return true;
+                    }
+
+                    if (TryParseUintDefineFromFileCandidates(filePath, dm.Groups["c"].Value, out bits)
+                        && bits != 0)
+                    {
+                        llMacro = name;
+                        chipMskToken = dm.Groups["c"].Value;
+                        return true;
+                    }
+                }
+            }
+
+            // Fallback: LL_ADC_IER_ITEnMskTypeDef → LL_ADC_IER_IT_EN_MSK (and similar).
+            string? aggregate = null;
+            if (typeDef.EndsWith("ITEnMskTypeDef", StringComparison.OrdinalIgnoreCase))
+                aggregate = typeDef[..^"ITEnMskTypeDef".Length] + "IT_EN_MSK";
+            else if (typeDef.EndsWith("ITPendingMskTypeDef", StringComparison.OrdinalIgnoreCase))
+                aggregate = typeDef[..^"ITPendingMskTypeDef".Length] + "IT_FLAG_MSK";
+            else if (typeDef.EndsWith("DmaEnMskTypeDef", StringComparison.OrdinalIgnoreCase))
+                aggregate = typeDef[..^"DmaEnMskTypeDef".Length] + "DMA_EN_MSK";
+
+            if (aggregate is not null
+                && TryParseUintDefineFromFileCandidates(filePath, aggregate, out bits)
+                && bits != 0)
+            {
+                llMacro = aggregate;
+                var expanded = ExpandDefineBody(filePath, aggregate) ?? "";
+                var chip = ChipFieldMskToken.Match(expanded);
+                if (chip.Success)
+                    chipMskToken = chip.Groups["tok"].Value;
+                return true;
+            }
+        }
+        catch
+        {
+            /* ignore IO / parse */
+        }
+
+        return false;
+    }
+
+    /// <summary>
+    /// HRPWM → HRPWM_MST; HRPWM_SLV0/COM → HRPWM_MST; already HRPWM_MST → unchanged.
+    /// </summary>
+    private static string ToHrpwmBankedInstance(string fallbackInstance, string bankSuffix)
+    {
+        if (string.IsNullOrWhiteSpace(fallbackInstance))
+            return "HRPWM" + bankSuffix;
+        if (!fallbackInstance.StartsWith("HRPWM", StringComparison.OrdinalIgnoreCase))
+            return fallbackInstance;
+        if (fallbackInstance.EndsWith(bankSuffix, StringComparison.OrdinalIgnoreCase))
+            return fallbackInstance;
+        if (Regex.IsMatch(fallbackInstance, @"_(SLV|CH|COM|MST)\d*$", RegexOptions.IgnoreCase))
+            return Regex.Replace(fallbackInstance, @"_(SLV|CH|COM|MST)\d*$", bankSuffix,
+                RegexOptions.IgnoreCase);
+        return fallbackInstance + bankSuffix;
     }
 
     /// <summary>Host TypeDef cast name for multi-bank aggregates (single image); else numbered instance.</summary>
@@ -3244,6 +4054,8 @@ public sealed class LlTestCaseGenerator
 
         void Check(string op, string mem, string msk)
         {
+            if (!IsCompileTimeMaskToken(msk))
+                return;
             _ = ResolveMemberAlignedToMask(mem, msk, out var mismatch, out var note);
             if (mismatch)
                 notes.Add($"{op}: {note}");
@@ -3254,11 +4066,11 @@ public sealed class LlTestCaseGenerator
         foreach (Match m in ModifyRegPattern.Matches(body))
             Check("MODIFY_REG", PathLeaf(m), m.Groups["msk"].Value);
         foreach (Match m in ReadBitShiftPattern.Matches(body))
-            Check("READ_BIT_SHIFT", m.Groups["mem"].Value, m.Groups["msk"].Value);
+            Check("READ_BIT_SHIFT", PathLeaf(m), m.Groups["msk"].Value);
         foreach (Match m in ReadBitThenShiftPattern.Matches(body))
-            Check("READ_BIT>>Pos", m.Groups["mem"].Value, m.Groups["msk"].Value);
+            Check("READ_BIT>>Pos", PathLeaf(m), m.Groups["msk"].Value);
         foreach (Match m in ReadBitBoolPattern.Matches(body))
-            Check("READ_BIT", m.Groups["mem"].Value, m.Groups["msk"].Value);
+            Check("READ_BIT", PathLeaf(m), m.Groups["msk"].Value);
         foreach (Match m in WriteRegPattern.Matches(body))
         {
             var mskTok = Regex.Match(m.Groups["val"].Value, @"\b(?<msk>[A-Za-z0-9_]+_(?:Msk|MSK))\b");
@@ -3407,6 +4219,7 @@ public sealed class LlTestCaseGenerator
             "LPTMR" => "TMR6",
             "BSTMR" => "TMR7",
             "ADTMR" => "TMR9",
+            "HRPWM" => "HRPWM_MST",
             _ when moduleOrInstance.Any(char.IsDigit) => moduleOrInstance,
             _ => moduleOrInstance
         };
@@ -3539,7 +4352,11 @@ public sealed class LlTestCaseGenerator
                          || p.Name.Equals("Cfg", StringComparison.OrdinalIgnoreCase)
                          || p.Name.Equals("Config", StringComparison.OrdinalIgnoreCase)
                          || p.Name.Equals("Shift", StringComparison.OrdinalIgnoreCase)
-                         || p.Name.Equals("Ratio", StringComparison.OrdinalIgnoreCase)))
+                         || p.Name.Equals("Ratio", StringComparison.OrdinalIgnoreCase)
+                         || p.Name.Equals("Div", StringComparison.OrdinalIgnoreCase)
+                         || p.Name.Equals("Divider", StringComparison.OrdinalIgnoreCase)
+                         || p.Name.Contains("Prescaler", StringComparison.OrdinalIgnoreCase)
+                         || p.Name.Contains("Prescl", StringComparison.OrdinalIgnoreCase)))
                 p.ValueExpression = "1";
         }
     }

@@ -126,7 +126,12 @@ public sealed class LlTestEngine : ILLTestEngine
         {
             cancellationToken.ThrowIfCancellationRequested();
             log?.Report($"运行用例 {id}");
-            results.Add(await RunCaseAsync(new LlTestRunRequest { TestCaseId = id }, log, cancellationToken));
+            // Off WPF sync context: compile/static-analysis/native wait must not freeze the UI.
+            var result = await Task.Run(
+                    () => RunCaseAsync(new LlTestRunRequest { TestCaseId = id }, log, cancellationToken),
+                    cancellationToken)
+                .ConfigureAwait(false);
+            results.Add(result);
         }
         return results;
     }
@@ -248,7 +253,8 @@ public sealed class LlTestEngine : ILLTestEngine
             // Recover params from signature when case JSON left them empty (old drafts).
             var defaultPeri = entity.PeripheralName ?? "PERI";
             edit.Parameters = TestHarnessGenerator.EnsureParameters(
-                edit.Parameters, edit.FunctionSignature ?? entity.FunctionSignature, defaultPeri).ToList();
+                edit.Parameters, edit.FunctionSignature ?? entity.FunctionSignature, defaultPeri,
+                entity.FunctionName).ToList();
             foreach (var p in edit.Parameters.Where(TestHarnessGenerator.IsPeripheralTypeDefPointer))
             {
                 if (string.IsNullOrWhiteSpace(p.ValueExpression) || p.ValueExpression == "0")
@@ -258,7 +264,8 @@ public sealed class LlTestEngine : ILLTestEngine
             var periHint = edit.Parameters.FirstOrDefault(TestHarnessGenerator.IsPeripheralTypeDefPointer)?.ValueExpression
                            ?? defaultPeri;
             var virtualInstance = await VirtualMcuInstanceResolver.ResolveAsync(
-                _mcu, mcuId!.Value, periHint, entity.PeripheralName, cancellationToken);
+                _mcu, mcuId!.Value, periHint, entity.PeripheralName, cancellationToken,
+                entity.FunctionName);
 
             var harness = TestHarnessGenerator.Generate(
                 entity.FunctionName,
@@ -326,20 +333,86 @@ public sealed class LlTestEngine : ILLTestEngine
             {
                 using var host = new NativeTestHost();
                 host.Load(compile.OutputDllPath!);
-                var (ptr, size, map) = await NativeTestHost.AllocateAndFillAsync(
+                var (ptr, size, map, layout) = await NativeTestHost.AllocateAndFillAsync(
                     _mcu, mcuId.Value, virtualInstance, timeoutCts.Token, entity.PeripheralName);
                 try
                 {
+                    var focusInit = edit.InitialRegisters.FirstOrDefault();
+                    var focusInst = focusInit?.InstanceName ?? virtualInstance;
+                    var focusMem = focusInit?.MemberName ?? "";
+                    L(layout.FormatDebug(focusInst, focusMem));
+
+                    // Resolve expected absolute address for the focus register (SDK TypeDef path).
+                    if (!string.IsNullOrWhiteSpace(focusMem))
+                    {
+                        var focusReg = await _mcu.GetRegisterAsync(
+                            mcuId.Value, focusInst, focusMem, timeoutCts.Token);
+                        if (focusReg?.AbsoluteAddress is uint abs)
+                        {
+                            var hostOff = (int)(abs - layout.ImageBase);
+                            L($"Expected MCR0/Focus Address: 0x{abs:X8}");
+                            L($"Native HRPWMx/PERIx Pointer: host image base (child peri buffer)");
+                            L($"Native Focus Offset: +0x{hostOff:X} (abs=0x{abs:X8})");
+                            L($"Virtual Register Address: 0x{abs:X8}");
+                            L($"Virtual Initial Value: 0x{focusReg.CurrentValue:X8}");
+                            if (hostOff >= 0 && map.TryGetValue(hostOff, out var slotKey))
+                                L($"Host Map Slot: +0x{hostOff:X} → {slotKey}");
+                            else
+                                L($"Host Map Slot: MISSING for +0x{hostOff:X}（Native 写入将无法回读）");
+                        }
+                        else
+                        {
+                            L($"Virtual Register Address: （缺失 AbsoluteAddress）{focusInst}.{focusMem}");
+                        }
+                    }
+
                     var argValues = TestHarnessGenerator.BuildArgsValuesInHarnessOrder(
                         edit.Parameters, edit.PreludeCalls);
                     var blob = NativeTestHost.PackArgs(argValues);
                     var beforeExecute = NativeTestHost.SnapshotBuffer(ptr, map);
+                    // Also snapshot TypeDef prefix so unmapped dirties are visible.
+                    for (var off = 0; off < Math.Min(size, 0x1000); off += 4)
+                    {
+                        if (!beforeExecute.ContainsKey(off))
+                            beforeExecute[off] = unchecked((uint)Marshal.ReadInt32(ptr, off));
+                    }
+
                     L($"原生执行 {entity.FunctionName} @ virtual {virtualInstance} (hint={periHint}) …");
-                    ret = host.Execute(ptr, (uint)size, blob, out var nrc);
+                    var (execRet, nrc) = await host.ExecuteAsync(
+                            ptr, (uint)size, blob, timeoutCts.Token)
+                        .ConfigureAwait(false);
+                    ret = execRet;
                     if (nrc != 0)
                         throw new InvalidOperationException($"harness tae32_run 返回 {nrc}");
 
                     NativeTestHost.ApplyHostGpioBsrToDor(ptr, map);
+
+                    var deltas = NativeTestHost.AnalyzeBufferDeltas(
+                        ptr, size, map, beforeExecute, layout.ImageBase);
+                    L(deltas.FormatDebug());
+                    if (deltas.HasUnmappedWrites)
+                    {
+                        L("原因：Native 写入落在未映射偏移（宿主映像与 AbsoluteAddress 打包不一致）。");
+                    }
+                    else if (!deltas.HasMappedWrites)
+                    {
+                        L("原因：宿主缓冲区内映射槽位无变化（可能参数未生效，或读写偏移错误）。");
+                    }
+
+                    if (!string.IsNullOrWhiteSpace(focusMem))
+                    {
+                        var focusRegAfterHost = await _mcu.GetRegisterAsync(
+                            mcuId.Value, focusInst, focusMem, timeoutCts.Token);
+                        if (focusRegAfterHost?.AbsoluteAddress is uint abs2)
+                        {
+                            var hostOff = (int)(abs2 - layout.ImageBase);
+                            if (hostOff >= 0 && hostOff + 4 <= size)
+                            {
+                                var hostVal = unchecked((uint)Marshal.ReadInt32(ptr, hostOff));
+                                L($"Native Focus Word After: +0x{hostOff:X} = 0x{hostVal:X8}");
+                            }
+                        }
+                    }
 
                     var ctx = new VirtualAccessContext
                     {
@@ -349,13 +422,25 @@ public sealed class LlTestEngine : ILLTestEngine
                     };
                     await NativeTestHost.SyncBufferToVirtualMcuAsync(
                         _mcu, mcuId.Value, virtualInstance, ptr, map, ctx, timeoutCts.Token, beforeExecute);
+
+                    if (!string.IsNullOrWhiteSpace(focusMem))
+                    {
+                        var focusFinal = await _mcu.GetRegisterAsync(
+                            mcuId.Value, focusInst, focusMem, timeoutCts.Token);
+                        if (focusFinal is not null)
+                            L($"Virtual Final Value: 0x{focusFinal.CurrentValue:X8}");
+                    }
+
                     run.ExecuteCompleted = true;
                     run.HardwareBehaviorSimulated = true;
+                    var execMsg = $"原生执行完成 return=0x{ret:X8}";
+                    if (deltas.HasUnmappedWrites)
+                        execMsg += $"；检测到 {deltas.UnmappedChanges.Count} 处未映射写入";
                     stages.Add(new LlTestStageResult
                     {
                         Stage = LlTestExecutionStage.NativeExecute,
                         Succeeded = true,
-                        Message = $"原生执行完成 return=0x{ret:X8}"
+                        Message = execMsg
                     });
                     stages.Add(new LlTestStageResult
                     {
@@ -376,6 +461,21 @@ public sealed class LlTestEngine : ILLTestEngine
                 run.FailureReason = $"原生执行超过 {timeout} ms";
                 stages.Add(new LlTestStageResult { Stage = LlTestExecutionStage.NativeExecute, Succeeded = false, Message = run.FailureReason });
                 return await FinishAsync(run, stages, execLog, sw, ret, Array.Empty<LlTestAssertionResult>(), Array.Empty<VirtualAccessRecord>());
+            }
+            catch (TimeoutException tex)
+            {
+                nativeSw.Stop();
+                run.Status = nameof(LlTestRunStatus.Timeout);
+                run.FailureReason = tex.Message;
+                stages.Add(new LlTestStageResult
+                {
+                    Stage = LlTestExecutionStage.NativeExecute,
+                    Succeeded = false,
+                    Message = run.FailureReason
+                });
+                return await FinishAsync(
+                    run, stages, execLog, sw, ret,
+                    Array.Empty<LlTestAssertionResult>(), Array.Empty<VirtualAccessRecord>());
             }
             catch (Exception ex)
             {

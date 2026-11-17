@@ -188,21 +188,63 @@ public static class TestHarnessGenerator
     public static IReadOnlyList<LlTestParameterValue> EnsureParameters(
         IReadOnlyList<LlTestParameterValue>? parameters,
         string? functionSignature,
-        string? peripheralInstanceHint)
+        string? peripheralInstanceHint,
+        string? functionName = null)
     {
+        List<LlTestParameterValue> list;
         if (parameters is { Count: > 0 })
-            return parameters.ToList();
-
-        var parsed = ParseParametersFromSignature(functionSignature);
-        if (parsed.Count == 0) return Array.Empty<LlTestParameterValue>();
+        {
+            list = parameters.ToList();
+        }
+        else
+        {
+            var parsed = ParseParametersFromSignature(functionSignature);
+            if (parsed.Count == 0) return Array.Empty<LlTestParameterValue>();
+            list = parsed;
+        }
 
         var hint = string.IsNullOrWhiteSpace(peripheralInstanceHint) ? "PERI" : peripheralInstanceHint.Trim();
-        foreach (var p in parsed)
+        foreach (var p in list)
         {
             if (IsPeripheralTypeDefPointer(p) && (string.IsNullOrWhiteSpace(p.ValueExpression) || p.ValueExpression == "0"))
                 p.ValueExpression = hint;
         }
-        return parsed;
+
+        // Timeout-only drafts often leave Mode/Div=0 → MODIFY_REG no-op → empty deltas / Skipped.
+        ApplySetterNonZeroDefaults(functionName ?? InferFunctionName(functionSignature), list);
+        return list;
+    }
+
+    private static string? InferFunctionName(string? signature)
+    {
+        if (string.IsNullOrWhiteSpace(signature)) return null;
+        var m = Regex.Match(signature, @"\b(LL_[A-Za-z0-9_]+)\s*\(");
+        return m.Success ? m.Groups[1].Value : null;
+    }
+
+    private static void ApplySetterNonZeroDefaults(string? functionName, List<LlTestParameterValue> list)
+    {
+        if (string.IsNullOrWhiteSpace(functionName)) return;
+        var isSetter = functionName.Contains("Set", StringComparison.OrdinalIgnoreCase)
+                       || functionName.Contains("Write", StringComparison.OrdinalIgnoreCase)
+                       || functionName.Contains("Config", StringComparison.OrdinalIgnoreCase);
+        if (!isSetter) return;
+
+        foreach (var p in list)
+        {
+            if (!string.Equals(p.ValueExpression, "0", StringComparison.Ordinal)) continue;
+            if (IsPeripheralTypeDefPointer(p) || IsHostPointerBuffer(p)) continue;
+            if (p.Name.Equals("Mode", StringComparison.OrdinalIgnoreCase)
+                || p.Name.Equals("Div", StringComparison.OrdinalIgnoreCase)
+                || p.Name.Equals("Divider", StringComparison.OrdinalIgnoreCase)
+                || p.Name.Equals("Value", StringComparison.OrdinalIgnoreCase)
+                || p.Name.Equals("State", StringComparison.OrdinalIgnoreCase)
+                || p.Name.Contains("Prescaler", StringComparison.OrdinalIgnoreCase)
+                || p.Name.Contains("Prescl", StringComparison.OrdinalIgnoreCase))
+            {
+                p.ValueExpression = "1";
+            }
+        }
     }
 
     public static List<LlTestParameterValue> ParseParametersFromSignature(string? signature)
@@ -292,6 +334,11 @@ public static class TestHarnessGenerator
     {
         if (string.IsNullOrWhiteSpace(expr)) return 0;
         var s = expr.Trim();
+        // Strip accidental C comments (e.g. "0x100 /* MACRO */") so harness args never collapse to 0.
+        var block = s.IndexOf("/*", StringComparison.Ordinal);
+        if (block >= 0) s = s[..block].Trim();
+        var line = s.IndexOf("//", StringComparison.Ordinal);
+        if (line >= 0) s = s[..line].Trim();
         s = RegexTrimSuffix(s);
         if (s.StartsWith("0x", StringComparison.OrdinalIgnoreCase)
             && uint.TryParse(s.AsSpan(2), NumberStyles.HexNumber, CultureInfo.InvariantCulture, out var hex))

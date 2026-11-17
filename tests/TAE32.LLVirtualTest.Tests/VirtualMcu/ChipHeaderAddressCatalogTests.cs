@@ -33,6 +33,27 @@ public class ChipHeaderAddressCatalogTests
     }
 
     [Fact]
+    public void Load_From_SdkContent_Resolves_Hrpwm_Mst_Mcr0()
+    {
+        var sdkRoot = FindSdkRoot();
+        if (sdkRoot is null) return;
+
+        var catalog = ChipHeaderAddressCatalog.TryLoad(sdkRoot);
+        catalog.Should().NotBeNull();
+        catalog!.TryGetBase("HRPWM_MST", out var bas).Should().BeTrue();
+        bas.Should().Be(0x4003B000u);
+
+        catalog.TryResolveAbsolute("HRPWM_MST", "HRPWM_MST_Type", "MCR0", out var abs, out var b, out var off)
+            .Should().BeTrue("anonymous-union MCR0 must parse from chip_struct");
+        b.Should().Be(0x4003B000u);
+        off.Should().Be(0);
+        abs.Should().Be(0x4003B000u);
+
+        catalog.TryGetBase("HRPWM_SLV0", out var slv0).Should().BeTrue();
+        slv0.Should().Be(0x4003B100u);
+    }
+
+    [Fact]
     public void Load_Temp_Headers_Prefers_Chip_File_Literals()
     {
         var dir = Path.Combine(Path.GetTempPath(), "tae32_chipaddr_" + Guid.NewGuid().ToString("N"));

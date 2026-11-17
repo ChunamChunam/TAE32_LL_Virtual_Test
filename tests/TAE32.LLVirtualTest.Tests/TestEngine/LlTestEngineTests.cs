@@ -72,6 +72,8 @@ public class TestHarnessGeneratorTests
     [InlineData("16", 16u)]
     [InlineData("0xABu", 0xABu)]
     [InlineData("100UL", 100u)]
+    [InlineData("0x100 /* LL_HRPWM_MST_MDIER_MREPIE */", 0x100u)]
+    [InlineData("0x80 // comment", 0x80u)]
     public void ParseUIntExpression_Parses_Literals(string expr, uint expected)
         => TestHarnessGenerator.ParseUIntExpression(expr).Should().Be(expected);
 
@@ -190,6 +192,36 @@ public class AssertionEvaluatorTests
             null!, Guid.Empty, new[] { spec }, null, Array.Empty<VirtualAccessRecord>(),
             new InvalidOperationException("boom"), 1, CancellationToken.None);
         results.Single().Passed.Should().BeTrue();
+    }
+
+    [Fact]
+    public async Task RegisterWrite_And_NoUnexpectedWrite_Fail_On_Empty_Trace()
+    {
+        var write = new LlTestAssertionSpec
+        {
+            Kind = LlAssertionKind.RegisterWrite,
+            InstanceName = "HRPWM_MST",
+            MemberName = "MCR0",
+            RuleSource = LlAssertionRuleSource.FromRegisterDefinition
+        };
+        var none = new LlTestAssertionSpec
+        {
+            Kind = LlAssertionKind.NoUnexpectedWrite,
+            InstanceName = "HRPWM_MST",
+            MemberName = "MCR0",
+            ExpectedAccessOrder = new[] { "HRPWM_MST.MCR0", "MCR0" },
+            RuleSource = LlAssertionRuleSource.FromRegisterDefinition
+        };
+
+        var results = await AssertionEvaluator.EvaluateAsync(
+            null!, Guid.Empty, new[] { write, none }, 0u,
+            Array.Empty<VirtualAccessRecord>(), null, 5, CancellationToken.None);
+
+        results.Should().HaveCount(2);
+        results.Should().OnlyContain(r => !r.Passed);
+        results.Should().OnlyContain(r =>
+            (r.Message ?? "").Contains("轨迹", StringComparison.Ordinal)
+            || (r.Message ?? "").Contains("不完整", StringComparison.Ordinal));
     }
 }
 

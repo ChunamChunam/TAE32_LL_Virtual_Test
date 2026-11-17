@@ -27,12 +27,13 @@ internal sealed class NativeTestHost : IDisposable
     /// <summary>
     /// Execute harness in an isolated child process. On native crash the child dies;
     /// this method returns an error instead of crashing the WPF host.
+    /// Uses async wait so the WPF UI thread is not frozen by <c>WaitForExit</c>.
     /// </summary>
-    public uint Execute(
+    public async Task<(uint ReturnValue, int NativeRc)> ExecuteAsync(
         IntPtr periBase,
         uint periSize,
         byte[] argsBlob,
-        out int nativeRc)
+        CancellationToken cancellationToken = default)
     {
         if (string.IsNullOrWhiteSpace(_dllPath))
             throw new InvalidOperationException("Harness DLL 未加载");
@@ -50,8 +51,10 @@ internal sealed class NativeTestHost : IDisposable
         {
             var periBytes = new byte[periSize];
             Marshal.Copy(periBase, periBytes, 0, (int)periSize);
-            File.WriteAllBytes(periIn, periBytes);
-            File.WriteAllBytes(argsPath, argsBlob.Length == 0 ? new byte[8] : argsBlob);
+            await File.WriteAllBytesAsync(periIn, periBytes, cancellationToken).ConfigureAwait(false);
+            await File.WriteAllBytesAsync(
+                    argsPath, argsBlob.Length == 0 ? new byte[8] : argsBlob, cancellationToken)
+                .ConfigureAwait(false);
 
             var (runner, prefixArgs) = ResolveRunner();
             var psi = new ProcessStartInfo
@@ -74,25 +77,42 @@ internal sealed class NativeTestHost : IDisposable
             if (!proc.Start())
                 throw new InvalidOperationException("无法启动 NativeRunner 子进程");
 
-            // Hard cap: native AVE / hang must not block UI forever.
-            if (!proc.WaitForExit(60_000))
+            // Drain stdout/stderr concurrently so a full pipe cannot deadlock WaitForExitAsync.
+            var stdoutTask = proc.StandardOutput.ReadToEndAsync(cancellationToken);
+            var stderrTask = proc.StandardError.ReadToEndAsync(cancellationToken);
+
+            // Hard safety cap 60s, plus caller timeout/cancel via linked token.
+            using var hardCap = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+            hardCap.CancelAfter(TimeSpan.FromSeconds(60));
+            try
+            {
+                await proc.WaitForExitAsync(hardCap.Token).ConfigureAwait(false);
+            }
+            catch (OperationCanceledException)
             {
                 try { proc.Kill(entireProcessTree: true); } catch { /* ignore */ }
+                try { await proc.WaitForExitAsync(CancellationToken.None).ConfigureAwait(false); }
+                catch { /* ignore */ }
+                if (cancellationToken.IsCancellationRequested)
+                    throw;
                 throw new TimeoutException("原生执行子进程超时（可能死循环/挂死）");
             }
 
-            var stderr = proc.StandardError.ReadToEnd();
+            var stderr = await stderrTask.ConfigureAwait(false);
+            _ = await stdoutTask.ConfigureAwait(false);
+
             if (!File.Exists(resultPath))
             {
-                nativeRc = -1000;
                 throw new InvalidOperationException(
                     "原生执行子进程异常退出（常见于 AccessViolation）。" +
                     $" exit={proc.ExitCode}. {Truncate(stderr, 400)}");
             }
 
-            using var doc = JsonDocument.Parse(File.ReadAllText(resultPath));
+            await using var resultStream = File.OpenRead(resultPath);
+            using var doc = await JsonDocument.ParseAsync(resultStream, cancellationToken: CancellationToken.None)
+                .ConfigureAwait(false);
             var root = doc.RootElement;
-            nativeRc = root.TryGetProperty("rc", out var rcEl) ? rcEl.GetInt32() : -1;
+            var nativeRc = root.TryGetProperty("rc", out var rcEl) ? rcEl.GetInt32() : -1;
             var ret = root.TryGetProperty("ret", out var retEl) ? retEl.GetUInt32() : 0u;
             var error = root.TryGetProperty("error", out var errEl) ? errEl.GetString() : null;
 
@@ -108,18 +128,14 @@ internal sealed class NativeTestHost : IDisposable
 
             if (File.Exists(periOut))
             {
-                var outBytes = File.ReadAllBytes(periOut);
+                var outBytes = await File.ReadAllBytesAsync(periOut, CancellationToken.None)
+                    .ConfigureAwait(false);
                 var copyLen = Math.Min(outBytes.Length, (int)periSize);
                 if (copyLen > 0)
                     Marshal.Copy(outBytes, 0, periBase, copyLen);
             }
 
-            if (nativeRc != 0 && nativeRc != -999)
-            {
-                // Caller treats non-zero harness rc as soft failure.
-            }
-
-            return ret;
+            return (ret, nativeRc);
         }
         finally
         {
@@ -127,10 +143,45 @@ internal sealed class NativeTestHost : IDisposable
         }
     }
 
+    /// <summary>Host peri image layout used for Native Execute ↔ virtual MCU sync.</summary>
+    public sealed class HostImageLayout
+    {
+        public uint ImageBase { get; init; }
+        public int SizeBytes { get; init; }
+        public bool MultiBank { get; init; }
+        public bool UsedSequentialFallback { get; init; }
+        public string? ModuleName { get; init; }
+        public string? InstanceName { get; init; }
+        public IReadOnlyList<string> OffsetCollisions { get; init; } = Array.Empty<string>();
+        public IReadOnlyList<string> Warnings { get; init; } = Array.Empty<string>();
+
+        public string FormatDebug(string? focusInstance = null, string? focusMember = null)
+        {
+            var sb = new System.Text.StringBuilder();
+            sb.AppendLine($"Peripheral: {ModuleName ?? InstanceName ?? "—"}");
+            sb.AppendLine($"HostImageBase: 0x{ImageBase:X8}");
+            sb.AppendLine($"HostImageSize: 0x{SizeBytes:X} ({SizeBytes})");
+            sb.AppendLine($"MultiBank: {MultiBank}");
+            sb.AppendLine($"SequentialFallback: {UsedSequentialFallback}");
+            if (!string.IsNullOrWhiteSpace(focusInstance) && !string.IsNullOrWhiteSpace(focusMember))
+            {
+                sb.AppendLine($"Focus: {focusInstance}.{focusMember}");
+            }
+
+            foreach (var w in Warnings.Take(12))
+                sb.AppendLine("Warn: " + w);
+            foreach (var c in OffsetCollisions.Take(8))
+                sb.AppendLine("Collision: " + c);
+            return sb.ToString().TrimEnd();
+        }
+    }
+
     /// <summary>
     /// Map value: <c>Member</c> or <c>Instance::Member</c> (multi-bank TypeDef images e.g. HRPWM).
+    /// Image base is the aggregate TypeDef base (HRPWM→MST bank), not an arbitrary min that can
+    /// desync nested <c>Master.MCR0</c> / <c>PWM[i]</c> offsetof from AbsoluteAddress packing.
     /// </summary>
-    public static async Task<(IntPtr ptr, int size, Dictionary<int, string> offsetToMember)> AllocateAndFillAsync(
+    public static async Task<(IntPtr ptr, int size, Dictionary<int, string> offsetToMember, HostImageLayout layout)> AllocateAndFillAsync(
         IVirtualMcuService mcu,
         Guid mcuId,
         string instanceName,
@@ -138,30 +189,62 @@ internal sealed class NativeTestHost : IDisposable
         string? moduleName = null)
     {
         var multiBank = IsMultiBankModule(moduleName, instanceName);
+        var moduleKey = moduleName ?? (multiBank ? "HRPWM" : null);
         var regs = multiBank
-            ? await mcu.GetRegistersAsync(mcuId, moduleName ?? "HRPWM", null, ct)
+            ? await mcu.GetRegistersAsync(mcuId, moduleKey, null, ct)
             : await mcu.GetRegistersAsync(mcuId, moduleName, instanceName, ct);
 
-        var addressed = regs.Where(r => r.AbsoluteAddress is not null).ToList();
-        uint moduleBase = 0;
-        if (addressed.Count > 0)
-            moduleBase = addressed.Min(x => x.AbsoluteAddress!.Value);
+        // Safety net: if module filter returned nothing (legacy ModuleName=HRPWM_MST), pull by prefix.
+        if (multiBank && regs.Count == 0 && !string.IsNullOrWhiteSpace(moduleKey))
+        {
+            var all = await mcu.GetRegistersAsync(mcuId, null, null, ct);
+            regs = all.Where(r =>
+                    (r.InstanceName?.StartsWith(moduleKey, StringComparison.OrdinalIgnoreCase) ?? false)
+                    || (r.StructName?.StartsWith(moduleKey, StringComparison.OrdinalIgnoreCase) ?? false)
+                    || string.Equals(
+                        VirtualMcu.VirtualMcuDefinitionLoader.NormalizeModuleToken(r.ModuleName),
+                        moduleKey, StringComparison.OrdinalIgnoreCase))
+                .ToList();
+        }
 
-        var withOff = addressed
-            .Select(r => new
-            {
-                Key = multiBank ? $"{r.InstanceName}::{r.MemberName}" : r.MemberName,
-                Offset = (int)(r.AbsoluteAddress!.Value - moduleBase),
-                r.CurrentValue,
-                r.WidthBits
-            })
-            .ToList();
+        var addressed = regs.Where(r => r.AbsoluteAddress is not null).ToList();
+        var warnings = new List<string>();
+        var collisions = new List<string>();
 
         // Larger pad: some LL paths touch adjacent/reserved offsets; AVE was taking down the UI process.
         const int minSize = 512 * 1024;
         var structMin = HostPeripheralImageSizes.MinBytes(instanceName, moduleName);
 
-        if (withOff.Count == 0)
+        if (addressed.Count == 0)
+        {
+            // Last chance: resolve focus bank registers by name when AbsoluteAddress was missing on list.
+            if (multiBank && !string.IsNullOrWhiteSpace(moduleKey))
+            {
+                var recovered = new List<VirtualRegisterView>();
+                foreach (var r in regs)
+                {
+                    if (r.AbsoluteAddress is not null)
+                    {
+                        recovered.Add(r);
+                        continue;
+                    }
+
+                    if (string.IsNullOrWhiteSpace(r.InstanceName) || string.IsNullOrWhiteSpace(r.MemberName))
+                        continue;
+                    var one = await mcu.GetRegisterAsync(mcuId, r.InstanceName, r.MemberName, ct);
+                    if (one?.AbsoluteAddress is not null)
+                        recovered.Add(one);
+                }
+
+                if (recovered.Count > 0)
+                {
+                    addressed = recovered;
+                    warnings.Add("已通过单寄存器回查补齐 AbsoluteAddress（避免 SequentialFallback）。");
+                }
+            }
+        }
+
+        if (addressed.Count == 0)
         {
             var list = regs.ToList();
             var size = Math.Max(Math.Max(minSize, structMin), list.Count * 4 + 256);
@@ -179,23 +262,229 @@ internal sealed class NativeTestHost : IDisposable
                     : list[i].MemberName;
                 Marshal.WriteInt32(ptr, off, unchecked((int)list[i].CurrentValue));
             }
-            return (ptr, size, map);
+
+            warnings.Add(
+                "寄存器缺少 AbsoluteAddress，回退顺序打包；嵌套 TypeDef（如 HRPWM Master.MCR0）" +
+                "与宿主 offsetof 可能不一致，写入可能无法同步回虚拟 MCU。");
+            var layoutFb = new HostImageLayout
+            {
+                ImageBase = 0,
+                SizeBytes = size,
+                MultiBank = multiBank,
+                UsedSequentialFallback = true,
+                ModuleName = moduleName,
+                InstanceName = instanceName,
+                Warnings = warnings
+            };
+            return (ptr, size, map, layoutFb);
         }
 
-        var maxOff = withOff.Max(x => x.Offset + Math.Max(4, x.WidthBits / 8));
+        var imageBase = ResolveAggregateImageBase(moduleName, instanceName, addressed);
+        var imageWindow = Math.Max(structMin > 0 ? structMin : 0x1000, 0x1000);
+        var inWindow = addressed
+            .Where(r =>
+            {
+                var abs = r.AbsoluteAddress!.Value;
+                return abs >= imageBase && abs < imageBase + (uint)imageWindow;
+            })
+            .ToList();
+
+        if (inWindow.Count == 0)
+        {
+            // Fall back to all addressed regs relative to computed base (may be large).
+            inWindow = addressed;
+            warnings.Add(
+                $"没有寄存器落在 TypeDef 窗口 [0x{imageBase:X8}, 0x{imageBase + (uint)imageWindow:X8})；" +
+                "使用全部带地址寄存器，偏移可能与 HRPWM_TypeDef 不一致。");
+        }
+        else if (inWindow.Count < addressed.Count)
+        {
+            warnings.Add(
+                $"已排除 {addressed.Count - inWindow.Count} 个窗口外寄存器（基址 0x{imageBase:X8}，窗口 0x{imageWindow:X}）。");
+        }
+
+        var withOff = inWindow
+            .Select(r => new
+            {
+                Key = multiBank ? $"{r.InstanceName}::{r.MemberName}" : r.MemberName!,
+                Offset = (int)(r.AbsoluteAddress!.Value - imageBase),
+                r.CurrentValue,
+                r.WidthBits,
+                Abs = r.AbsoluteAddress!.Value
+            })
+            .Where(x => x.Offset >= 0)
+            .ToList();
+
+        var maxOff = withOff.Count == 0
+            ? structMin
+            : withOff.Max(x => x.Offset + Math.Max(4, x.WidthBits / 8));
         var bufSize = Math.Max(Math.Max(minSize, structMin), maxOff + 1024);
         var basePtr = Marshal.AllocHGlobal(bufSize);
         unsafe
         {
             new Span<byte>((void*)basePtr, bufSize).Clear();
         }
+
         var offsetMap = new Dictionary<int, string>();
-        foreach (var r in withOff)
+        foreach (var r in withOff.OrderBy(x => x.Offset))
         {
+            if (offsetMap.TryGetValue(r.Offset, out var existing) &&
+                !string.Equals(existing, r.Key, StringComparison.OrdinalIgnoreCase))
+            {
+                collisions.Add($"offset 0x{r.Offset:X}: {existing} vs {r.Key} (abs 0x{r.Abs:X8})");
+            }
+
             offsetMap[r.Offset] = r.Key;
             Marshal.WriteInt32(basePtr, r.Offset, unchecked((int)r.CurrentValue));
         }
-        return (basePtr, bufSize, offsetMap);
+
+        if (multiBank && IsHostAggregateModule(moduleName))
+        {
+            // HRPWM_TypeDef.Master.MCR0 is at offsetof 0; missing map entry ⇒ native writes are lost.
+            if (!offsetMap.ContainsKey(0))
+            {
+                warnings.Add(
+                    "多 bank 映像缺少 offset 0 映射（HRPWM Master.MCR0 / TypeDef 首寄存器）。" +
+                    "Native 对 Master.MCR0 的写入将无法同步到虚拟 MCU。");
+            }
+            else if (!offsetMap[0].Contains("MCR0", StringComparison.OrdinalIgnoreCase)
+                     && string.Equals(moduleName, "HRPWM", StringComparison.OrdinalIgnoreCase))
+            {
+                warnings.Add($"offset 0 当前映射为 {offsetMap[0]}，期望 HRPWM_MST::MCR0。");
+            }
+        }
+
+        var layout = new HostImageLayout
+        {
+            ImageBase = imageBase,
+            SizeBytes = bufSize,
+            MultiBank = multiBank,
+            UsedSequentialFallback = false,
+            ModuleName = moduleName,
+            InstanceName = instanceName,
+            OffsetCollisions = collisions,
+            Warnings = warnings
+        };
+        return (basePtr, bufSize, offsetMap, layout);
+    }
+
+    /// <summary>
+    /// Aggregate TypeDef base: prefer known bank bases (HRPWM_MST), else min AbsoluteAddress
+    /// among coherent banks (exclude outliers that would shift nested offsetof).
+    /// </summary>
+    internal static uint ResolveAggregateImageBase(
+        string? moduleName,
+        string? instanceName,
+        IReadOnlyList<VirtualRegisterView> addressed)
+    {
+        if (addressed.Count == 0) return 0;
+
+        if (string.Equals(moduleName, "HRPWM", StringComparison.OrdinalIgnoreCase)
+            || (instanceName?.StartsWith("HRPWM", StringComparison.OrdinalIgnoreCase) ?? false))
+        {
+            // SDK: HRPWM ((HRPWM_TypeDef*)HRPWM_MST_BASE); Master at 0, PWM[0] at 0x100.
+            var mst = addressed
+                .Where(r => r.InstanceName?.StartsWith("HRPWM_MST", StringComparison.OrdinalIgnoreCase) == true)
+                .Select(r => r.AbsoluteAddress!.Value)
+                .DefaultIfEmpty()
+                .Min();
+            if (mst != 0) return mst;
+
+            // Fallback: round down to 0x100-aligned bank that looks like MST (…B000).
+            var min = addressed.Min(r => r.AbsoluteAddress!.Value);
+            return min & ~0xFFu;
+        }
+
+        // Generic multi-bank: use min, but if spread > 64KB prefer dense cluster around mode/min.
+        var sorted = addressed.Select(r => r.AbsoluteAddress!.Value).OrderBy(x => x).ToList();
+        var minAll = sorted[0];
+        var maxAll = sorted[^1];
+        if (maxAll - minAll <= 0x10000u)
+            return minAll;
+
+        // Prefer addresses within 4KB of the lowest address (TypeDef-sized window).
+        var cluster = sorted.Where(a => a < minAll + 0x1000u).ToList();
+        return cluster.Count > 0 ? cluster[0] : minAll;
+    }
+
+    private static bool IsHostAggregateModule(string? module)
+        => string.Equals(module, "HRPWM", StringComparison.OrdinalIgnoreCase);
+
+    /// <summary>
+    /// Compare host buffer before/after native execute. Returns mapped deltas and unmapped dirties
+    /// (native wrote where AbsoluteAddress packing had no slot — root cause of empty traces).
+    /// </summary>
+    public static HostBufferDeltaReport AnalyzeBufferDeltas(
+        IntPtr periBase,
+        int sizeBytes,
+        IReadOnlyDictionary<int, string> offsetToMember,
+        IReadOnlyDictionary<int, uint> beforeExecute,
+        uint imageBase)
+    {
+        var mapped = new List<HostBufferMappedDelta>();
+        var unmapped = new List<HostBufferUnmappedDelta>();
+        var mappedOff = offsetToMember.Keys.ToHashSet();
+
+        foreach (var (offset, key) in offsetToMember)
+        {
+            if (offset < 0 || offset + 4 > sizeBytes) continue;
+            var after = unchecked((uint)Marshal.ReadInt32(periBase, offset));
+            beforeExecute.TryGetValue(offset, out var before);
+            if (before == after) continue;
+            var (inst, member) = SplitSlotKey(key, "");
+            mapped.Add(new HostBufferMappedDelta(offset, imageBase + (uint)offset, key, inst, member, before, after));
+        }
+
+        // Scan TypeDef-sized prefix for dirties not in the map (lost native writes).
+        var scan = Math.Min(sizeBytes, Math.Max(0x1000, mappedOff.Count == 0 ? 0x100 : mappedOff.Max() + 0x100));
+        for (var off = 0; off + 4 <= scan; off += 4)
+        {
+            if (mappedOff.Contains(off)) continue;
+            var after = unchecked((uint)Marshal.ReadInt32(periBase, off));
+            var before = beforeExecute.TryGetValue(off, out var b) ? b : 0u;
+            // Unmapped slots were cleared at alloc; treat any non-zero or changed word as dirty.
+            if (after == before && after == 0) continue;
+            if (after == before) continue;
+            unmapped.Add(new HostBufferUnmappedDelta(off, imageBase + (uint)off, before, after));
+        }
+
+        return new HostBufferDeltaReport(mapped, unmapped);
+    }
+
+    public readonly record struct HostBufferMappedDelta(
+        int Offset, uint AbsoluteAddress, string Key, string Instance, string Member, uint Before, uint After);
+
+    public readonly record struct HostBufferUnmappedDelta(
+        int Offset, uint AbsoluteAddress, uint Before, uint After);
+
+    public sealed record HostBufferDeltaReport(
+        IReadOnlyList<HostBufferMappedDelta> MappedChanges,
+        IReadOnlyList<HostBufferUnmappedDelta> UnmappedChanges)
+    {
+        public bool HasUnmappedWrites => UnmappedChanges.Count > 0;
+        public bool HasMappedWrites => MappedChanges.Count > 0;
+
+        public string FormatDebug()
+        {
+            var sb = new System.Text.StringBuilder();
+            sb.AppendLine($"MappedDeltas: {MappedChanges.Count}");
+            foreach (var d in MappedChanges.Take(16))
+            {
+                sb.AppendLine(
+                    $"  [map] +0x{d.Offset:X} abs=0x{d.AbsoluteAddress:X8} {d.Key}: " +
+                    $"0x{d.Before:X8} → 0x{d.After:X8}");
+            }
+
+            sb.AppendLine($"UnmappedDeltas: {UnmappedChanges.Count}");
+            foreach (var d in UnmappedChanges.Take(16))
+            {
+                sb.AppendLine(
+                    $"  [lost] +0x{d.Offset:X} abs=0x{d.AbsoluteAddress:X8}: " +
+                    $"0x{d.Before:X8} → 0x{d.After:X8}（无虚拟寄存器槽，写入无法回读）");
+            }
+
+            return sb.ToString().TrimEnd();
+        }
     }
 
     /// <summary>

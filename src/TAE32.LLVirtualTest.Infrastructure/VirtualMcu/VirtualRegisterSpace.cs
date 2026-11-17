@@ -68,7 +68,23 @@ internal sealed class VirtualRegisterSpace : IVirtualRegisterSpace
     {
         IEnumerable<VirtualRegisterSlot> q = _all;
         if (!string.IsNullOrWhiteSpace(moduleName))
-            q = q.Where(x => string.Equals(x.ModuleName, moduleName, StringComparison.OrdinalIgnoreCase));
+        {
+            // Exact ModuleName, or banked InstanceName/StructName under the same aggregate
+            // (legacy slots may store ModuleName=HRPWM_MST while host asks for HRPWM).
+            q = q.Where(x =>
+                string.Equals(x.ModuleName, moduleName, StringComparison.OrdinalIgnoreCase)
+                || string.Equals(
+                    VirtualMcuDefinitionLoader.NormalizeModuleToken(x.ModuleName),
+                    moduleName, StringComparison.OrdinalIgnoreCase)
+                || (x.InstanceName is not null
+                    && (x.InstanceName.Equals(moduleName, StringComparison.OrdinalIgnoreCase)
+                        || x.InstanceName.StartsWith(moduleName + "_", StringComparison.OrdinalIgnoreCase)))
+                || (x.StructName is not null
+                    && (x.StructName.StartsWith(moduleName + "_", StringComparison.OrdinalIgnoreCase)
+                        || x.StructName.Equals(moduleName + "_TypeDef", StringComparison.OrdinalIgnoreCase)
+                        || x.StructName.Equals(moduleName + "_Type", StringComparison.OrdinalIgnoreCase))));
+        }
+
         if (!string.IsNullOrWhiteSpace(instanceName))
             q = q.Where(x => string.Equals(x.InstanceName, instanceName, StringComparison.OrdinalIgnoreCase)
                              || string.Equals(x.StructName, instanceName + "_Type", StringComparison.OrdinalIgnoreCase)
