@@ -15,17 +15,20 @@ public sealed class TestBatchService : ITestBatchService
     private readonly ILLTestEngine _engine;
     private readonly ITestSuiteStore _suites;
     private readonly ICompilerService _compiler;
+    private readonly IVirtualMcuService _mcu;
 
     public TestBatchService(
         IDbContextFactory<AppDbContext> dbFactory,
         ILLTestEngine engine,
         ITestSuiteStore suites,
-        ICompilerService compiler)
+        ICompilerService compiler,
+        IVirtualMcuService mcu)
     {
         _dbFactory = dbFactory;
         _engine = engine;
         _suites = suites;
         _compiler = compiler;
+        _mcu = mcu;
     }
 
     public async Task<TestBatchRun> RunAsync(
@@ -63,23 +66,77 @@ public sealed class TestBatchService : ITestBatchService
 
         var runIds = new List<Guid>();
         var completed = 0;
+        Guid? sharedMcuId = null;
         try
         {
+            if (caseIds.Count > 0)
+            {
+                var firstMeta = await db.LlTestCases.AsNoTracking()
+                    .Where(x => x.Id == caseIds[0])
+                    .Select(x => new { x.SdkProjectId, x.ChipId, x.ChipModelName })
+                    .FirstAsync(cancellationToken);
+                progress?.Report(new TestBatchProgress
+                {
+                    BatchRunId = batch.Id,
+                    Total = caseIds.Count,
+                    Completed = 0,
+                    CurrentCaseName = string.Empty,
+                    Message = $"装载共享虚拟 MCU（寄存器全量一次，共 {caseIds.Count} 条）…"
+                });
+                var shared = await _mcu.CreateAsync(new VirtualMcuCreateOptions
+                {
+                    SdkProjectId = firstMeta.SdkProjectId,
+                    ChipId = firstMeta.ChipId,
+                    ChipModelName = firstMeta.ChipModelName,
+                    DisplayName = $"BATCH-{batch.Id.ToString()[..8]}",
+                    ProtectUnmappedBitsAsReserved = false
+                }, cancellationToken).ConfigureAwait(false);
+                await _mcu.InitializeAsync(shared.Id, cancellationToken).ConfigureAwait(false);
+                sharedMcuId = shared.Id;
+
+                progress?.Report(new TestBatchProgress
+                {
+                    BatchRunId = batch.Id,
+                    Total = caseIds.Count,
+                    Completed = 0,
+                    CurrentCaseName = string.Empty,
+                    Message = "预热静态分析宏目录（SQLite RegisterMacroReferences）…"
+                });
+                await TAE32.LLVirtualTest.Infrastructure.TestEngine.SdkMacroSemanticCatalog
+                    .TryLoadFromDbAsync(_dbFactory, request.SdkProjectId, cancellationToken)
+                    .ConfigureAwait(false);
+            }
+
             foreach (var caseId in caseIds)
             {
                 cancellationToken.ThrowIfCancellationRequested();
                 var caseName = await db.LlTestCases.AsNoTracking()
                     .Where(x => x.Id == caseId).Select(x => x.Name).FirstOrDefaultAsync(cancellationToken) ?? caseId.ToString();
+                // Show 1-based current index so UI is not stuck at "0/N" during the first long compile.
+                var current = completed + 1;
                 progress?.Report(new TestBatchProgress
                 {
                     BatchRunId = batch.Id,
                     Total = caseIds.Count,
                     Completed = completed,
                     CurrentCaseName = caseName,
-                    Message = $"执行 {caseName}（独立虚拟 MCU）"
+                    Message = $"正在执行 {current}/{caseIds.Count}：{caseName}（共享虚拟 MCU）"
                 });
 
-                var result = await _engine.RunCaseAsync(new LlTestRunRequest { TestCaseId = caseId }, null, cancellationToken);
+                cancellationToken.ThrowIfCancellationRequested();
+                var mcuId = sharedMcuId;
+                var result = await Task.Run(
+                        () => _engine.RunCaseAsync(
+                            new LlTestRunRequest
+                            {
+                                TestCaseId = caseId,
+                                ExistingVirtualMcuId = mcuId,
+                                DestroyVirtualMcuOnComplete = false
+                            },
+                            null,
+                            cancellationToken),
+                        cancellationToken)
+                    .ConfigureAwait(false);
                 runIds.Add(result.RunId);
                 completed++;
                 ApplyStatus(batch, result.Status, result.CompileSucceeded);
@@ -90,7 +147,7 @@ public sealed class TestBatchService : ITestBatchService
                     Total = caseIds.Count,
                     Completed = completed,
                     CurrentCaseName = caseName,
-                    Message = $"{caseName} → {result.Status}"
+                    Message = $"{completed}/{caseIds.Count} 完成：{caseName} → {result.Status}"
                 });
             }
 
@@ -105,6 +162,14 @@ public sealed class TestBatchService : ITestBatchService
         {
             batch.Status = "Error";
             batch.Notes = ex.Message;
+        }
+        finally
+        {
+            if (sharedMcuId is Guid mid)
+            {
+                try { await _mcu.DestroyAsync(mid, CancellationToken.None).ConfigureAwait(false); }
+                catch { /* ignore */ }
+            }
         }
 
         batch.CaseRunIdsJson = JsonSerializer.Serialize(runIds);

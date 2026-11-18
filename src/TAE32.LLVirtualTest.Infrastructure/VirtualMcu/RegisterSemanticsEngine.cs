@@ -135,10 +135,16 @@ internal static class RegisterSemanticsEngine
         }
         else if (unmapped != 0)
         {
-            // Unmapped bits: keep current unless writableMask allows RW fallback.
+            // Unmapped bits follow register-level behavior when writable; else reserved.
             var writableUnmapped = unmapped & writableMask;
-            if (writableUnmapped != 0 && registerFallback == VirtualRegisterBehavior.ReadWrite)
-                rw |= writableUnmapped;
+            if (writableUnmapped != 0)
+            {
+                Accumulate(registerFallback, writableUnmapped,
+                    ref rw, ref ro, ref wo, ref w1c, ref w0c, ref w1s, ref toggle, ref reserved);
+                var still = unmapped & ~writableUnmapped;
+                if (still != 0)
+                    reserved |= still;
+            }
             else
                 reserved |= unmapped;
         }

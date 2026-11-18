@@ -55,6 +55,30 @@ public static class TestHarnessGenerator
         sb.AppendLine("#include \"tae32_ll_host_peri_glob.h\"");
         sb.AppendLine("#include \"tae32_ll_host_eflash.h\"");
         sb.AppendLine("#include \"tae32_ll_host_shim.h\"");
+        // Host x64: provide portable __CLZ/__RBIT before LL headers expand POSITION_VAL(mask).
+        sb.AppendLine("static inline uint32_t tae32_host_rbit(uint32_t v)");
+        sb.AppendLine("{");
+        sb.AppendLine("  v = ((v & 0x55555555u) << 1) | ((v >> 1) & 0x55555555u);");
+        sb.AppendLine("  v = ((v & 0x33333333u) << 2) | ((v >> 2) & 0x33333333u);");
+        sb.AppendLine("  v = ((v & 0x0F0F0F0Fu) << 4) | ((v >> 4) & 0x0F0F0F0Fu);");
+        sb.AppendLine("  v = ((v & 0x00FF00FFu) << 8) | ((v >> 8) & 0x00FF00FFu);");
+        sb.AppendLine("  return (v << 16) | (v >> 16);");
+        sb.AppendLine("}");
+        sb.AppendLine("static inline uint32_t tae32_host_clz(uint32_t x)");
+        sb.AppendLine("{");
+        sb.AppendLine("  uint32_t n = 0u;");
+        sb.AppendLine("  if (x == 0u) return 32u;");
+        sb.AppendLine("  if ((x & 0xFFFF0000u) == 0u) { n += 16u; x <<= 16; }");
+        sb.AppendLine("  if ((x & 0xFF000000u) == 0u) { n += 8u; x <<= 8; }");
+        sb.AppendLine("  if ((x & 0xF0000000u) == 0u) { n += 4u; x <<= 4; }");
+        sb.AppendLine("  if ((x & 0xC0000000u) == 0u) { n += 2u; x <<= 2; }");
+        sb.AppendLine("  if ((x & 0x80000000u) == 0u) { n += 1u; }");
+        sb.AppendLine("  return n;");
+        sb.AppendLine("}");
+        sb.AppendLine("#undef __RBIT");
+        sb.AppendLine("#undef __CLZ");
+        sb.AppendLine("#define __RBIT(x) tae32_host_rbit((uint32_t)(x))");
+        sb.AppendLine("#define __CLZ(x) tae32_host_clz((uint32_t)(x))");
         sb.AppendLine($"#include \"{Escape(llHeaderFileName)}\"");
         sb.AppendLine();
         sb.AppendLine("#if defined(_WIN32)");
@@ -146,7 +170,19 @@ public static class TestHarnessGenerator
             {
                 sb.AppendLine($"  {functionName}({string.Join(", ", mainArgs)});");
                 EmitHostGpioBsrToDorMirror(sb, periParam);
-                sb.AppendLine("  if (out_ret) *out_ret = 0;");
+                // Insert*(uint32_t* Addr): mirror first host word so ReturnValue can assert RMW.
+                var hostSym = parameters
+                    .Where(IsHostPointerBuffer)
+                    .Select(p => HostPointerSymbol("m_", p.Name))
+                    .FirstOrDefault();
+                if (hostSym is not null)
+                    sb.AppendLine($"  if (out_ret) *out_ret = (uint32_t){hostSym}[0];");
+                else
+                    sb.AppendLine("  if (out_ret) *out_ret = 0;");
+            }
+            else if (TryEmitHostBufferAddressOffset(sb, functionName, mainArgs))
+            {
+                /* LL returns truncated host ptr on x64; remap to peri offsetof for assert. */
             }
             else
             {
@@ -178,6 +214,11 @@ public static class TestHarnessGenerator
             if (IsHostPointerBuffer(p))
             {
                 callArgs.Add(HostPointerSymbol(prefix, p.Name));
+                continue;
+            }
+            if (p.Type.Contains("IRQn", StringComparison.OrdinalIgnoreCase))
+            {
+                callArgs.Add($"(IRQn_Type)args->{Sanitize(prefix + p.Name)}");
                 continue;
             }
             callArgs.Add($"(uint32_t)args->{Sanitize(prefix + p.Name)}");
@@ -318,13 +359,14 @@ public static class TestHarnessGenerator
         {
             foreach (var p in prelude[i].Parameters)
             {
-                if (IsPeripheralTypeDefPointer(p)) continue;
+                // Must match tae32_args field layout: peri TypeDef* and host_* buffers are not fields.
+                if (IsPeripheralTypeDefPointer(p) || IsHostPointerBuffer(p)) continue;
                 list.Add(ParseUIntExpression(p.ValueExpression));
             }
         }
         foreach (var p in parameters)
         {
-            if (IsPeripheralTypeDefPointer(p)) continue;
+            if (IsPeripheralTypeDefPointer(p) || IsHostPointerBuffer(p)) continue;
             list.Add(ParseUIntExpression(p.ValueExpression));
         }
         return list;
@@ -377,6 +419,55 @@ public static class TestHarnessGenerator
         }
     }
 
+    /// <summary>
+    /// Get*DataBufferAddress returns (uint32_t)&amp;peri-&gt;BUF[0]. On host x64 that truncates;
+    /// emit offsetof(PERIx, BUFx) after invoking the LL for coverage.
+    /// </summary>
+    private static bool TryEmitHostBufferAddressOffset(
+        StringBuilder sb, string functionName, List<string> mainArgs)
+    {
+        if (functionName.Contains("GetSysDMADataAddr", StringComparison.OrdinalIgnoreCase))
+        {
+            if (periParamMissing(mainArgs))
+                return false;
+            sb.AppendLine($"  (void){functionName}({string.Join(", ", mainArgs)});");
+            sb.AppendLine("  /* host: LL returns uint32_t* (x64 truncates); assert peri offsetof */");
+            if (functionName.Contains("_MST_", StringComparison.OrdinalIgnoreCase))
+            {
+                sb.AppendLine(
+                    "  if (out_ret) *out_ret = (uint32_t)((uintptr_t)&PERIx->Master.MDMADR - (uintptr_t)PERIx);");
+            }
+            else
+            {
+                sb.AppendLine(
+                    "  if (out_ret) *out_ret = (uint32_t)((uintptr_t)&PERIx->PWM[((uint32_t)args->m_Pwmx) % LL_HRPWM_PWMx_NUMS].REG.DMADR - (uintptr_t)PERIx);");
+            }
+
+            return true;
+        }
+
+        if (!functionName.Contains("GetDataBufferAddress", StringComparison.OrdinalIgnoreCase))
+            return false;
+
+        string? member = null;
+        if (functionName.Contains("_PRB_", StringComparison.OrdinalIgnoreCase))
+            member = "RBUFDT";
+        else if (functionName.Contains("_SRB_", StringComparison.OrdinalIgnoreCase))
+            member = "SBUFDT";
+        else if (functionName.Contains("_ETB_", StringComparison.OrdinalIgnoreCase))
+            member = "EBUFDT";
+        if (member is null || periParamMissing(mainArgs))
+            return false;
+
+        sb.AppendLine($"  (void){functionName}({string.Join(", ", mainArgs)});");
+        sb.AppendLine($"  /* host: LL casts &{member}[0] to uint32_t (MCU ABI); assert peri offsetof */");
+        sb.AppendLine($"  if (out_ret) *out_ret = (uint32_t)((uintptr_t)&PERIx->{member}[0] - (uintptr_t)PERIx);");
+        return true;
+
+        static bool periParamMissing(List<string> args)
+            => args.Count == 0 || !args.Exists(a => a.Contains("PERIx", StringComparison.Ordinal));
+    }
+
     /// <summary>SDK functions that spin on hardware-ready bits: host ack without infinite wait.</summary>
     private static bool TryEmitHostBusyPollAck(StringBuilder sb, string functionName)
     {
@@ -411,6 +502,22 @@ public static class TestHarnessGenerator
                 sb.AppendLine("    }");
                 sb.AppendLine("  }");
                 sb.AppendLine("  if (out_ret) *out_ret = 0;");
+                return true;
+            case "LL_NVIC_SetPriorityGrouping":
+                sb.AppendLine("  LL_NVIC_SetPriorityGrouping((uint32_t)args->m_PriorityGroup);");
+                sb.AppendLine("  if (out_ret) *out_ret = LL_NVIC_GetPriorityGrouping();");
+                return true;
+            case "LL_NVIC_SetPriority":
+                sb.AppendLine("  LL_NVIC_SetPriority((IRQn_Type)args->m_IRQn, (uint32_t)args->m_PreemptPriority, (uint32_t)args->m_SubPriority);");
+                sb.AppendLine("  if (out_ret) *out_ret = NVIC_GetPriority((IRQn_Type)args->m_IRQn);");
+                return true;
+            case "LL_InitTick":
+                sb.AppendLine("  LL_InitTick((uint32_t)args->m_CPU_Clk_Freq, (uint32_t)args->m_Ticks);");
+                sb.AppendLine("  if (out_ret) *out_ret = SysTick->LOAD;");
+                return true;
+            case "LL_Init1msTick":
+                sb.AppendLine("  LL_Init1msTick((uint32_t)args->m_CPU_Clk_Freq);");
+                sb.AppendLine("  if (out_ret) *out_ret = SysTick->LOAD;");
                 return true;
             default:
                 return false;

@@ -109,18 +109,17 @@ public class LlTestCaseGeneratorNestedWriteTests
         var writeChecks = cases
             .Where(c => c.Name.Contains("/write-check", StringComparison.OrdinalIgnoreCase))
             .ToList();
-        writeChecks.Should().NotBeEmpty("nested PWM[i].REG.PWMCR0 must produce write-check without Get");
+        writeChecks.Should().ContainSingle("one representative nested write-check from LL body");
         writeChecks.Should().OnlyContain(c =>
             c.Assertions.Any(a => a.Kind == LlAssertionKind.RegisterValue));
         writeChecks.Should().OnlyContain(c =>
-            c.Assertions.Any(a => a.Kind == LlAssertionKind.RegisterWrite));
-        writeChecks.Should().Contain(c =>
-            c.Assertions.Any(a => a.Kind == LlAssertionKind.ArrayIndex));
+            c.Assertions.All(a =>
+                a.Kind == LlAssertionKind.RegisterValue || a.Kind == LlAssertionKind.Timeout));
         writeChecks.Should().Contain(c =>
             c.InitialRegisters.Any(r => r.InstanceName.StartsWith("HRPWM_SLV", StringComparison.OrdinalIgnoreCase)
                                          && r.MemberName == "PWMCR0"));
         writeChecks.Should().Contain(c =>
-            c.Parameters.Any(p => p.Name == "Pwmx" && (p.ValueExpression == "8" || p.ValueExpression == "9")));
+            c.Parameters.Any(p => p.Name == "Pwmx" && p.ValueExpression == "0"));
         writeChecks.Should().NotContain(c =>
             c.Assertions.All(a => a.Kind == LlAssertionKind.Timeout));
 
@@ -390,13 +389,11 @@ public class LlTestCaseGeneratorNestedWriteTests
         var enableChecks = enableCases
             .Where(c => c.Name.Contains("enable-check", StringComparison.OrdinalIgnoreCase))
             .ToList();
-        enableChecks.Should().NotBeEmpty();
+        enableChecks.Should().ContainSingle();
         enableChecks.Should().OnlyContain(c =>
-            c.Assertions.Any(a => a.Kind == LlAssertionKind.RegisterWrite)
-            && c.Assertions.Any(a => a.Kind == LlAssertionKind.RegisterValue)
-            && c.Assertions.Any(a => a.Kind == LlAssertionKind.PreserveBits)
-            && c.Assertions.Any(a => a.Kind == LlAssertionKind.NoUnexpectedWrite)
-            && c.Assertions.Any(a => a.Kind == LlAssertionKind.ArrayIndex));
+            c.Assertions.Any(a => a.Kind == LlAssertionKind.RegisterValue)
+            && c.Assertions.All(a =>
+                a.Kind == LlAssertionKind.RegisterValue || a.Kind == LlAssertionKind.Timeout));
         enableChecks.Should().Contain(c =>
             c.InitialRegisters.Any(r => r.InstanceName.StartsWith("FOO_CH", StringComparison.OrdinalIgnoreCase)));
         enableChecks.Should().Contain(c => c.Parameters.Any(p => p.Name == "Chx"));
@@ -404,11 +401,11 @@ public class LlTestCaseGeneratorNestedWriteTests
         var disableChecks = disableCases
             .Where(c => c.Name.Contains("disable-check", StringComparison.OrdinalIgnoreCase))
             .ToList();
-        disableChecks.Should().NotBeEmpty();
+        disableChecks.Should().ContainSingle();
         disableChecks.Should().OnlyContain(c =>
-            c.Assertions.Any(a => a.Kind == LlAssertionKind.RegisterWrite)
-            && c.Assertions.Any(a => a.Kind == LlAssertionKind.PreserveBits)
-            && c.Assertions.Any(a => a.Kind == LlAssertionKind.NoUnexpectedWrite));
+            c.Assertions.Any(a => a.Kind == LlAssertionKind.RegisterValue)
+            && c.Assertions.All(a =>
+                a.Kind == LlAssertionKind.RegisterValue || a.Kind == LlAssertionKind.Timeout));
 
         Directory.Delete(dir, true);
         await conn.DisposeAsync();

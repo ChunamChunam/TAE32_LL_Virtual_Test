@@ -87,6 +87,15 @@ public sealed class LlTestRunRequest
     public Guid TestCaseId { get; set; }
     public int? TimeoutMs { get; set; }
     public bool SkipNativeIfNoCompiler { get; set; } = true;
+
+    /// <summary>
+    /// Reuse an already-initialized virtual MCU (batch runs). Avoids reloading the full
+    /// register map from SQLite/chip.h on every case — that made UI appear stuck at 1/N.
+    /// </summary>
+    public Guid? ExistingVirtualMcuId { get; set; }
+
+    /// <summary>When false, RunCaseAsync will Reset+clear trace but not Destroy the MCU.</summary>
+    public bool DestroyVirtualMcuOnComplete { get; set; } = true;
 }
 
 public sealed class LlTestRunResult

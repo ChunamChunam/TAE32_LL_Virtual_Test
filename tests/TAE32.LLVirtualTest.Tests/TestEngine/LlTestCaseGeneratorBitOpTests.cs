@@ -110,23 +110,21 @@ public class LlTestCaseGeneratorBitOpTests
             c.Name.Contains("assert-check", StringComparison.OrdinalIgnoreCase)
             || c.Name.Contains("set-check", StringComparison.OrdinalIgnoreCase));
         setCase.Status.Should().Be(nameof(LlTestCaseStatus.Ready));
-        // RMW: preload unrelated bits 0xA5A55A50, after SET expect 0xA5A55A5B (preserve|0xB).
+        // Write-back: baseline 0 → SET → read-back target mask bits.
         const uint mask = 0xBu;
-        const uint preserve = 0xA5A55A5Au & ~mask;
-        const uint expectedAfter = preserve | mask;
         setCase.InitialRegisters.Should().ContainSingle(r =>
-            r.MemberName == "CFGR1" && string.Equals(r.ValueHex, $"0x{preserve:X}", StringComparison.OrdinalIgnoreCase));
+            r.MemberName == "CFGR1" && string.Equals(r.ValueHex, "0x0", StringComparison.OrdinalIgnoreCase));
         setCase.Assertions.Should().Contain(a =>
             a.Kind == LlAssertionKind.RegisterValue
             && a.MemberName == "CFGR1"
-            && a.ExpectedMask == expectedAfter
-            && string.Equals(a.ExpectedHex, $"0x{expectedAfter:X}", StringComparison.OrdinalIgnoreCase));
-        setCase.Assertions.Should().Contain(a => a.Kind == LlAssertionKind.RegisterWrite);
-        setCase.Assertions.Should().Contain(a => a.Kind == LlAssertionKind.PreserveBits);
-        setCase.Assertions.Should().Contain(a => a.Kind == LlAssertionKind.NoUnexpectedWrite);
+            && a.ExpectedMask == mask
+            && string.Equals(a.ExpectedHex, $"0x{mask:X}", StringComparison.OrdinalIgnoreCase));
+        setCase.Assertions.Should().NotContain(a => a.Kind == LlAssertionKind.RegisterWrite);
+        setCase.Assertions.Should().NotContain(a => a.Kind == LlAssertionKind.PreserveBits);
+        setCase.Assertions.Should().NotContain(a => a.Kind == LlAssertionKind.NoUnexpectedWrite);
         setCase.Assertions.Should().Contain(a => a.Kind == LlAssertionKind.Timeout);
 
-        // Mutate body to wrong mask, then REGENERATE — trusted expected must stay PREPARING_START RMW.
+        // Mutate body to wrong mask, then REGENERATE — trusted expected must stay PREPARING_START.
         File.WriteAllText(path, """
             #define ADC0_CFGR1_BIASEN_Msk (0x1U)
             #define ADC0_CFGR1_REFEN_Msk  (0x2U)
@@ -144,10 +142,9 @@ public class LlTestCaseGeneratorBitOpTests
             c.Name.Contains("assert-check", StringComparison.OrdinalIgnoreCase)
             || c.Name.Contains("set-check", StringComparison.OrdinalIgnoreCase));
         var expected = regenCase.Assertions.First(a => a.Kind == LlAssertionKind.RegisterValue);
-        expected.ExpectedHex.Should().BeEquivalentTo($"0x{expectedAfter:X}");
-        expected.ExpectedMask.Should().Be(expectedAfter);
+        expected.ExpectedHex.Should().BeEquivalentTo($"0x{mask:X}");
+        expected.ExpectedMask.Should().Be(mask);
         expected.RuleSourceDetail.Should().Contain("PREPARING_START");
-        expected.RuleSourceDetail.Should().Contain("RMW");
         expected.RuleSourceDetail.Should().NotContain("BIASEN_Msk");
 
         Directory.Delete(dir, true);
@@ -224,18 +221,16 @@ public class LlTestCaseGeneratorBitOpTests
         var clearCase = cases.First(c => c.Name.Contains("disable-check", StringComparison.OrdinalIgnoreCase));
         var reg = clearCase.Assertions.First(a => a.Kind == LlAssertionKind.RegisterValue);
         const uint mask = 0x80u;
-        const uint preserve = 0xA5A55A5Au & ~mask;
-        reg.ExpectedMask.Should().Be(preserve | mask);
-        reg.ExpectedHex.Should().BeEquivalentTo($"0x{preserve:X}");
+        reg.ExpectedMask.Should().Be(mask);
+        reg.ExpectedHex.Should().BeEquivalentTo("0x0");
         clearCase.InitialRegisters.Should().ContainSingle(r =>
             r.MemberName == "IER"
-            && string.Equals(r.ValueHex, $"0x{preserve | mask:X}", StringComparison.OrdinalIgnoreCase));
+            && string.Equals(r.ValueHex, $"0x{mask:X}", StringComparison.OrdinalIgnoreCase));
         reg.RuleSourceDetail.Should().Contain("AWD2");
-        reg.RuleSourceDetail.Should().Contain("RMW");
         reg.RuleSourceDetail.Should().NotContain("AWD1IE_Msk");
-        clearCase.Assertions.Should().Contain(a => a.Kind == LlAssertionKind.RegisterWrite);
-        clearCase.Assertions.Should().Contain(a => a.Kind == LlAssertionKind.PreserveBits);
-        clearCase.Assertions.Should().Contain(a => a.Kind == LlAssertionKind.NoUnexpectedWrite);
+        clearCase.Assertions.Should().NotContain(a => a.Kind == LlAssertionKind.RegisterWrite);
+        clearCase.Assertions.Should().NotContain(a => a.Kind == LlAssertionKind.PreserveBits);
+        clearCase.Assertions.Should().NotContain(a => a.Kind == LlAssertionKind.NoUnexpectedWrite);
 
         Directory.Delete(dir, true);
         await conn.DisposeAsync();
@@ -308,17 +303,16 @@ public class LlTestCaseGeneratorBitOpTests
         cases.Should().Contain(c => c.Name.Contains("disable-check", StringComparison.OrdinalIgnoreCase));
         var clearCase = cases.First(c => c.Name.Contains("disable-check", StringComparison.OrdinalIgnoreCase));
         const uint mask = 0x1u;
-        const uint preserve = 0xA5A55A5Au & ~mask;
         clearCase.InitialRegisters.Should().ContainSingle(r =>
             r.MemberName == "CFGR1"
-            && string.Equals(r.ValueHex, $"0x{preserve | mask:X}", StringComparison.OrdinalIgnoreCase));
+            && string.Equals(r.ValueHex, $"0x{mask:X}", StringComparison.OrdinalIgnoreCase));
         clearCase.Assertions.Should().Contain(a =>
             a.Kind == LlAssertionKind.RegisterValue
-            && a.ExpectedMask == (preserve | mask)
-            && string.Equals(a.ExpectedHex, $"0x{preserve:X}", StringComparison.OrdinalIgnoreCase));
-        clearCase.Assertions.Should().Contain(a => a.Kind == LlAssertionKind.RegisterWrite);
-        clearCase.Assertions.Should().Contain(a => a.Kind == LlAssertionKind.PreserveBits);
-        clearCase.Assertions.Should().Contain(a => a.Kind == LlAssertionKind.NoUnexpectedWrite);
+            && a.ExpectedMask == mask
+            && string.Equals(a.ExpectedHex, "0x0", StringComparison.OrdinalIgnoreCase));
+        clearCase.Assertions.Should().NotContain(a => a.Kind == LlAssertionKind.RegisterWrite);
+        clearCase.Assertions.Should().NotContain(a => a.Kind == LlAssertionKind.PreserveBits);
+        clearCase.Assertions.Should().NotContain(a => a.Kind == LlAssertionKind.NoUnexpectedWrite);
 
         Directory.Delete(dir, true);
         await conn.DisposeAsync();
@@ -404,8 +398,9 @@ public class LlTestCaseGeneratorBitOpTests
         reg.MemberName.Should().Be("CR");
         reg.RuleSourceDetail.Should().Contain("成员/掩码不一致");
         reg.RuleSourceDetail.Should().Contain("->SR");
-        setCase.Assertions.Should().Contain(a => a.Kind == LlAssertionKind.RegisterWrite);
-        setCase.Assertions.Should().Contain(a => a.Kind == LlAssertionKind.NoUnexpectedWrite);
+        setCase.Assertions.Should().Contain(a => a.Kind == LlAssertionKind.RegisterValue);
+        setCase.Assertions.Should().NotContain(a => a.Kind == LlAssertionKind.RegisterWrite);
+        setCase.Assertions.Should().NotContain(a => a.Kind == LlAssertionKind.NoUnexpectedWrite);
 
         Directory.Delete(dir, true);
         await conn.DisposeAsync();
@@ -566,58 +561,24 @@ public class LlTestCaseGeneratorBitOpTests
         var generator = new LlTestCaseGenerator(new SharedConnectionFactory(options));
         var cases = await generator.GenerateAsync(fnId);
         var writes = cases.Where(c => c.Name.Contains("write-check", StringComparison.OrdinalIgnoreCase)).ToList();
-        writes.Should().HaveCountGreaterThan(1);
-        writes.Should().Contain(c => c.Name.Contains("/one/", StringComparison.OrdinalIgnoreCase));
-        writes.Should().Contain(c => c.Name.Contains("/max/", StringComparison.OrdinalIgnoreCase));
+        writes.Should().ContainSingle("one representative write-check from LL body");
+        writes.Should().Contain(c => c.Name.Contains("/seed/", StringComparison.OrdinalIgnoreCase));
 
         const uint clearMask = 0xFFFFu;
-        foreach (var write in writes)
-        {
-            var initial = TestHarnessGenerator.ParseUIntExpression(
-                write.InitialRegisters.Single(r => r.MemberName == "PSCR").ValueHex);
-            var param = TestHarnessGenerator.ParseUIntExpression(
-                write.Parameters.First(p => p.Name == "Prescaler").ValueExpression);
-            var setMask = (param << 0) & clearMask;
-            var expected = (initial & ~clearMask) | setMask;
+        var write = writes.Single();
+        var initial = TestHarnessGenerator.ParseUIntExpression(
+            write.InitialRegisters.Single(r => r.MemberName == "PSCR").ValueHex);
+        initial.Should().Be(0u);
+        var param = TestHarnessGenerator.ParseUIntExpression(
+            write.Parameters.First(p => p.Name == "Prescaler").ValueExpression);
+        var setMask = (param << 0) & clearMask;
 
-            var full = write.Assertions.First(a =>
-                a.Kind == LlAssertionKind.RegisterValue && a.ExpectedMask == 0xFFFFFFFFu);
-            TestHarnessGenerator.ParseUIntExpression(full.ExpectedHex!)
-                .Should().Be(expected, because: write.Name);
-
-            // Must never be the old bug pattern initial|param when low bits were not cleared.
-            if ((initial & clearMask) != 0 && setMask != (initial & clearMask))
-            {
-                var wrongOr = initial | setMask;
-                TestHarnessGenerator.ParseUIntExpression(full.ExpectedHex!).Should().NotBe(wrongOr);
-            }
-
-            write.Assertions.Should().Contain(a =>
-                a.Kind == LlAssertionKind.RegisterValue
-                && a.ExpectedMask == clearMask
-                && (a.RuleSourceDetail ?? "").Contains("目标位域", StringComparison.Ordinal));
-
-            // BitField must use chip 0xFFFF, NOT stale DB 0x7 → Expected 6/7.
-            var bf = write.Assertions.Should().Contain(a =>
-                a.Kind == LlAssertionKind.BitField && a.BitFieldName == "PSC").Subject;
-            bf.ExpectedMask.Should().Be(clearMask);
-            TestHarnessGenerator.ParseUIntExpression(bf.ExpectedHex!)
-                .Should().Be((setMask & clearMask) >> 0, because: write.Name);
-            (bf.RuleSourceDetail ?? "").Should().Contain("已忽略 DB.Mask=0x7");
-        }
-
-        // Concrete user case: Prescaler=7 with interference preload shape.
-        var seven = writes.FirstOrDefault(w =>
-            TestHarnessGenerator.ParseUIntExpression(
-                w.Parameters.First(p => p.Name == "Prescaler").ValueExpression) == 7u);
-        if (seven is not null)
-        {
-            var initial = TestHarnessGenerator.ParseUIntExpression(seven.InitialRegisters.Single().ValueHex);
-            var expected = (initial & ~clearMask) | 7u;
-            TestHarnessGenerator.ParseUIntExpression(
-                    seven.Assertions.First(a => a.ExpectedMask == 0xFFFFFFFFu).ExpectedHex!)
-                .Should().Be(expected);
-        }
+        var target = write.Assertions.Should().Contain(a =>
+            a.Kind == LlAssertionKind.RegisterValue && a.ExpectedMask == clearMask).Subject;
+        TestHarnessGenerator.ParseUIntExpression(target.ExpectedHex!)
+            .Should().Be(setMask, because: write.Name);
+        write.Assertions.Should().NotContain(a => a.Kind == LlAssertionKind.BitField);
+        write.Assertions.Should().NotContain(a => a.Kind == LlAssertionKind.RegisterWrite);
 
         Directory.Delete(dir, true);
         await conn.DisposeAsync();
@@ -694,30 +655,20 @@ public class LlTestCaseGeneratorBitOpTests
         var clear = cases.Should().ContainSingle(c =>
             c.Name.Contains("clear-check", StringComparison.OrdinalIgnoreCase)).Subject;
         clear.Status.Should().Be(nameof(LlTestCaseStatus.Ready));
+        const uint flag = 0x1u;
         clear.InitialRegisters.Should().ContainSingle(r =>
             r.MemberName == "ISR"
-            && string.Equals(r.ValueHex, "0xFFFFFFFF", StringComparison.OrdinalIgnoreCase));
+            && string.Equals(r.ValueHex, $"0x{flag:X}", StringComparison.OrdinalIgnoreCase));
 
-        const uint flag = 0x1u;
-        const uint preserve = 0xFFFFFFFFu & ~flag;
         var flagAssert = clear.Assertions.Should().Contain(a =>
             a.Kind == LlAssertionKind.RegisterValue
             && a.ExpectedMask == flag
             && string.Equals(a.ExpectedHex, "0x0", StringComparison.OrdinalIgnoreCase)).Subject;
         flagAssert.RuleSourceDetail.Should().Contain("目标位");
 
-        var keepAssert = clear.Assertions.Should().Contain(a =>
-            a.Kind == LlAssertionKind.RegisterValue
-            && a.ExpectedMask == preserve
-            && string.Equals(a.ExpectedHex, $"0x{preserve:X}", StringComparison.OrdinalIgnoreCase)).Subject;
-        keepAssert.RuleSourceDetail.Should().Contain("非目标位");
-
-        // Must NOT expect whole register == 0 under a wide mask.
+        // Only target-bit read-back — no invented all-ones preserve assertions.
         clear.Assertions.Where(a => a.Kind == LlAssertionKind.RegisterValue)
-            .Should().NotContain(a =>
-                a.ExpectedMask.HasValue
-                && a.ExpectedMask.Value >= 0xFFFFu
-                && string.Equals(a.ExpectedHex, "0x0", StringComparison.OrdinalIgnoreCase));
+            .Should().ContainSingle();
 
         Directory.Delete(dir, true);
         await conn.DisposeAsync();
@@ -876,22 +827,16 @@ public class LlTestCaseGeneratorBitOpTests
         var generator = new LlTestCaseGenerator(new SharedConnectionFactory(options));
         var cases = await generator.GenerateAsync(fnId);
         var reads = cases.Where(c => c.Name.Contains("read-check", StringComparison.OrdinalIgnoreCase)).ToList();
-        reads.Should().HaveCountGreaterThan(1); // min/one/max/…
-        reads.Should().Contain(c => c.Name.Contains("/min/", StringComparison.OrdinalIgnoreCase));
-        reads.Should().Contain(c => c.Name.Contains("/max/", StringComparison.OrdinalIgnoreCase));
+        reads.Should().ContainSingle("one representative read-check: write then Get");
+        reads.Should().Contain(c => c.Name.Contains("/seed/", StringComparison.OrdinalIgnoreCase));
 
         const uint mask = 0xFFFFu;
-        foreach (var read in reads)
-        {
-            var initial = TestHarnessGenerator.ParseUIntExpression(read.InitialRegisters.Single(r => r.MemberName == "PSCR").ValueHex);
-            var expected = TestHarnessGenerator.ParseUIntExpression(
-                read.Assertions.First(a => a.Kind == LlAssertionKind.ReturnValue).ExpectedHex!);
-            expected.Should().Be((initial & mask) >> 0,
-                because: $"case {read.Name}: expected must derive from initial");
-            // Must not be the old bug: expected=1 while low 16 bits are pattern noise.
-            if ((initial & mask) != 1)
-                expected.Should().NotBe(1u);
-        }
+        var read = reads.Single();
+        var initial = TestHarnessGenerator.ParseUIntExpression(read.InitialRegisters.Single(r => r.MemberName == "PSCR").ValueHex);
+        var expected = TestHarnessGenerator.ParseUIntExpression(
+            read.Assertions.First(a => a.Kind == LlAssertionKind.ReturnValue).ExpectedHex!);
+        expected.Should().Be((initial & mask) >> 0,
+            because: $"case {read.Name}: expected must derive from initial write");
 
         Directory.Delete(dir, true);
         await conn.DisposeAsync();
@@ -983,6 +928,367 @@ public class LlTestCaseGeneratorBitOpTests
 
         Directory.Delete(dir, true);
         await conn.DisposeAsync();
+    }
+
+    [Fact]
+    public async Task Generate_ClearBit_ChannelBit_Produces_DisableCheck_Not_Draft()
+    {
+        // LL_ADC_DisableIT_HLFIEx: CLEAR_BIT(ADCx->HIER, BIT(((Ch)%LL_ADC_CH_NUMS)))
+        // Named-mask regex cannot match BIT(...) → previously timeout-only /draft → Skipped.
+        var dir = Path.Combine(Path.GetTempPath(), "tae32_chbit_" + Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(dir);
+        var path = Path.Combine(dir, "tae32g58xx_ll_adc.h");
+        File.WriteAllText(path, """
+            #define LL_ADC_CH_NUMS (20UL)
+            __STATIC_INLINE void LL_ADC_DisableIT_HLFIEx(ADC_TypeDef *ADCx, uint32_t Ch)
+            {
+                CLEAR_BIT(ADCx->HIER, BIT(((Ch) % LL_ADC_CH_NUMS)));
+            }
+            """);
+
+        var conn = new Microsoft.Data.Sqlite.SqliteConnection("Data Source=:memory:");
+        await conn.OpenAsync();
+        var options = new DbContextOptionsBuilder<AppDbContext>().UseSqlite(conn).Options;
+        var projectId = Guid.Parse("aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaa01");
+        var fnId = Guid.Parse("bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbb01");
+        var instId = Guid.Parse("cccccccc-cccc-cccc-cccc-cccccccccc01");
+        var regId = Guid.Parse("dddddddd-dddd-dddd-dddd-dddddddddd01");
+
+        await using (var init = new AppDbContext(options))
+        {
+            await init.Database.EnsureCreatedAsync();
+            init.SdkProjects.Add(new SdkProject
+            {
+                Id = projectId,
+                Name = "t",
+                SdkRootPath = dir,
+                ScanResultsPath = dir,
+                IsActive = true
+            });
+            init.PeripheralInstances.Add(new PeripheralInstance
+            {
+                Id = instId,
+                SdkProjectId = projectId,
+                Name = "ADC0",
+                ModuleName = "ADC",
+                NaturalKey = "ADC0"
+            });
+            init.RegisterDefinitions.Add(new RegisterDefinition
+            {
+                Id = regId,
+                SdkProjectId = projectId,
+                PeripheralInstanceId = instId,
+                StructName = "ADC_TypeDef",
+                MemberName = "HIER",
+                DefinitionFile = path,
+                NaturalKey = "ADC.HIER"
+            });
+            init.LlFunctions.Add(new LlFunction
+            {
+                Id = fnId,
+                SdkProjectId = projectId,
+                FunctionName = "LL_ADC_DisableIT_HLFIEx",
+                PeripheralName = "ADC",
+                ReturnType = "void",
+                Parameters = "ADC_TypeDef *ADCx, uint32_t Ch",
+                Signature = "void LL_ADC_DisableIT_HLFIEx(ADC_TypeDef *ADCx, uint32_t Ch)",
+                Form = "inline",
+                FilePath = path,
+                NaturalKey = path + "|LL_ADC_DisableIT_HLFIEx",
+                ParseParameters =
+                {
+                    new LlFunctionParameter { Name = "ADCx", Type = "ADC_TypeDef *", Position = 0, IsPointer = true },
+                    new LlFunctionParameter { Name = "Ch", Type = "uint32_t", Position = 1, IsPointer = false }
+                }
+            });
+            await init.SaveChangesAsync();
+        }
+
+        var generator = new LlTestCaseGenerator(new SharedConnectionFactory(options));
+        var cases = await generator.GenerateAsync(fnId);
+
+        cases.Should().NotContain(c => c.Name.Contains("/draft", StringComparison.OrdinalIgnoreCase));
+        var disable = cases.Where(c =>
+            c.Name.Contains("disable-check", StringComparison.OrdinalIgnoreCase)).ToList();
+        disable.Should().NotBeEmpty();
+        disable.Should().OnlyContain(c => c.Status == nameof(LlTestCaseStatus.Ready));
+        disable.Should().Contain(c => c.Name.Contains("HIER", StringComparison.OrdinalIgnoreCase));
+        disable.Should().OnlyContain(c =>
+            c.Assertions.Any(a => a.Kind == LlAssertionKind.RegisterValue)
+            && c.InitialRegisters.Any(r => r.MemberName == "HIER"));
+        disable.First().Parameters.Should().Contain(p =>
+            p.Name.Equals("Ch", StringComparison.OrdinalIgnoreCase)
+            && !string.IsNullOrWhiteSpace(p.ValueExpression));
+
+        Directory.Delete(dir, true);
+        await conn.DisposeAsync();
+    }
+
+    [Fact]
+    public async Task Generate_Hrpwm_Nested_ScalePos_ChannelBit_Produces_EnableCheck()
+    {
+        // SET_BIT(HRPWMx->Common.OENR, BIT(((Pwmx)%N)*2 + OEN0A_Pos))
+        var dir = Path.Combine(Path.GetTempPath(), "tae32_hrpwm_bit_" + Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(dir);
+        var path = Path.Combine(dir, "tae32g58xx_ll_hrpwm.h");
+        File.WriteAllText(path, """
+            #define LL_HRPWM_PWMx_NUMS (5UL)
+            #define HRPWM_COM_OENR_OEN0A_Pos (1UL)
+            #define HRPWM_COM_OENR_OEN0A_Msk (0x2UL)
+            __STATIC_INLINE void LL_HRPWM_EnableOutputA(HRPWM_TypeDef *HRPWMx, uint32_t Pwmx)
+            {
+                SET_BIT(HRPWMx->Common.OENR, BIT(((Pwmx) % LL_HRPWM_PWMx_NUMS) * 2 + HRPWM_COM_OENR_OEN0A_Pos));
+            }
+            """);
+
+        var (options, conn, fnId) = await SeedBitOpFnAsync(
+            dir, path, "HRPWM", "HRPWM", "HRPWM_COM", "OENR",
+            "LL_HRPWM_EnableOutputA", "void",
+            "HRPWM_TypeDef *HRPWMx, uint32_t Pwmx",
+            ("HRPWMx", "HRPWM_TypeDef *", true),
+            ("Pwmx", "uint32_t", false));
+
+        var cases = await new LlTestCaseGenerator(new SharedConnectionFactory(options)).GenerateAsync(fnId);
+        cases.Should().NotContain(c => c.Name.Contains("/draft", StringComparison.OrdinalIgnoreCase));
+        var enable = cases.Where(c => c.Name.Contains("enable-check", StringComparison.OrdinalIgnoreCase)).ToList();
+        enable.Should().NotBeEmpty();
+        enable.Should().Contain(c =>
+            c.Name.Contains("OENR", StringComparison.OrdinalIgnoreCase)
+            && c.InitialRegisters.Any(r => r.InstanceName.Contains("COM", StringComparison.OrdinalIgnoreCase)
+                                           || r.MemberName == "OENR"));
+        // Pwmx=0 → bit = 0*2+1 = 1 → mask 0x2
+        enable.Should().Contain(c =>
+            c.Assertions.Any(a =>
+                a.Kind == LlAssertionKind.RegisterValue
+                && a.ExpectedMask == 0x2u));
+
+        Directory.Delete(dir, true);
+        await conn.DisposeAsync();
+    }
+
+    [Fact]
+    public async Task Generate_Hrpwm_DualIndex_PwmArray_And_Fltx_Bit_Produces_EnableCheck()
+    {
+        // SET_BIT(HRPWMx->PWM[(Pwmx)%N].REG.FLTR, BIT((Fltx)%M)) — two distinct indices.
+        var dir = Path.Combine(Path.GetTempPath(), "tae32_hrpwm_flt_" + Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(dir);
+        var path = Path.Combine(dir, "tae32g58xx_ll_hrpwm.h");
+        File.WriteAllText(path, """
+            #define LL_HRPWM_PWMx_NUMS (5UL)
+            #define LL_HRPWM_FLT_NUMS (6UL)
+            __STATIC_INLINE void LL_HRPWM_EnableFault(HRPWM_TypeDef *HRPWMx, uint32_t Pwmx, uint32_t Fltx)
+            {
+                SET_BIT(HRPWMx->PWM[(Pwmx) % LL_HRPWM_PWMx_NUMS].REG.FLTR, BIT((Fltx) % LL_HRPWM_FLT_NUMS));
+            }
+            """);
+
+        var (options, conn, fnId) = await SeedBitOpFnAsync(
+            dir, path, "HRPWM", "HRPWM", "HRPWM_SLV0", "FLTR",
+            "LL_HRPWM_EnableFault", "void",
+            "HRPWM_TypeDef *HRPWMx, uint32_t Pwmx, uint32_t Fltx",
+            ("HRPWMx", "HRPWM_TypeDef *", true),
+            ("Pwmx", "uint32_t", false),
+            ("Fltx", "uint32_t", false));
+
+        var cases = await new LlTestCaseGenerator(new SharedConnectionFactory(options)).GenerateAsync(fnId);
+        cases.Should().NotContain(c => c.Name.Contains("/draft", StringComparison.OrdinalIgnoreCase));
+        var enable = cases.Where(c => c.Name.Contains("enable-check", StringComparison.OrdinalIgnoreCase)).ToList();
+        enable.Should().NotBeEmpty();
+        enable.Should().Contain(c =>
+            c.Parameters.Any(p => p.Name.Equals("Pwmx", StringComparison.OrdinalIgnoreCase))
+            && c.Parameters.Any(p => p.Name.Equals("Fltx", StringComparison.OrdinalIgnoreCase)
+                                     && !string.IsNullOrWhiteSpace(p.ValueExpression)));
+
+        Directory.Delete(dir, true);
+        await conn.DisposeAsync();
+    }
+
+    [Fact]
+    public async Task Generate_Eflash_LiteralBit_Produces_SetCheck()
+    {
+        var dir = Path.Combine(Path.GetTempPath(), "tae32_eflash_bit_" + Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(dir);
+        var path = Path.Combine(dir, "tae32g58xx_ll_eflash.h");
+        File.WriteAllText(path, """
+            __STATIC_INLINE void LL_EFLASH_EnableSomething(EFLASH_TypeDef *EFLASHx)
+            {
+                SET_BIT(EFLASHx->LPR, BIT(2));
+            }
+            """);
+
+        var (options, conn, fnId) = await SeedBitOpFnAsync(
+            dir, path, "EFLASH", "EFLASH", "EFLASH", "LPR",
+            "LL_EFLASH_EnableSomething", "void",
+            "EFLASH_TypeDef *EFLASHx",
+            ("EFLASHx", "EFLASH_TypeDef *", true));
+
+        var cases = await new LlTestCaseGenerator(new SharedConnectionFactory(options)).GenerateAsync(fnId);
+        cases.Should().NotContain(c => c.Name.Contains("/draft", StringComparison.OrdinalIgnoreCase));
+        var set = cases.Where(c =>
+            c.Name.Contains("set-check", StringComparison.OrdinalIgnoreCase)
+            || c.Name.Contains("enable-check", StringComparison.OrdinalIgnoreCase)
+            || c.Name.Contains("BIT2", StringComparison.OrdinalIgnoreCase)).ToList();
+        set.Should().NotBeEmpty();
+        set.Should().Contain(c =>
+            c.Assertions.Any(a =>
+                a.Kind == LlAssertionKind.RegisterValue && a.ExpectedMask == 0x4u));
+
+        Directory.Delete(dir, true);
+        await conn.DisposeAsync();
+    }
+
+    [Fact]
+    public async Task Generate_Can_FilNum_Bit_Produces_EnableCheck()
+    {
+        var dir = Path.Combine(Path.GetTempPath(), "tae32_can_bit_" + Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(dir);
+        var path = Path.Combine(dir, "tae32g58xx_ll_can.h");
+        File.WriteAllText(path, """
+            #define LL_CAN_ACCEPT_FILT_SLOT_NUMS (16UL)
+            __STATIC_INLINE void LL_CAN_EnableAcceptFilter(CAN_TypeDef *CANx, uint32_t Fil_num)
+            {
+                SET_BIT(CANx->ACFEN, BIT(Fil_num % LL_CAN_ACCEPT_FILT_SLOT_NUMS));
+            }
+            """);
+
+        var (options, conn, fnId) = await SeedBitOpFnAsync(
+            dir, path, "CAN", "CAN", "CAN0", "ACFEN",
+            "LL_CAN_EnableAcceptFilter", "void",
+            "CAN_TypeDef *CANx, uint32_t Fil_num",
+            ("CANx", "CAN_TypeDef *", true),
+            ("Fil_num", "uint32_t", false));
+
+        var cases = await new LlTestCaseGenerator(new SharedConnectionFactory(options)).GenerateAsync(fnId);
+        cases.Should().NotContain(c => c.Name.Contains("/draft", StringComparison.OrdinalIgnoreCase));
+        cases.Should().Contain(c => c.Name.Contains("enable-check", StringComparison.OrdinalIgnoreCase));
+        cases.Should().Contain(c =>
+            c.Parameters.Any(p => p.Name.Equals("Fil_num", StringComparison.OrdinalIgnoreCase)
+                                  && !string.IsNullOrWhiteSpace(p.ValueExpression)));
+
+        Directory.Delete(dir, true);
+        await conn.DisposeAsync();
+    }
+
+    [Fact]
+    public async Task Generate_Adc_RegOffset_ChannelBit_Produces_DisableCheck()
+    {
+        var dir = Path.Combine(Path.GetTempPath(), "tae32_awd_bit_" + Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(dir);
+        var path = Path.Combine(dir, "tae32g58xx_ll_adc.h");
+        File.WriteAllText(path, """
+            #define LL_ADC_CH_NUMS (20UL)
+            #define LL_ADC_AWDG_NUMS (3UL)
+            #define LL_ADC_REG_OFFSET(__REG__, offset) (*((volatile uint32_t *)((uint32_t)((uint32_t)(&(__REG__)) + ((offset) << 2UL)))))
+            __STATIC_INLINE void LL_ADC_DisableAWDChannel(ADC_TypeDef *ADCx, uint32_t Num, uint32_t Ch)
+            {
+                CLEAR_BIT(LL_ADC_REG_OFFSET(ADCx->AWD0CR, ((Num) % LL_ADC_AWDG_NUMS)), BIT(((Ch) % LL_ADC_CH_NUMS)));
+            }
+            """);
+
+        var (options, conn, fnId) = await SeedBitOpFnAsync(
+            dir, path, "ADC", "ADC", "ADC0", "AWD0CR",
+            "LL_ADC_DisableAWDChannel", "void",
+            "ADC_TypeDef *ADCx, uint32_t Num, uint32_t Ch",
+            ("ADCx", "ADC_TypeDef *", true),
+            ("Num", "uint32_t", false),
+            ("Ch", "uint32_t", false));
+
+        var cases = await new LlTestCaseGenerator(new SharedConnectionFactory(options)).GenerateAsync(fnId);
+        cases.Should().NotContain(c => c.Name.Contains("/draft", StringComparison.OrdinalIgnoreCase));
+        var disable = cases.Where(c => c.Name.Contains("disable-check", StringComparison.OrdinalIgnoreCase)).ToList();
+        disable.Should().NotBeEmpty();
+        disable.Should().Contain(c =>
+            c.InitialRegisters.Any(r =>
+                r.MemberName == "AWD0CR"
+                || r.MemberName == "AWD1CR"
+                || r.MemberName == "AWD2CR"));
+        disable.Should().Contain(c =>
+            c.Parameters.Any(p => p.Name.Equals("Ch", StringComparison.OrdinalIgnoreCase))
+            && c.Parameters.Any(p => p.Name.Equals("Num", StringComparison.OrdinalIgnoreCase)));
+
+        Directory.Delete(dir, true);
+        await conn.DisposeAsync();
+    }
+
+    private static async Task<(DbContextOptions<AppDbContext> Options, Microsoft.Data.Sqlite.SqliteConnection Conn, Guid FnId)>
+        SeedBitOpFnAsync(
+            string dir,
+            string headerPath,
+            string module,
+            string periName,
+            string instanceName,
+            string memberName,
+            string functionName,
+            string returnType,
+            string parametersCsv,
+            params (string Name, string Type, bool IsPointer)[] parms)
+    {
+        var conn = new Microsoft.Data.Sqlite.SqliteConnection("Data Source=:memory:");
+        await conn.OpenAsync();
+        var options = new DbContextOptionsBuilder<AppDbContext>().UseSqlite(conn).Options;
+        var projectId = Guid.NewGuid();
+        var fnId = Guid.NewGuid();
+        var instId = Guid.NewGuid();
+        var regId = Guid.NewGuid();
+
+        await using (var init = new AppDbContext(options))
+        {
+            await init.Database.EnsureCreatedAsync();
+            init.SdkProjects.Add(new SdkProject
+            {
+                Id = projectId,
+                Name = "t",
+                SdkRootPath = dir,
+                ScanResultsPath = dir,
+                IsActive = true
+            });
+            init.PeripheralInstances.Add(new PeripheralInstance
+            {
+                Id = instId,
+                SdkProjectId = projectId,
+                Name = instanceName,
+                ModuleName = module,
+                NaturalKey = instanceName
+            });
+            init.RegisterDefinitions.Add(new RegisterDefinition
+            {
+                Id = regId,
+                SdkProjectId = projectId,
+                PeripheralInstanceId = instId,
+                StructName = periName + "_TypeDef",
+                MemberName = memberName,
+                DefinitionFile = headerPath,
+                NaturalKey = $"{module}.{memberName}"
+            });
+            var fn = new LlFunction
+            {
+                Id = fnId,
+                SdkProjectId = projectId,
+                FunctionName = functionName,
+                PeripheralName = periName,
+                ReturnType = returnType,
+                Parameters = parametersCsv,
+                Signature = $"{returnType} {functionName}({parametersCsv})",
+                Form = "inline",
+                FilePath = headerPath,
+                NaturalKey = headerPath + "|" + functionName
+            };
+            for (var i = 0; i < parms.Length; i++)
+            {
+                fn.ParseParameters.Add(new LlFunctionParameter
+                {
+                    Name = parms[i].Name,
+                    Type = parms[i].Type,
+                    Position = i,
+                    IsPointer = parms[i].IsPointer
+                });
+            }
+
+            init.LlFunctions.Add(fn);
+            await init.SaveChangesAsync();
+        }
+
+        return (options, conn, fnId);
     }
 
     private sealed class SharedConnectionFactory : IDbContextFactory<AppDbContext>

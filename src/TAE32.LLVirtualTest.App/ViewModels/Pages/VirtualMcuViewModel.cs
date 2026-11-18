@@ -83,14 +83,22 @@ public partial class VirtualMcuViewModel : ObservableObject
         {
             var projects = await _projects.GetAllAsync();
             var project = projects.FirstOrDefault(p => p.IsActive) ?? projects.FirstOrDefault();
-            var info = await _mcu.CreateAsync(new VirtualMcuCreateOptions
+            var chipId = SelectedChip.Id;
+            var chipName = SelectedChip.ModelName;
+            var sdkProjectId = project?.Id ?? SelectedChip.SdkProjectId;
+            // Create+init loads register space / chip.h — keep off UI thread.
+            var info = await Task.Run(async () =>
             {
-                ChipId = SelectedChip.Id,
-                ChipModelName = SelectedChip.ModelName,
-                SdkProjectId = project?.Id ?? SelectedChip.SdkProjectId,
-                DisplayName = $"VM-{SelectedChip.ModelName}-{DateTime.Now:HHmmss}"
-            });
-            await _mcu.InitializeAsync(info.Id);
+                var created = await _mcu.CreateAsync(new VirtualMcuCreateOptions
+                {
+                    ChipId = chipId,
+                    ChipModelName = chipName,
+                    SdkProjectId = sdkProjectId,
+                    DisplayName = $"VM-{chipName}-{DateTime.Now:HHmmss}"
+                });
+                await _mcu.InitializeAsync(created.Id);
+                return created;
+            }).ConfigureAwait(true);
             StatusText = $"已创建并初始化：{info.DisplayName}";
             await ReloadMcuListAsync(preferId: info.Id);
         }

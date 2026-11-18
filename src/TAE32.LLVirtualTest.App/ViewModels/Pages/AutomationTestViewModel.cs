@@ -219,15 +219,17 @@ public partial class AutomationTestViewModel : ObservableObject
         {
             var progress = new Progress<string>(m =>
             {
-                Application.Current.Dispatcher.Invoke(() =>
+                // BeginInvoke: never block download thread waiting on UI (Invoke can freeze/cancel).
+                Application.Current.Dispatcher.BeginInvoke(() =>
                 {
                     BusyOverlayText = m;
                     StatusText = m;
                     LogLines.Insert(0, $"[{DateTime.Now:HH:mm:ss}] {m}");
                     if (LogLines.Count > 300) LogLines.RemoveAt(LogLines.Count - 1);
-                });
+                }, DispatcherPriority.Background);
             });
-            var result = await _compiler.EnsureEmbeddedClangAsync(progress);
+            var result = await Task.Run(() => _compiler.EnsureEmbeddedClangAsync(progress))
+                .ConfigureAwait(true);
             if (result.Succeeded && !string.IsNullOrWhiteSpace(result.ClangPath))
                 ClangPath = result.ClangPath;
             StatusText = result.Message;
@@ -269,7 +271,9 @@ public partial class AutomationTestViewModel : ObservableObject
                 SetBusyProgress(fi, $"正在生成用例 {fi}/{ids.Count}…");
                 try
                 {
-                    var generated = await _engine.GenerateCasesAsync(id);
+                    var idLocal = id;
+                    var generated = await Task.Run(() => _engine.GenerateCasesAsync(idLocal))
+                        .ConfigureAwait(true);
                     if (generated.Count == 0)
                         funcEmpty++;
                     else
@@ -295,8 +299,7 @@ public partial class AutomationTestViewModel : ObservableObject
             StatusText =
                 $"生成完成：处理 {ids.Count} 个函数 → 写入 {casesWritten} 条用例（{funcWithCases} 个函数有产出，" +
                 $"{funcEmpty} 个无模板，{funcFailed} 个失败）。{filterNote}。" +
-                "请运行名称含 write-check / enable-check / read-check 的用例（不要跑 /draft 仅超时草稿）。" +
-                "若本次已生成语义用例，同函数的旧「仅超时」自动草稿会被清理。";
+                "每个 LL 函数仅 1 条自动用例（读：先写后读；写：先读基线再写后回读），同函数旧自动用例已替换。";
         }
         catch (Exception ex)
         {
@@ -428,17 +431,19 @@ public partial class AutomationTestViewModel : ObservableObject
             foreach (var peri in targets)
             {
                 var offset = globalFuncDone;
-                var (funcs, cases) = await _engine.GenerateAndSaveForPeripheralAsync(
-                    pid,
-                    peri,
-                    new Progress<(int FunctionIndex, int FunctionTotal, int CasesSaved, string PeripheralName)>(p =>
-                    {
-                        var done = offset + p.FunctionIndex;
-                        SetBusyProgress(
-                            done,
-                            $"{p.PeripheralName}：函数 {p.FunctionIndex}/{p.FunctionTotal}，已写入约 {p.CasesSaved} 条");
-                    }),
-                    ct);
+                var periLocal = peri;
+                var genProgress = new Progress<(int FunctionIndex, int FunctionTotal, int CasesSaved, string PeripheralName)>(p =>
+                {
+                    var done = offset + p.FunctionIndex;
+                    SetBusyProgress(
+                        done,
+                        $"{p.PeripheralName}：函数 {p.FunctionIndex}/{p.FunctionTotal}，已写入约 {p.CasesSaved} 条");
+                });
+                // Off UI thread so busy overlay / cancel stay responsive during LL parse.
+                var (funcs, cases) = await Task.Run(
+                        () => _engine.GenerateAndSaveForPeripheralAsync(pid, periLocal, genProgress, ct),
+                        ct)
+                    .ConfigureAwait(true);
                 globalFuncDone += funcs;
                 totalCases += cases;
             }
@@ -1030,8 +1035,38 @@ public partial class AutomationTestViewModel : ObservableObject
             if (m is null) return;
             if (m.StartsWith("运行用例", StringComparison.Ordinal))
             {
-                runIndex = Math.Min(runIndex + 1, ids.Count);
+                // Prefer "运行用例 i/N …" from engine; fall back to sequential bump.
+                var parsed = false;
+                var slash = m.IndexOf('/');
+                if (slash > 0)
+                {
+                    var sp = m.LastIndexOf(' ', slash);
+                    if (sp >= 0 &&
+                        int.TryParse(m.AsSpan(sp + 1, slash - sp - 1), out var cur) &&
+                        cur >= 1)
+                    {
+                        runIndex = Math.Min(cur, ids.Count);
+                        parsed = true;
+                    }
+                }
+                if (!parsed)
+                    runIndex = Math.Min(runIndex + 1, ids.Count);
                 SetBusyProgress(runIndex, $"执行中 {runIndex}/{ids.Count}（虚拟 MCU）…");
+            }
+            else if (m.Contains("装载共享虚拟 MCU", StringComparison.Ordinal) ||
+                     m.Contains("预热静态分析", StringComparison.Ordinal) ||
+                     m.Contains("虚拟 MCU 就绪", StringComparison.Ordinal) ||
+                     m.Contains("创建并装载虚拟 MCU", StringComparison.Ordinal) ||
+                     m.Contains("复用共享虚拟 MCU", StringComparison.Ordinal) ||
+                     m.Contains("静态分析", StringComparison.Ordinal) ||
+                     m.Contains("开始编译", StringComparison.Ordinal) ||
+                     m.Contains("SQLite", StringComparison.Ordinal))
+            {
+                // Mid-case stage text so overlay is not frozen on "1/N" during compile/load.
+                BusyOverlayText = runIndex == 0
+                    ? m
+                    : $"执行中 {runIndex}/{ids.Count} — {m}";
+                StatusText = BusyOverlayText;
             }
             LogLines.Insert(0, $"[{DateTime.Now:HH:mm:ss}] {m}");
             if (LogLines.Count > 300) LogLines.RemoveAt(LogLines.Count - 1);

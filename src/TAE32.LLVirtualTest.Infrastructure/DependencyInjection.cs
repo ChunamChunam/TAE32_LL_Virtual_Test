@@ -34,6 +34,7 @@ public static class DependencyInjection
         services.AddSingleton<ILlTestCaseStore, LlTestCaseStore>();
         services.AddSingleton<LlTestCaseGenerator>();
         services.AddSingleton<LlShiftStaticAnalyzer>();
+        services.AddSingleton<ILlStaticAnalysisPersistService, LlStaticAnalysisPersistService>();
         services.AddSingleton<ILLTestEngine, LlTestEngine>();
 
         services.AddSingleton<ITestPlanStore, TestPlanStore>();

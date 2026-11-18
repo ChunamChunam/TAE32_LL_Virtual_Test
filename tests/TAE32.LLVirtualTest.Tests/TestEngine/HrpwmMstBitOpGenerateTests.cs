@@ -93,19 +93,9 @@ public class HrpwmMstBitOpGenerateTests
             c.Assertions.Any(a => a.Kind == LlAssertionKind.RegisterValue && a.MemberName == member));
         semantic.Should().Contain(c =>
             c.InitialRegisters.Any(r => r.MemberName == member));
-        semantic.Should().Contain(c => c.Name.Contains("pair-check", StringComparison.OrdinalIgnoreCase),
-            because: "Assert↔Release complementary pair must be emitted");
-        semantic.Should().Contain(c => c.PreludeCalls.Count > 0,
-            because: "pair-check uses companion as prelude");
-
-        // Pair must have Initial != Expected so host delta sync emits a Write (not net-zero).
-        var pair = semantic.First(c => c.Name.Contains("pair-check", StringComparison.OrdinalIgnoreCase));
-        var initHex = pair.InitialRegisters.Single(r => r.MemberName == member).ValueHex;
-        var finalExpect = pair.Assertions.First(a =>
-            a.Kind == LlAssertionKind.RegisterValue
-            && (a.RuleSourceDetail ?? "").Contains("成对", StringComparison.Ordinal)).ExpectedHex;
-        initHex.Should().NotBe(finalExpect,
-            because: "Assert→Release with same initial/final yields empty trace / false RegisterWrite fail");
+        semantic.Should().NotContain(c => c.Name.Contains("pair-check", StringComparison.OrdinalIgnoreCase),
+            because: "one case per LL function; no invented Assert↔Release pairs");
+        semantic.Should().OnlyContain(c => c.PreludeCalls.Count == 0);
 
         await conn.DisposeAsync();
     }
@@ -209,9 +199,9 @@ public class HrpwmMstBitOpGenerateTests
                         && string.Equals(a.ExpectedHex, "0x0", StringComparison.OrdinalIgnoreCase));
         targetBitAssert.Should().NotBeNull();
 
-        cases.Should().Contain(c => c.Name.Contains("pair-check", StringComparison.OrdinalIgnoreCase),
-            because: "DisablePWM2 ↔ EnablePWM2 pair must also be generated");
-        cases.Count.Should().BeGreaterThanOrEqualTo(2);
+        cases.Should().NotContain(c => c.Name.Contains("pair-check", StringComparison.OrdinalIgnoreCase),
+            because: "one case per LL function; EnablePWM2 is a separate function");
+        disable.Should().ContainSingle();
 
         await conn.DisposeAsync();
     }
@@ -280,8 +270,7 @@ public class HrpwmMstBitOpGenerateTests
             c.InitialRegisters.All(r =>
                 r.InstanceName == "HRPWM_MST" && r.MemberName == "MISR"));
         clear.Should().OnlyContain(c =>
-            c.Assertions.Where(a =>
-                    a.Kind == LlAssertionKind.RegisterValue || a.Kind == LlAssertionKind.RegisterWrite)
+            c.Assertions.Where(a => a.Kind == LlAssertionKind.RegisterValue)
                 .All(a => a.InstanceName == "HRPWM_MST" && a.MemberName == "MISR"));
         // W1C: target bit cleared, not whole-register == written mask.
         clear.Should().Contain(c =>
@@ -354,8 +343,7 @@ public class HrpwmMstBitOpGenerateTests
         var generator = new LlTestCaseGenerator(new SharedConnectionFactory(options));
         var cases = await generator.GenerateAsync(fnId);
         var semantic = cases.Where(c =>
-            c.Name.Contains(expectedSuffix, StringComparison.OrdinalIgnoreCase)
-            || c.Name.Contains("pair-check", StringComparison.OrdinalIgnoreCase)).ToList();
+            c.Name.Contains(expectedSuffix, StringComparison.OrdinalIgnoreCase)).ToList();
         semantic.Should().NotBeEmpty(
             because: "Names=" + string.Join("; ", cases.Select(c => c.Name + " | " + c.Notes)));
         semantic.Should().Contain(c =>
@@ -364,7 +352,7 @@ public class HrpwmMstBitOpGenerateTests
             c.Parameters.Any(p =>
                 p.Name.Equals("Mask", StringComparison.OrdinalIgnoreCase)
                 && !string.Equals(p.ValueExpression, "0", StringComparison.Ordinal)));
-        semantic.Should().Contain(c => c.Name.Contains("pair-check", StringComparison.OrdinalIgnoreCase));
+        semantic.Should().NotContain(c => c.Name.Contains("pair-check", StringComparison.OrdinalIgnoreCase));
 
         await conn.DisposeAsync();
     }

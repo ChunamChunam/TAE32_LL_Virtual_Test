@@ -44,3 +44,46 @@ Capabilities requested by the user.
 
 ---
 
+## [FEAT-20261118-001] ll_writeback_case_generation
+
+**Logged**: 2026-11-18T11:30:00+08:00
+**Priority**: high
+**Status**: shipped
+**Area**: tests
+
+### Requested Capability
+按 LL 库内容生成用例，不要自行加多样本；读先写后读校验；写先读再写再回读对比；去掉无用代码；排查静态检测导致的跳过/错误。
+
+### User Context
+测试管理显示 11248 用例、通过率 84.7%、失败 1643、跳过 480。
+
+### Complexity Estimate
+medium
+
+### Suggested Implementation
+已改 `LlTestCaseGenerator`：每函数一条 seed 用例；去掉 pair/A5A5/RegisterWrite 堆断言；静态分析保留（真 SDK 问题）。
+
+### Metadata
+- Frequency: first_time
+- Related Features: FR-20261116-001
+
+---
+
+## [FEAT-20261118-002] sdk_defect_tracking
+
+**Logged**: 2026-11-18T15:25:00+08:00
+**Priority**: high
+**Status**: open
+**Area**: SDK (vendor) / static-analysis
+
+### Requested Capability
+区分生成器/宿主假失败与真实 SDK 缺陷；SDK 问题单独记录，不改厂商头文件。
+
+### Confirmed SDK defects
+1. `LL_WWDG_EnableIT_EWIE`：`SET_BIT(WWDGx->CR, WWDG_CVR_CV_Msk)` — 寄存器 CR 与掩码 CVR.CV 不一致（StaticAnalysis RegisterFieldMismatch）。
+2. `LL_ADC_ClearFlag_AWD1` / `IsActiveFlag_AWD1`：函数名 AWD1，注释/体为 AWDG0/`AWD0_Msk`（编号 quirks；测试按体宏对齐）。
+
+### Notes
+其余 Fail/Skip 桶优先按宿主 W1C sync、掩码解析、可信掩码角色、取反读、WRITE_REG `_Val` 修复；全量 regen 验证中。
+
+---

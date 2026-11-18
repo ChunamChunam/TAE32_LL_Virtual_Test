@@ -23,6 +23,11 @@ public sealed class ClangCompilerService : ICompilerService
     private readonly IDbContextFactory<AppDbContext> _dbFactory;
     private readonly ISdkProjectService _projects;
     private static readonly SemaphoreSlim EmbedLock = new(1, 1);
+    private static readonly object EnvCacheLock = new();
+    private static Guid? _envCacheProjectId;
+    private static CompilerEnvironmentInfo? _envCache;
+    private static DateTime _envCacheUtc = DateTime.MinValue;
+    private static readonly TimeSpan EnvCacheTtl = TimeSpan.FromMinutes(2);
 
     public ClangCompilerService(IDbContextFactory<AppDbContext> dbFactory, ISdkProjectService projects)
     {
@@ -40,6 +45,16 @@ public sealed class ClangCompilerService : ICompilerService
     public async Task<CompilerEnvironmentInfo> CheckEnvironmentAsync(
         Guid sdkProjectId, CancellationToken cancellationToken = default)
     {
+        lock (EnvCacheLock)
+        {
+            if (_envCache is not null &&
+                _envCacheProjectId == sdkProjectId &&
+                DateTime.UtcNow - _envCacheUtc < EnvCacheTtl)
+            {
+                return _envCache;
+            }
+        }
+
         var project = await _projects.GetByIdAsync(sdkProjectId, cancellationToken)
                       ?? throw new InvalidOperationException("SDK 项目不存在");
         var profile = await GetOrCreateProfileAsync(sdkProjectId, cancellationToken);
@@ -93,7 +108,7 @@ public sealed class ClangCompilerService : ICompilerService
             }
         }
 
-        return new CompilerEnvironmentInfo
+        var info = new CompilerEnvironmentInfo
         {
             ClangFound = clang is not null,
             ClangPath = clang,
@@ -109,6 +124,13 @@ public sealed class ClangCompilerService : ICompilerService
                         ? $"Clang OK: {clang} | includes={includes.Count} | CRT=应用内置 | missing={missing.Count}"
                         : $"Clang OK: {clang} | includes={includes.Count} | missing={missing.Count}"
         };
+        lock (EnvCacheLock)
+        {
+            _envCacheProjectId = sdkProjectId;
+            _envCache = info;
+            _envCacheUtc = DateTime.UtcNow;
+        }
+        return info;
     }
 
     public async Task SaveClangPathAsync(string? clangPath, CancellationToken cancellationToken = default)
@@ -840,9 +862,19 @@ public sealed class ClangCompilerService : ICompilerService
 
         using var p = new Process { StartInfo = psi };
         p.Start();
-        var stdoutTask = p.StandardOutput.ReadToEndAsync(ct);
-        var stderrTask = p.StandardError.ReadToEndAsync(ct);
-        await p.WaitForExitAsync(ct);
+        var stdoutTask = p.StandardOutput.ReadToEndAsync(CancellationToken.None);
+        var stderrTask = p.StandardError.ReadToEndAsync(CancellationToken.None);
+        try
+        {
+            await p.WaitForExitAsync(ct);
+        }
+        catch (OperationCanceledException)
+        {
+            try { p.Kill(entireProcessTree: true); } catch { /* ignore */ }
+            try { await p.WaitForExitAsync(CancellationToken.None); } catch { /* ignore */ }
+            throw;
+        }
+
         return (p.ExitCode, await stdoutTask, await stderrTask);
     }
 

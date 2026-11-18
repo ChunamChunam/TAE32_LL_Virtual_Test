@@ -54,6 +54,47 @@ public class ChipHeaderAddressCatalogTests
     }
 
     [Fact]
+    public void Load_From_SdkContent_Resolves_Adc0_Hisr()
+    {
+        var sdkRoot = FindSdkRoot();
+        if (sdkRoot is null) return;
+
+        var catalog = ChipHeaderAddressCatalog.TryLoad(sdkRoot);
+        catalog.Should().NotBeNull();
+        catalog!.TryGetBase("ADC0", out var bas).Should().BeTrue();
+        bas.Should().Be(0x40038000u);
+
+        catalog.TryResolveAbsolute("ADC0", "ADC0_Type", "HISR", out var abs, out var b, out var off)
+            .Should().BeTrue();
+        b.Should().Be(0x40038000u);
+        off.Should().Be(0x180);
+        abs.Should().Be(0x40038180u);
+
+        catalog.EnumerateMembers("ADC0").Should().Contain("HISR");
+    }
+
+    [Fact]
+    public void Load_Writes_And_Reuses_Disk_Cache_Under_LocalAppData()
+    {
+        var sdkRoot = FindSdkRoot();
+        if (sdkRoot is null) return;
+
+        ChipHeaderAddressCatalog.ClearMemoryCacheForTests();
+        var first = ChipHeaderAddressCatalog.TryLoad(sdkRoot);
+        first.Should().NotBeNull();
+
+        var cachePath = ChipHeaderAddressCatalog.GetDiskCachePath(Path.GetFullPath(sdkRoot));
+        File.Exists(cachePath).Should().BeTrue("chip.h 解析结果应落到 LocalAppData 磁盘缓存");
+
+        ChipHeaderAddressCatalog.ClearMemoryCacheForTests();
+        var second = ChipHeaderAddressCatalog.TryLoad(sdkRoot);
+        second.Should().NotBeNull();
+        second!.TryResolveAbsolute("ADC0", "ADC0_Type", "HISR", out var abs, out _, out _)
+            .Should().BeTrue();
+        abs.Should().Be(0x40038180u);
+    }
+
+    [Fact]
     public void Load_Temp_Headers_Prefers_Chip_File_Literals()
     {
         var dir = Path.Combine(Path.GetTempPath(), "tae32_chipaddr_" + Guid.NewGuid().ToString("N"));

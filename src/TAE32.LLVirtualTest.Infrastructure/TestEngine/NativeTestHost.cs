@@ -2,6 +2,7 @@ using System.Diagnostics;
 using System.Runtime.InteropServices;
 using System.Text.Json;
 using System.Text.RegularExpressions;
+using TAE32.LLVirtualTest.Core.Enums;
 using TAE32.LLVirtualTest.Core.Interfaces;
 using TAE32.LLVirtualTest.Core.Models;
 using TAE32.LLVirtualTest.Infrastructure.VirtualMcu;
@@ -186,63 +187,27 @@ internal sealed class NativeTestHost : IDisposable
         Guid mcuId,
         string instanceName,
         CancellationToken ct,
-        string? moduleName = null)
+        string? moduleName = null,
+        string? sdkRootPath = null)
     {
         var multiBank = IsMultiBankModule(moduleName, instanceName);
         var moduleKey = moduleName ?? (multiBank ? "HRPWM" : null);
-        var regs = multiBank
-            ? await mcu.GetRegistersAsync(mcuId, moduleKey, null, ct)
-            : await mcu.GetRegistersAsync(mcuId, moduleName, instanceName, ct);
-
-        // Safety net: if module filter returned nothing (legacy ModuleName=HRPWM_MST), pull by prefix.
-        if (multiBank && regs.Count == 0 && !string.IsNullOrWhiteSpace(moduleKey))
-        {
-            var all = await mcu.GetRegistersAsync(mcuId, null, null, ct);
-            regs = all.Where(r =>
-                    (r.InstanceName?.StartsWith(moduleKey, StringComparison.OrdinalIgnoreCase) ?? false)
-                    || (r.StructName?.StartsWith(moduleKey, StringComparison.OrdinalIgnoreCase) ?? false)
-                    || string.Equals(
-                        VirtualMcu.VirtualMcuDefinitionLoader.NormalizeModuleToken(r.ModuleName),
-                        moduleKey, StringComparison.OrdinalIgnoreCase))
-                .ToList();
-        }
-
-        var addressed = regs.Where(r => r.AbsoluteAddress is not null).ToList();
         var warnings = new List<string>();
         var collisions = new List<string>();
+
+        // Collect candidates: preferred filter first, then always enrich AbsoluteAddress.
+        // Flat ADC/UART: GetRegister(ADC0,HISR) may have AbsoluteAddress while GetAll filters
+        // return nameless-address copies — never SequentialFallback when chip.h / GetRegister can recover.
+        var regs = await CollectHostImageRegistersAsync(
+            mcu, mcuId, instanceName, moduleKey, multiBank, ct);
 
         // Larger pad: some LL paths touch adjacent/reserved offsets; AVE was taking down the UI process.
         const int minSize = 512 * 1024;
         var structMin = HostPeripheralImageSizes.MinBytes(instanceName, moduleName);
 
-        if (addressed.Count == 0)
-        {
-            // Last chance: resolve focus bank registers by name when AbsoluteAddress was missing on list.
-            if (multiBank && !string.IsNullOrWhiteSpace(moduleKey))
-            {
-                var recovered = new List<VirtualRegisterView>();
-                foreach (var r in regs)
-                {
-                    if (r.AbsoluteAddress is not null)
-                    {
-                        recovered.Add(r);
-                        continue;
-                    }
-
-                    if (string.IsNullOrWhiteSpace(r.InstanceName) || string.IsNullOrWhiteSpace(r.MemberName))
-                        continue;
-                    var one = await mcu.GetRegisterAsync(mcuId, r.InstanceName, r.MemberName, ct);
-                    if (one?.AbsoluteAddress is not null)
-                        recovered.Add(one);
-                }
-
-                if (recovered.Count > 0)
-                {
-                    addressed = recovered;
-                    warnings.Add("已通过单寄存器回查补齐 AbsoluteAddress（避免 SequentialFallback）。");
-                }
-            }
-        }
+        // Always enrich (partial AbsoluteAddress lists used to skip Recover → HISR @+0x180 MISSING).
+        var addressed = await RecoverAbsoluteAddressesAsync(
+            mcu, mcuId, regs, instanceName, moduleKey, sdkRootPath, warnings, ct);
 
         if (addressed.Count == 0)
         {
@@ -279,7 +244,8 @@ internal sealed class NativeTestHost : IDisposable
             return (ptr, size, map, layoutFb);
         }
 
-        var imageBase = ResolveAggregateImageBase(moduleName, instanceName, addressed);
+        var imageBase = ResolveAggregateImageBase(moduleName, instanceName, addressed, structMin);
+        // ADC HISR is at +0x180; keep at least structMin (ADC=0x400) so high offsets stay mapped.
         var imageWindow = Math.Max(structMin > 0 ? structMin : 0x1000, 0x1000);
         var inWindow = addressed
             .Where(r =>
@@ -368,6 +334,229 @@ internal sealed class NativeTestHost : IDisposable
         return (basePtr, bufSize, offsetMap, layout);
     }
 
+    private static async Task<IReadOnlyList<VirtualRegisterView>> CollectHostImageRegistersAsync(
+        IVirtualMcuService mcu,
+        Guid mcuId,
+        string instanceName,
+        string? moduleKey,
+        bool multiBank,
+        CancellationToken ct)
+    {
+        IReadOnlyList<VirtualRegisterView> regs = multiBank
+            ? await mcu.GetRegistersAsync(mcuId, moduleKey, null, ct)
+            : await mcu.GetRegistersAsync(mcuId, moduleKey, instanceName, ct);
+
+        if (regs.Count > 0 && regs.Any(r => r.AbsoluteAddress is not null))
+            return regs;
+
+        if (!string.IsNullOrWhiteSpace(instanceName))
+        {
+            var byInst = await mcu.GetRegistersAsync(mcuId, null, instanceName, ct);
+            if (byInst.Count > 0)
+                regs = byInst;
+            if (regs.Any(r => r.AbsoluteAddress is not null))
+                return regs;
+        }
+
+        // Universe dump — last resort when module/instance filters disagree with slot metadata.
+        var all = await mcu.GetRegistersAsync(mcuId, null, null, ct);
+        var scoped = all.Where(r => MatchesHostImageScope(r, instanceName, moduleKey, multiBank)).ToList();
+        return scoped.Count > 0 ? scoped : regs;
+    }
+
+    private static bool MatchesHostImageScope(
+        VirtualRegisterView r, string? instanceName, string? moduleKey, bool multiBank)
+    {
+        if (!string.IsNullOrWhiteSpace(moduleKey))
+        {
+            var modOk =
+                string.Equals(
+                    VirtualMcu.VirtualMcuDefinitionLoader.NormalizeModuleToken(r.ModuleName),
+                    moduleKey, StringComparison.OrdinalIgnoreCase)
+                || string.Equals(
+                    VirtualMcu.VirtualMcuDefinitionLoader.NormalizeModuleToken(r.InstanceName),
+                    moduleKey, StringComparison.OrdinalIgnoreCase)
+                || (r.InstanceName?.StartsWith(moduleKey, StringComparison.OrdinalIgnoreCase) ?? false)
+                || (r.StructName?.StartsWith(moduleKey, StringComparison.OrdinalIgnoreCase) ?? false);
+            if (!modOk) return false;
+        }
+
+        if (multiBank || string.IsNullOrWhiteSpace(instanceName))
+            return true;
+
+        return string.Equals(r.InstanceName, instanceName, StringComparison.OrdinalIgnoreCase)
+               || string.Equals(r.StructName, instanceName + "_Type", StringComparison.OrdinalIgnoreCase)
+               || string.Equals(r.StructName, instanceName + "_TypeDef", StringComparison.OrdinalIgnoreCase)
+               || string.IsNullOrWhiteSpace(r.InstanceName);
+    }
+
+    private static async Task<List<VirtualRegisterView>> RecoverAbsoluteAddressesAsync(
+        IVirtualMcuService mcu,
+        Guid mcuId,
+        IReadOnlyList<VirtualRegisterView> regs,
+        string instanceName,
+        string? moduleKey,
+        string? sdkRootPath,
+        List<string> warnings,
+        CancellationToken ct)
+    {
+        var recovered = new List<VirtualRegisterView>();
+        var seenMembers = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        var catalog = VirtualMcu.ChipHeaderAddressCatalog.TryLoad(sdkRootPath);
+        var enriched = 0;
+
+        async Task TryAddAsync(VirtualRegisterView r, string? instOverride = null)
+        {
+            var inst = !string.IsNullOrWhiteSpace(instOverride)
+                ? instOverride!
+                : (!string.IsNullOrWhiteSpace(r.InstanceName) ? r.InstanceName! : instanceName);
+            if (string.IsNullOrWhiteSpace(inst) || string.IsNullOrWhiteSpace(r.MemberName))
+                return;
+            var key = $"{inst}.{r.MemberName}";
+            if (seenMembers.Contains(key))
+                return;
+
+            if (r.AbsoluteAddress is not null)
+            {
+                seenMembers.Add(key);
+                recovered.Add(r);
+                return;
+            }
+
+            var one = await mcu.GetRegisterAsync(mcuId, inst, r.MemberName, ct);
+            if (one?.AbsoluteAddress is not null)
+            {
+                seenMembers.Add(key);
+                recovered.Add(one);
+                enriched++;
+                return;
+            }
+
+            if (catalog is not null
+                && catalog.TryResolveAbsolute(inst, r.StructName, r.MemberName,
+                    out var abs, out _, out _))
+            {
+                seenMembers.Add(key);
+                recovered.Add(CloneWithAbsoluteAddress(one ?? r, abs));
+                enriched++;
+            }
+            // Leave unseen on failure so chip.h last-resort can still attach AbsoluteAddress.
+        }
+
+        // Fast path: collected regs already carry AbsoluteAddress (normal after MCU init from chip.h).
+        if (regs.Count > 0 && regs.All(r => r.AbsoluteAddress is not null))
+        {
+            return regs
+                .Where(r => r.AbsoluteAddress is not null)
+                .GroupBy(r => r.AbsoluteAddress!.Value)
+                .Select(g => g.First())
+                .ToList();
+        }
+
+        foreach (var r in regs)
+        {
+            ct.ThrowIfCancellationRequested();
+            await TryAddAsync(r);
+        }
+
+        // Broaden: same instance from MCU (filters may have dropped HISR / AbsoluteAddress copies).
+        if (!string.IsNullOrWhiteSpace(instanceName))
+        {
+            var byInst = await mcu.GetRegistersAsync(mcuId, null, instanceName, ct);
+            foreach (var r in byInst)
+            {
+                ct.ThrowIfCancellationRequested();
+                await TryAddAsync(r, instanceName);
+            }
+
+            // Universe dump only when instance filter still yielded no absolute addresses.
+            if (recovered.Count == 0 || recovered.All(r => r.AbsoluteAddress is null))
+            {
+                var universe = await mcu.GetRegistersAsync(mcuId, null, null, ct);
+                foreach (var r in universe.Where(x => MatchesHostImageScope(x, instanceName, moduleKey, false)))
+                {
+                    ct.ThrowIfCancellationRequested();
+                    await TryAddAsync(r, instanceName);
+                }
+            }
+        }
+
+        var withAbs = recovered
+            .Where(r => r.AbsoluteAddress is not null)
+            .GroupBy(r => r.AbsoluteAddress!.Value)
+            .Select(g => g.First())
+            .ToList();
+
+        // Last resort only when still empty — full EnumerateMembers was O(all ADC regs) per case.
+        if (withAbs.Count == 0
+            && catalog is not null
+            && !string.IsNullOrWhiteSpace(instanceName))
+        {
+            foreach (var member in catalog.EnumerateMembers(instanceName))
+            {
+                ct.ThrowIfCancellationRequested();
+                var key = $"{instanceName}.{member}";
+                if (seenMembers.Contains(key))
+                    continue;
+                if (!catalog.TryResolveAbsolute(instanceName, null, member, out var abs, out _, out _))
+                    continue;
+                var live = await mcu.GetRegisterAsync(mcuId, instanceName, member, ct);
+                seenMembers.Add(key);
+                if (live is not null)
+                {
+                    recovered.Add(live.AbsoluteAddress is not null
+                        ? live
+                        : CloneWithAbsoluteAddress(live, abs));
+                    enriched++;
+                }
+                else
+                {
+                    recovered.Add(new VirtualRegisterView
+                    {
+                        InstanceName = instanceName,
+                        MemberName = member,
+                        AbsoluteAddress = abs,
+                        WidthBits = 32,
+                        CurrentValue = 0
+                    });
+                    enriched++;
+                }
+            }
+
+            withAbs = recovered
+                .Where(r => r.AbsoluteAddress is not null)
+                .GroupBy(r => r.AbsoluteAddress!.Value)
+                .Select(g => g.First())
+                .ToList();
+        }
+
+        if (enriched > 0)
+            warnings.Add("已通过 GetRegister/chip.h 补齐 AbsoluteAddress（避免 SequentialFallback）。");
+
+        return withAbs;
+    }
+
+    private static VirtualRegisterView CloneWithAbsoluteAddress(VirtualRegisterView src, uint abs)
+        => new()
+        {
+            DefinitionId = src.DefinitionId,
+            ChipModelName = src.ChipModelName,
+            ModuleName = src.ModuleName,
+            InstanceName = src.InstanceName,
+            StructName = src.StructName,
+            MemberName = src.MemberName,
+            AbsoluteAddress = abs,
+            WidthBits = src.WidthBits,
+            CurrentValue = src.CurrentValue,
+            ResetValue = src.ResetValue,
+            AccessAttribute = src.AccessAttribute,
+            Behavior = src.Behavior,
+            WritableMask = src.WritableMask,
+            Limitation = src.Limitation,
+            LimitationNote = src.LimitationNote,
+            Fields = src.Fields
+        };
+
     /// <summary>
     /// Aggregate TypeDef base: prefer known bank bases (HRPWM_MST), else min AbsoluteAddress
     /// among coherent banks (exclude outliers that would shift nested offsetof).
@@ -375,7 +564,8 @@ internal sealed class NativeTestHost : IDisposable
     internal static uint ResolveAggregateImageBase(
         string? moduleName,
         string? instanceName,
-        IReadOnlyList<VirtualRegisterView> addressed)
+        IReadOnlyList<VirtualRegisterView> addressed,
+        int structMin = 0)
     {
         if (addressed.Count == 0) return 0;
 
@@ -395,16 +585,26 @@ internal sealed class NativeTestHost : IDisposable
             return min & ~0xFFu;
         }
 
-        // Generic multi-bank: use min, but if spread > 64KB prefer dense cluster around mode/min.
+        // Generic: use min, but if spread > 64KB prefer dense cluster around mode/min.
         var sorted = addressed.Select(r => r.AbsoluteAddress!.Value).OrderBy(x => x).ToList();
         var minAll = sorted[0];
         var maxAll = sorted[^1];
-        if (maxAll - minAll <= 0x10000u)
-            return minAll;
+        if (maxAll - minAll > 0x10000u)
+        {
+            var cluster = sorted.Where(a => a < minAll + 0x1000u).ToList();
+            minAll = cluster.Count > 0 ? cluster[0] : minAll;
+        }
 
-        // Prefer addresses within 4KB of the lowest address (TypeDef-sized window).
-        var cluster = sorted.Where(a => a < minAll + 0x1000u).ToList();
-        return cluster.Count > 0 ? cluster[0] : minAll;
+        // Flat peri (ADC/UART…): if only high-offset members were recovered (e.g. HISR @+0x180),
+        // align down to TypeDef size so ADCx pointer matches chip BASE (ADC0_BASE), not HISR abs.
+        if (structMin >= 0x40)
+        {
+            var align = (uint)structMin;
+            if ((align & (align - 1)) == 0)
+                return minAll & ~(align - 1u);
+        }
+
+        return minAll;
     }
 
     private static bool IsHostAggregateModule(string? module)
@@ -553,7 +753,9 @@ internal sealed class NativeTestHost : IDisposable
     /// <summary>
     /// Sync harness RAM → virtual MCU. Only members whose buffer word changed since
     /// <paramref name="beforeExecute"/> are written and attributed to the LL function.
-    /// Unchanged slots are skipped so native-harness-sync is not recorded as LL access.
+    /// Unchanged slots are skipped so native-harness-sync is not recorded as LL access —
+    /// except W1C/W0C status registers: host is plain RAM so ClearFlag WRITE_REG(seed)
+    /// leaves the word unchanged, yet virtual MCU still needs WriteAsync to apply clear.
     /// </summary>
     public static async Task SyncBufferToVirtualMcuAsync(
         IVirtualMcuService mcu,
@@ -568,16 +770,56 @@ internal sealed class NativeTestHost : IDisposable
         foreach (var (offset, key) in offsetToMember)
         {
             var value = unchecked((uint)Marshal.ReadInt32(periBase, offset));
-            if (beforeExecute is not null
-                && beforeExecute.TryGetValue(offset, out var before)
-                && before == value)
+            var (inst, member) = SplitSlotKey(key, instanceName);
+            var unchanged = beforeExecute is not null
+                            && beforeExecute.TryGetValue(offset, out var before)
+                            && before == value;
+            if (unchanged)
             {
-                continue;
+                // W1C ClearFlag: seed==WRITE_REG leaves host RAM identical; still replay WriteAsync.
+                // Never force this on read/IsActiveFlag — WriteAsync would clear the preloaded flags.
+                if (value == 0 || !IsLikelyW1cClearWrite(ctx.LlFunctionName))
+                    continue;
+                var slot = await mcu.GetRegisterAsync(mcuId, inst, member, ct);
+                if (slot is null)
+                    continue;
+                if (slot.Behavior is not (VirtualRegisterBehavior.Write1Clear
+                        or VirtualRegisterBehavior.Write0Clear
+                        or VirtualRegisterBehavior.Write1Set
+                        or VirtualRegisterBehavior.Toggle))
+                    continue;
             }
 
-            var (inst, member) = SplitSlotKey(key, instanceName);
             await mcu.WriteAsync(mcuId, inst, member, value, ctx, ct);
         }
+    }
+
+    /// <summary>
+    /// True when the LL call is expected to WRITE status flags (ClearFlag / Clear*Flag),
+    /// so an unchanged host word may still need W1C WriteAsync replay.
+    /// </summary>
+    private static bool IsLikelyW1cClearWrite(string? llFunctionName)
+    {
+        if (string.IsNullOrWhiteSpace(llFunctionName))
+            return false;
+        var n = llFunctionName;
+        if (n.Contains("IsActive", StringComparison.OrdinalIgnoreCase)
+            || n.Contains("IsEnabled", StringComparison.OrdinalIgnoreCase)
+            || n.Contains("Get", StringComparison.OrdinalIgnoreCase)
+               && !n.Contains("Clear", StringComparison.OrdinalIgnoreCase))
+            return false;
+        return n.Contains("ClearFlag", StringComparison.OrdinalIgnoreCase)
+               || n.Contains("ClearDataFlag", StringComparison.OrdinalIgnoreCase)
+               || n.Contains("ClearAll", StringComparison.OrdinalIgnoreCase)
+               || n.Contains("ClearInt", StringComparison.OrdinalIgnoreCase)
+               || n.Contains("ClearPending", StringComparison.OrdinalIgnoreCase)
+               // RCU ClearMCLRResetPending / Clear*ResetPending (Clear…Pending, not ClearPending).
+               || (n.Contains("Clear", StringComparison.OrdinalIgnoreCase)
+                   && n.Contains("Pending", StringComparison.OrdinalIgnoreCase))
+               || (n.Contains("Clear", StringComparison.OrdinalIgnoreCase)
+                   && (n.Contains("Flag", StringComparison.OrdinalIgnoreCase)
+                       || n.Contains("Intr", StringComparison.OrdinalIgnoreCase)
+                       || n.Contains("Status", StringComparison.OrdinalIgnoreCase)));
     }
 
     public static byte[] PackArgs(IReadOnlyList<uint> values)

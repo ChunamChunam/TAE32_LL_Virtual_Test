@@ -58,14 +58,17 @@ public sealed class LlTestEngine : ILLTestEngine
         IProgress<(int FunctionIndex, int FunctionTotal, int CasesSaved, string PeripheralName)>? progress = null,
         CancellationToken cancellationToken = default)
     {
-        await using var db = await _dbFactory.CreateDbContextAsync(cancellationToken);
-        var functionIds = await db.LlFunctions.AsNoTracking()
-            .Where(x => x.SdkProjectId == sdkProjectId
-                        && x.PeripheralName == peripheralName
-                        && (x.Form == null || x.Form.Contains("inline")))
-            .OrderBy(x => x.FunctionName)
-            .Select(x => x.Id)
-            .ToListAsync(cancellationToken);
+        List<(Guid Id, string FunctionName)> functions;
+        await using (var db = await _dbFactory.CreateDbContextAsync(cancellationToken))
+        {
+            functions = await db.LlFunctions.AsNoTracking()
+                .Where(x => x.SdkProjectId == sdkProjectId
+                            && x.PeripheralName == peripheralName
+                            && (x.Form == null || x.Form.Contains("inline")))
+                .OrderBy(x => x.FunctionName)
+                .Select(x => new ValueTuple<Guid, string>(x.Id, x.FunctionName))
+                .ToListAsync(cancellationToken);
+        }
 
         var pending = new List<LlTestCaseEditModel>(32);
         var casesSaved = 0;
@@ -78,18 +81,26 @@ public sealed class LlTestEngine : ILLTestEngine
             pending.Clear();
         }
 
-        for (var i = 0; i < functionIds.Count; i++)
+        for (var i = 0; i < functions.Count; i++)
         {
             cancellationToken.ThrowIfCancellationRequested();
             processed++;
             IReadOnlyList<LlTestCaseEditModel> generated;
             try
             {
-                generated = await _generator.GenerateAsync(functionIds[i], cancellationToken);
+                // Progress heartbeat (flush so redirected logs stay live).
+                if (peripheralName.Equals("HRPWM", StringComparison.OrdinalIgnoreCase)
+                    && (i + 1) >= 590)
+                {
+                    Console.WriteLine($"  … gen {i + 1}/{functions.Count} {functions[i].FunctionName}");
+                    Console.Out.Flush();
+                }
+
+                generated = await _generator.GenerateAsync(functions[i].Id, cancellationToken);
             }
             catch
             {
-                progress?.Report((i + 1, functionIds.Count, casesSaved, peripheralName));
+                progress?.Report((i + 1, functions.Count, casesSaved, peripheralName));
                 if (i % 4 == 0)
                     await Task.Yield();
                 continue;
@@ -99,13 +110,13 @@ public sealed class LlTestEngine : ILLTestEngine
             if (pending.Count >= 24)
                 await FlushAsync();
 
-            progress?.Report((i + 1, functionIds.Count, casesSaved, peripheralName));
+            progress?.Report((i + 1, functions.Count, casesSaved, peripheralName));
             if (i % 3 == 0)
                 await Task.Yield();
         }
 
         await FlushAsync();
-        progress?.Report((functionIds.Count, functionIds.Count, casesSaved, peripheralName));
+        progress?.Report((functions.Count, functions.Count, casesSaved, peripheralName));
         return (processed, casesSaved);
     }
 
@@ -121,18 +132,66 @@ public sealed class LlTestEngine : ILLTestEngine
         IProgress<string>? log = null,
         CancellationToken cancellationToken = default)
     {
-        var results = new List<LlTestRunResult>();
-        foreach (var id in testCaseIds)
+        var ids = testCaseIds.ToList();
+        var results = new List<LlTestRunResult>(ids.Count);
+        if (ids.Count == 0) return results;
+
+        // One shared virtual MCU for the whole batch (Create+Initialize is the expensive part).
+        Guid? sharedMcuId = null;
+        try
         {
-            cancellationToken.ThrowIfCancellationRequested();
-            log?.Report($"运行用例 {id}");
-            // Off WPF sync context: compile/static-analysis/native wait must not freeze the UI.
-            var result = await Task.Run(
-                    () => RunCaseAsync(new LlTestRunRequest { TestCaseId = id }, log, cancellationToken),
-                    cancellationToken)
+            var first = await _store.GetAsync(ids[0], cancellationToken)
+                        ?? throw new KeyNotFoundException("测试用例不存在");
+            log?.Report($"装载共享虚拟 MCU（寄存器全量一次）…");
+            var shared = await _mcu.CreateAsync(new VirtualMcuCreateOptions
+            {
+                SdkProjectId = first.SdkProjectId,
+                ChipId = first.ChipId,
+                ChipModelName = first.ChipModelName,
+                DisplayName = $"BATCH-{first.SdkProjectId.ToString()[..8]}",
+                ProtectUnmappedBitsAsReserved = false
+            }, cancellationToken).ConfigureAwait(false);
+            await _mcu.InitializeAsync(shared.Id, cancellationToken).ConfigureAwait(false);
+            sharedMcuId = shared.Id;
+
+            // Prefer SQLite RegisterMacroReferences (already scanned) — not re-parse chip.h.
+            log?.Report("预热静态分析宏目录（SQLite RegisterMacroReferences）…");
+            await SdkMacroSemanticCatalog.TryLoadFromDbAsync(
+                    _dbFactory, first.SdkProjectId, cancellationToken)
                 .ConfigureAwait(false);
-            results.Add(result);
+
+            log?.Report($"虚拟 MCU 就绪，开始执行 {ids.Count} 条…");
+
+            for (var i = 0; i < ids.Count; i++)
+            {
+                cancellationToken.ThrowIfCancellationRequested();
+                var id = ids[i];
+                log?.Report($"运行用例 {i + 1}/{ids.Count} {id}");
+                var mcuId = sharedMcuId.Value;
+                var result = await Task.Run(
+                        () => RunCaseAsync(
+                            new LlTestRunRequest
+                            {
+                                TestCaseId = id,
+                                ExistingVirtualMcuId = mcuId,
+                                DestroyVirtualMcuOnComplete = false
+                            },
+                            log,
+                            cancellationToken),
+                        cancellationToken)
+                    .ConfigureAwait(false);
+                results.Add(result);
+            }
         }
+        finally
+        {
+            if (sharedMcuId is Guid mid)
+            {
+                try { await _mcu.DestroyAsync(mid, CancellationToken.None).ConfigureAwait(false); }
+                catch { /* ignore */ }
+            }
+        }
+
         return results;
     }
 
@@ -191,11 +250,17 @@ public sealed class LlTestEngine : ILLTestEngine
             }
 
             // Pre-compile LL source static analysis (shift / Mask-as-Pos / register-field mismatch).
-            // Blocking Errors stop Native Execute even if Clang would accept the code.
+            // Inputs: RegisterMacroReferences (SQLite). Output cache: LlFunctions.StaticAnalysisJson.
             var project = await _projects.GetByIdAsync(entity.SdkProjectId, cancellationToken);
             var resolvedSource = ResolveLlSourcePath(entity.SourceFile, project?.SdkRootPath);
-            var staticResult = _staticAnalyzer.Analyze(
-                project?.SdkRootPath, resolvedSource, entity.FunctionName);
+            L("静态分析（SQLite 宏 + 函数结果缓存）…");
+            var macroCatalog = await SdkMacroSemanticCatalog.TryLoadFromDbAsync(
+                    _dbFactory, entity.SdkProjectId, cancellationToken)
+                .ConfigureAwait(false);
+
+            var staticResult = await GetOrRunStaticAnalysisAsync(
+                    entity, resolvedSource, project?.SdkRootPath, macroCatalog, cancellationToken)
+                .ConfigureAwait(false);
             run.StaticAnalysisJson = LlTestJson.Serialize(staticResult.Diagnostics);
             var staticReport = LlShiftStaticAnalyzer.FormatReport(entity.FunctionName, staticResult);
             stages.Add(new LlTestStageResult
@@ -226,17 +291,29 @@ public sealed class LlTestEngine : ILLTestEngine
             if (staticResult.HasWarning)
                 execLog.AppendLine(staticReport);
 
-            // Isolated virtual MCU
-            var mcuInfo = await _mcu.CreateAsync(new VirtualMcuCreateOptions
+            // Isolated virtual MCU — or reuse shared batch MCU (Reset between cases).
+            if (request.ExistingVirtualMcuId is Guid existingMcu)
             {
-                SdkProjectId = entity.SdkProjectId,
-                ChipId = entity.ChipId,
-                ChipModelName = entity.ChipModelName,
-                DisplayName = $"TEST-{entity.Name}-{run.Id.ToString()[..8]}",
-                ProtectUnmappedBitsAsReserved = false
-            }, cancellationToken);
-            await _mcu.InitializeAsync(mcuInfo.Id, cancellationToken);
-            mcuId = mcuInfo.Id;
+                L("复用共享虚拟 MCU（Reset）…");
+                await _mcu.ResetAsync(existingMcu, cancellationToken);
+                await _mcu.ClearAccessTraceAsync(existingMcu, cancellationToken);
+                mcuId = existingMcu;
+            }
+            else
+            {
+                L("创建并装载虚拟 MCU…");
+                var mcuInfo = await _mcu.CreateAsync(new VirtualMcuCreateOptions
+                {
+                    SdkProjectId = entity.SdkProjectId,
+                    ChipId = entity.ChipId,
+                    ChipModelName = entity.ChipModelName,
+                    DisplayName = $"TEST-{entity.Name}-{run.Id.ToString()[..8]}",
+                    ProtectUnmappedBitsAsReserved = false
+                }, cancellationToken);
+                await _mcu.InitializeAsync(mcuInfo.Id, cancellationToken);
+                mcuId = mcuInfo.Id;
+            }
+
             run.VirtualMcuId = mcuId;
 
             foreach (var init in edit.InitialRegisters)
@@ -246,6 +323,7 @@ public sealed class LlTestEngine : ILLTestEngine
                 await _mcu.SeedRegisterAsync(mcuId.Value, init.InstanceName, init.MemberName, v,
                     new VirtualAccessContext { LlFunctionName = "(init)", Note = "测试初始寄存器" }, cancellationToken);
             }
+            L("开始编译真实 LL 内联函数…");
 
             var header = Path.GetFileName(entity.SourceFile ?? "tae32g58xx_ll_gpio.h");
             if (string.IsNullOrWhiteSpace(header)) header = "tae32g58xx_ll_gpio.h";
@@ -334,7 +412,8 @@ public sealed class LlTestEngine : ILLTestEngine
                 using var host = new NativeTestHost();
                 host.Load(compile.OutputDllPath!);
                 var (ptr, size, map, layout) = await NativeTestHost.AllocateAndFillAsync(
-                    _mcu, mcuId.Value, virtualInstance, timeoutCts.Token, entity.PeripheralName);
+                    _mcu, mcuId.Value, virtualInstance, timeoutCts.Token, entity.PeripheralName,
+                    project?.SdkRootPath);
                 try
                 {
                     var focusInit = edit.InitialRegisters.FirstOrDefault();
@@ -565,11 +644,123 @@ public sealed class LlTestEngine : ILLTestEngine
         }
         finally
         {
-            if (mcuId is Guid id)
+            if (request.DestroyVirtualMcuOnComplete && mcuId is Guid id)
             {
                 try { await _mcu.DestroyAsync(id, CancellationToken.None); } catch { /* ignore */ }
             }
         }
+    }
+
+    private static int _llFunctionStaticAnalysisSchemaReady;
+
+    private async Task EnsureLlFunctionStaticAnalysisColumnsAsync(
+        AppDbContext db, CancellationToken cancellationToken)
+    {
+        if (Interlocked.CompareExchange(ref _llFunctionStaticAnalysisSchemaReady, 1, 0) != 0)
+            return;
+        foreach (var sql in new[]
+                 {
+                     """ALTER TABLE "LlFunctions" ADD COLUMN "StaticAnalysisJson" TEXT""",
+                     """ALTER TABLE "LlFunctions" ADD COLUMN "StaticAnalysisStamp" TEXT"""
+                 })
+        {
+            try
+            {
+                await db.Database.ExecuteSqlRawAsync(sql, cancellationToken).ConfigureAwait(false);
+            }
+            catch
+            {
+                /* already exists */
+            }
+        }
+    }
+
+    private async Task<StaticAnalysisResult> GetOrRunStaticAnalysisAsync(
+        LlTestCase entity,
+        string? resolvedSource,
+        string? sdkRoot,
+        SdkMacroSemanticCatalog? macroCatalog,
+        CancellationToken cancellationToken)
+    {
+        var stamp = BuildStaticAnalysisStamp(resolvedSource, entity.LlFunctionId);
+        await using var db = await _dbFactory.CreateDbContextAsync(cancellationToken)
+            .ConfigureAwait(false);
+        await EnsureLlFunctionStaticAnalysisColumnsAsync(db, cancellationToken)
+            .ConfigureAwait(false);
+
+        LlFunction? fn = null;
+        try
+        {
+            if (entity.LlFunctionId is Guid fid)
+                fn = await db.LlFunctions.FirstOrDefaultAsync(x => x.Id == fid, cancellationToken)
+                    .ConfigureAwait(false);
+            if (fn is null && !string.IsNullOrWhiteSpace(entity.FunctionName))
+            {
+                var id = await db.LlFunctions.AsNoTracking()
+                    .Where(x => x.SdkProjectId == entity.SdkProjectId && x.FunctionName == entity.FunctionName)
+                    .OrderByDescending(x => x.ParsedAtUtc)
+                    .Select(x => (Guid?)x.Id)
+                    .FirstOrDefaultAsync(cancellationToken)
+                    .ConfigureAwait(false);
+                if (id is Guid found)
+                    fn = await db.LlFunctions.FirstOrDefaultAsync(x => x.Id == found, cancellationToken)
+                        .ConfigureAwait(false);
+            }
+        }
+        catch (Exception)
+        {
+            // Schema lag / older DB — fall through to live analyze without cache.
+            fn = null;
+        }
+
+        if (fn is not null
+            && !string.IsNullOrWhiteSpace(fn.StaticAnalysisJson)
+            && string.Equals(fn.StaticAnalysisStamp, stamp, StringComparison.Ordinal))
+        {
+            var cached = LlTestJson.Deserialize<List<StaticAnalysisDiagnostic>>(fn.StaticAnalysisJson!)
+                         ?? new List<StaticAnalysisDiagnostic>();
+            return new StaticAnalysisResult
+            {
+                Diagnostics = cached,
+                HasBlockingError = cached.Any(d =>
+                    string.Equals(d.Severity, "Error", StringComparison.OrdinalIgnoreCase)),
+                HasWarning = cached.Any(d =>
+                    string.Equals(d.Severity, "Warning", StringComparison.OrdinalIgnoreCase))
+            };
+        }
+
+        // Prefer Phase-3 SourceText body from DB to avoid re-scanning the LL header file.
+        string? bodyOverride = null;
+        if (!string.IsNullOrWhiteSpace(fn?.SourceText))
+            bodyOverride = fn!.SourceText;
+
+        var result = _staticAnalyzer.AnalyzeWithCatalog(
+            sdkRoot, resolvedSource, entity.FunctionName, macroCatalog, bodyOverride);
+
+        if (fn is not null)
+        {
+            try
+            {
+                fn.StaticAnalysisJson = LlTestJson.Serialize(result.Diagnostics);
+                fn.StaticAnalysisStamp = stamp;
+                fn.UpdatedAtUtc = DateTime.UtcNow;
+                await db.SaveChangesAsync(cancellationToken).ConfigureAwait(false);
+            }
+            catch
+            {
+                /* cache write is best-effort */
+            }
+        }
+
+        return result;
+    }
+
+    private static string BuildStaticAnalysisStamp(string? resolvedSource, Guid? llFunctionId)
+    {
+        var filePart = "nofile";
+        if (!string.IsNullOrWhiteSpace(resolvedSource) && File.Exists(resolvedSource))
+            filePart = File.GetLastWriteTimeUtc(resolvedSource).Ticks.ToString();
+        return $"v2|{llFunctionId:N}|{filePart}|sqlite-macros";
     }
 
     private async Task<LlTestRunResult> FinishAsync(

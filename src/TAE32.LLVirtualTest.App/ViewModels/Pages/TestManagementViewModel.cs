@@ -608,7 +608,11 @@ public partial class TestManagementViewModel : ObservableObject
                 StatusText = BusyOverlayText;
                 await Task.Yield();
 
-                var (_, saved) = await _engine.GenerateAndSaveForPeripheralAsync(pid, peri);
+                // Generation parses LL bodies — keep off UI thread so Cancel/overlay stay responsive.
+                var periLocal = peri;
+                var (_, saved) = await Task.Run(
+                        () => _engine.GenerateAndSaveForPeripheralAsync(pid, periLocal))
+                    .ConfigureAwait(true);
                 generatedCount += saved;
             }
 
@@ -841,8 +845,9 @@ public partial class TestManagementViewModel : ObservableObject
     [RelayCommand]
     private void CancelBatch()
     {
-        _batchCts?.Cancel();
-        StatusText = "正在取消批量执行…";
+        try { _batchCts?.Cancel(); } catch { /* ignore */ }
+        StatusText = "正在取消批量执行（将中止当前编译/原生进程）…";
+        BusyOverlayText = "正在取消…请稍候";
     }
 
     [RelayCommand(CanExecute = nameof(CanExportReport))]
@@ -882,14 +887,15 @@ public partial class TestManagementViewModel : ObservableObject
             var title = SelectedBatch is not null && effectiveScope == TestReportRunScope.SelectedBatchOnly
                 ? $"批次报告 {Converters.BeijingTime.Format(SelectedBatch.StartedAtUtc)} · {SelectedBatch.TotalCount} 条 · {SelectedBatch.ScopeKind}"
                 : $"TAE32 LL Virtual Test — {SelectedPlan?.Name ?? "项目汇总"}";
-            var result = await _reports.GenerateAsync(new TestReportRequest
+            var batchId = SelectedBatch?.Id;
+            var result = await Task.Run(() => _reports.GenerateAsync(new TestReportRequest
             {
                 SdkProjectId = pid,
-                BatchRunId = SelectedBatch?.Id,
+                BatchRunId = batchId,
                 RunScope = scope,
                 Format = fmt,
                 Title = title
-            });
+            })).ConfigureAwait(true);
             StatusText = result.Message;
             await ReloadArtifactsAsync();
             if (File.Exists(result.FilePath))
@@ -1272,9 +1278,14 @@ public partial class TestManagementViewModel : ObservableObject
             var p = latest;
             if (p is null) return;
             ProgressPercent = p.Percent;
-            ProgressText = $"{p.Completed}/{p.Total} {p.CurrentCaseName}";
+            // Prefer Message (includes "正在执行 k/N") — Completed stays 0 until first case finishes.
+            ProgressText = string.IsNullOrWhiteSpace(p.Message)
+                ? $"{p.Completed}/{p.Total} {p.CurrentCaseName}"
+                : p.Message;
             StatusText = p.Message;
-            BusyOverlayText = $"执行中 {p.Completed}/{p.Total}：{p.CurrentCaseName}";
+            BusyOverlayText = string.IsNullOrWhiteSpace(p.Message)
+                ? $"执行中 {p.Completed}/{p.Total}：{p.CurrentCaseName}"
+                : p.Message;
         }
 
         var progress = new Progress<TestBatchProgress>(p =>
@@ -1290,7 +1301,11 @@ public partial class TestManagementViewModel : ObservableObject
         });
         try
         {
-            var batch = await _batches.RunAsync(request, progress, _batchCts.Token);
+            // Whole batch off UI thread; progress updates marshal via BeginInvoke above.
+            var token = _batchCts.Token;
+            var batch = await Task.Run(
+                    () => _batches.RunAsync(request, progress, token), token)
+                .ConfigureAwait(true);
             StatusText = batch.TotalCount == 0 && request.SourceBatchRunId is not null
                 ? $"重跑未选中任何用例（模式={request.RetryMode ?? "NonPassed"}）。请确认已选中含非通过结果的源批次。"
                 : $"批次完成：{batch.Status} Passed={batch.PassedCount} Failed={batch.FailedCount} Error={batch.ErrorCount}（虚拟环境）";

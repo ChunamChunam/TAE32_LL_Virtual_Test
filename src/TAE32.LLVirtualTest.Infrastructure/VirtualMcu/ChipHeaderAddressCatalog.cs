@@ -1,4 +1,7 @@
 using System.Globalization;
+using System.Security.Cryptography;
+using System.Text;
+using System.Text.Json;
 using System.Text.RegularExpressions;
 
 namespace TAE32.LLVirtualTest.Infrastructure.VirtualMcu;
@@ -7,6 +10,11 @@ namespace TAE32.LLVirtualTest.Infrastructure.VirtualMcu;
 /// Live map of peripheral BASE + register offsets parsed from authoritative chip headers
 /// (<c>tae32g58xx_chip.h</c> / <c>tae32g58xx_chip_struct.h</c> / <c>tae32g58xx.h</c>).
 /// Absolute address = BASE + member offset; overrides stale DB AbsoluteAddress when present.
+/// <para>
+/// Persistence: process memory cache + disk under
+/// <c>%LocalAppData%/TAE32.LLVirtualTest/chipaddr/</c> (SDK 目录只读，不写入 SDKContent)。
+/// Register AbsoluteAddress 也已存 SQLite（扫描导入）；本目录缓存供 Mask/Pos 与补洞。
+/// </para>
 /// </summary>
 internal sealed class ChipHeaderAddressCatalog
 {
@@ -42,13 +50,50 @@ internal sealed class ChipHeaderAddressCatalog
     public int BaseCount => _bases.Count;
     public int StructCount => _offsets.Count;
 
+    private static readonly System.Collections.Concurrent.ConcurrentDictionary<string, ChipHeaderAddressCatalog?> Cache =
+        new(StringComparer.OrdinalIgnoreCase);
+
+    private static readonly JsonSerializerOptions JsonOpts = new()
+    {
+        WriteIndented = false,
+        PropertyNamingPolicy = JsonNamingPolicy.CamelCase
+    };
+
+    /// <summary>
+    /// Load chip BASE/offset catalog.
+    /// Order: memory → disk cache (%LocalAppData%) → parse chip.h (then write disk).
+    /// </summary>
     public static ChipHeaderAddressCatalog? TryLoad(string? sdkRoot)
     {
         if (string.IsNullOrWhiteSpace(sdkRoot) || !Directory.Exists(sdkRoot))
             return null;
 
-        if (!TryLocateHeaders(sdkRoot, out var device, out var chip, out var chipStruct))
+        var key = Path.GetFullPath(sdkRoot);
+        return Cache.GetOrAdd(key, static root => LoadOrBuild(root));
+    }
+
+    /// <summary>Disk cache file for a given SDK root (for diagnostics / tests).</summary>
+    internal static string GetDiskCachePath(string sdkRootFullPath)
+    {
+        var hash = Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(sdkRootFullPath)))[..16];
+        var dir = Path.Combine(
+            Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
+            "TAE32.LLVirtualTest", "chipaddr", hash);
+        return Path.Combine(dir, "catalog.v1.json");
+    }
+
+    /// <summary>Test helper: drop process-memory cache so disk path is exercised.</summary>
+    internal static void ClearMemoryCacheForTests() => Cache.Clear();
+
+    private static ChipHeaderAddressCatalog? LoadOrBuild(string root)
+    {
+        if (!TryLocateHeaders(root, out var device, out var chip, out var chipStruct))
             return null;
+
+        var stamp = BuildStamp(device, chip, chipStruct);
+        var cachePath = GetDiskCachePath(root);
+        if (TryLoadFromDisk(cachePath, stamp, out var cached))
+            return cached;
 
         var catalog = new ChipHeaderAddressCatalog
         {
@@ -64,7 +109,108 @@ internal sealed class ChipHeaderAddressCatalog
         if (chipStruct is not null)
             catalog.IngestText(File.ReadAllText(chipStruct), parseStructs: true);
 
-        return catalog.BaseCount > 0 || catalog.StructCount > 0 ? catalog : null;
+        if (catalog.BaseCount == 0 && catalog.StructCount == 0)
+            return null;
+
+        TrySaveToDisk(cachePath, stamp, catalog);
+        return catalog;
+    }
+
+    private static string BuildStamp(string? device, string? chip, string? chipStruct)
+    {
+        static string One(string? path)
+        {
+            if (string.IsNullOrWhiteSpace(path) || !File.Exists(path)) return "-";
+            var fi = new FileInfo(path);
+            return $"{path}|{fi.Length}|{fi.LastWriteTimeUtc.Ticks}";
+        }
+
+        return $"{One(device)}\n{One(chip)}\n{One(chipStruct)}";
+    }
+
+    private static bool TryLoadFromDisk(string cachePath, string stamp, out ChipHeaderAddressCatalog? catalog)
+    {
+        catalog = null;
+        try
+        {
+            if (!File.Exists(cachePath)) return false;
+            var dto = JsonSerializer.Deserialize<CatalogDiskDto>(File.ReadAllText(cachePath), JsonOpts);
+            if (dto is null || dto.Version != 1 || !string.Equals(dto.Stamp, stamp, StringComparison.Ordinal))
+                return false;
+
+            catalog = new ChipHeaderAddressCatalog
+            {
+                DeviceHeaderPath = dto.DeviceHeaderPath,
+                ChipHeaderPath = dto.ChipHeaderPath,
+                ChipStructPath = dto.ChipStructPath
+            };
+            foreach (var (k, v) in dto.Bases)
+                catalog._bases[k] = v;
+            foreach (var (structName, members) in dto.Offsets)
+            {
+                var map = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
+                foreach (var (m, off) in members)
+                    map[m] = off;
+                catalog._offsets[structName] = map;
+            }
+
+            foreach (var (k, v) in dto.Aliases)
+                catalog._aliases[k] = v;
+            foreach (var (k, v) in dto.Defines)
+                catalog._defines[k] = v;
+
+            return catalog.BaseCount > 0 || catalog.StructCount > 0;
+        }
+        catch
+        {
+            catalog = null;
+            return false;
+        }
+    }
+
+    private static void TrySaveToDisk(string cachePath, string stamp, ChipHeaderAddressCatalog catalog)
+    {
+        try
+        {
+            var dir = Path.GetDirectoryName(cachePath);
+            if (!string.IsNullOrEmpty(dir))
+                Directory.CreateDirectory(dir);
+
+            var dto = new CatalogDiskDto
+            {
+                Version = 1,
+                Stamp = stamp,
+                DeviceHeaderPath = catalog.DeviceHeaderPath,
+                ChipHeaderPath = catalog.ChipHeaderPath,
+                ChipStructPath = catalog.ChipStructPath,
+                Bases = new Dictionary<string, uint>(catalog._bases, StringComparer.OrdinalIgnoreCase),
+                Offsets = catalog._offsets.ToDictionary(
+                    kv => kv.Key,
+                    kv => new Dictionary<string, int>(kv.Value, StringComparer.OrdinalIgnoreCase),
+                    StringComparer.OrdinalIgnoreCase),
+                Aliases = new Dictionary<string, string>(catalog._aliases, StringComparer.OrdinalIgnoreCase),
+                Defines = new Dictionary<string, uint>(catalog._defines, StringComparer.OrdinalIgnoreCase)
+            };
+            File.WriteAllText(cachePath, JsonSerializer.Serialize(dto, JsonOpts));
+        }
+        catch
+        {
+            /* cache is best-effort */
+        }
+    }
+
+    private sealed class CatalogDiskDto
+    {
+        public int Version { get; set; }
+        public string Stamp { get; set; } = "";
+        public string? DeviceHeaderPath { get; set; }
+        public string? ChipHeaderPath { get; set; }
+        public string? ChipStructPath { get; set; }
+        public Dictionary<string, uint> Bases { get; set; } = new(StringComparer.OrdinalIgnoreCase);
+        public Dictionary<string, Dictionary<string, int>> Offsets { get; set; } =
+            new(StringComparer.OrdinalIgnoreCase);
+        public Dictionary<string, string> Aliases { get; set; } = new(StringComparer.OrdinalIgnoreCase);
+        public Dictionary<string, uint> Defines { get; set; } = new(StringComparer.OrdinalIgnoreCase);
     }
 
     private readonly Dictionary<string, uint> _defines = new(StringComparer.OrdinalIgnoreCase);
@@ -115,6 +261,20 @@ internal sealed class ChipHeaderAddressCatalog
         }
 
         return false;
+    }
+
+    /// <summary>
+    /// Member names known for an instance / TypeDef from chip headers (e.g. ADC0 → ISR, HISR, …).
+    /// </summary>
+    public IReadOnlyList<string> EnumerateMembers(string? instanceName, string? structName = null)
+    {
+        foreach (var key in StructKeys(instanceName, structName))
+        {
+            if (_offsets.TryGetValue(key, out var map) && map.Count > 0)
+                return map.Keys.ToList();
+        }
+
+        return Array.Empty<string>();
     }
 
     /// <summary>

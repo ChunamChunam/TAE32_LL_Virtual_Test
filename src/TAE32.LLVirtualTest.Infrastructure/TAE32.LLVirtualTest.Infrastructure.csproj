@@ -27,7 +27,10 @@
 
   <ItemGroup>
     <InternalsVisibleTo Include="TAE32.LLVirtualTest.Tests" />
+    <InternalsVisibleTo Include="TAE32.LLVirtualTest.SDK" />
     <InternalsVisibleTo Include="RerunNonPassed" />
+    <InternalsVisibleTo Include="probe" />
+    <InternalsVisibleTo Include="batch_smoke" />
   </ItemGroup>
 
   <ItemGroup>

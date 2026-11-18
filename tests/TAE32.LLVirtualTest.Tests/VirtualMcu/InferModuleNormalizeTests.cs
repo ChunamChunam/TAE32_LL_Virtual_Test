@@ -22,4 +22,15 @@ public class InferModuleNormalizeTests
             : input;
         VirtualMcuDefinitionLoader.NormalizeModuleToken(token).Should().Be(expected);
     }
+
+    [Theory]
+    [InlineData("DMA0_Type", "DMA0")]
+    [InlineData("FLASH_Type", "FLASH")]
+    [InlineData("EFLASH_TypeDef", "FLASH")]
+    [InlineData("HRPWM_MST_Type", "HRPWM_MST")]
+    [InlineData("HRPWM_SLV0_Type", "HRPWM_SLV0")]
+    public void InferInstanceFromStruct_Maps_Orphan_Structs(string structName, string expected)
+    {
+        VirtualMcuDefinitionLoader.InferInstanceFromStruct(structName).Should().Be(expected);
+    }
 }

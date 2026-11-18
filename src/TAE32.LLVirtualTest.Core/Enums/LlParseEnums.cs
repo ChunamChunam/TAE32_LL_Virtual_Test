@@ -22,7 +22,9 @@ public enum LlParseDiagnosticCategory
     MissingSdkHeader = 1,
     ParseBridge = 2,
     Clang = 3,
-    Match = 4
+    Match = 4,
+    /// <summary>LL shift / mask / register-field static analysis (LlShiftStaticAnalyzer).</summary>
+    StaticAnalysis = 5
 }
 
 public enum LlFunctionOpKind

@@ -107,7 +107,7 @@ public class LlTestCaseGeneratorPolicyTests
         }
 
         var withIsr = await generator.GenerateAsync(clearId);
-        withIsr.Should().HaveCount(2);
+        withIsr.Should().ContainSingle("one case per LL function: clear-check replaces draft");
         withIsr.Should().Contain(c => c.Name.EndsWith("/clear-check"));
 
         Directory.Delete(dir, true);

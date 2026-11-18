@@ -1,13 +1,17 @@
+using System.Collections.Concurrent;
 using System.Globalization;
 using System.Text.RegularExpressions;
+using Microsoft.EntityFrameworkCore;
 using TAE32.LLVirtualTest.Core.Models;
+using TAE32.LLVirtualTest.Infrastructure.Data;
 using TAE32.LLVirtualTest.Infrastructure.VirtualMcu;
 
 namespace TAE32.LLVirtualTest.Infrastructure.TestEngine;
 
 /// <summary>
 /// Classifies SDK numeric macros using real #define values (not suffix alone).
-/// Built from the same authoritative chip headers as <see cref="ChipHeaderAddressCatalog"/>.
+/// Prefer SQLite <c>RegisterMacroReferences</c> / <c>RegisterFields</c> (already parsed at scan);
+/// fall back to chip.h only when the DB is empty.
 /// </summary>
 internal sealed class SdkMacroSemanticCatalog
 {
@@ -15,17 +19,151 @@ internal sealed class SdkMacroSemanticCatalog
         @"#define\s+(?<name>[A-Za-z_][A-Za-z0-9_]*)\s+(?<val>\(?\s*(?:0x[0-9A-Fa-f]+|\d+)(?:UL|U|L)?\s*\)?)",
         RegexOptions.Compiled | RegexOptions.CultureInvariant);
 
-    private readonly Dictionary<string, SdkMacroSemanticInfo> _macros =
+    /// <summary>Process cache: SDK project id → catalog built from SQLite.</summary>
+    private static readonly ConcurrentDictionary<Guid, SdkMacroSemanticCatalog?> ProjectCache = new();
+
+    /// <summary>
+    /// Slow path only: chip.h + chip_struct.h (~11MB). Prefer <see cref="TryLoadFromDbAsync"/>.
+    /// </summary>
+    private static readonly ConcurrentDictionary<string, SdkMacroSemanticCatalog?> RootCache =
         new(StringComparer.OrdinalIgnoreCase);
 
-    public int Count => _macros.Count;
+    private readonly Dictionary<string, SdkMacroSemanticInfo> _macros =
+        new(StringComparer.OrdinalIgnoreCase);
+    private readonly HashSet<string> _ingestedPaths = new(StringComparer.OrdinalIgnoreCase);
+    private readonly object _ingestLock = new();
 
+    public int Count => _macros.Count;
+    public string Source { get; private set; } = "empty";
+
+    /// <summary>
+    /// Load Pos/Msk macros from Phase-4 SQLite (RegisterMacroReferences + RegisterFields).
+    /// This is the preferred path — scan already stored Expansion / BitPosition / Mask.
+    /// </summary>
+    public static async Task<SdkMacroSemanticCatalog?> TryLoadFromDbAsync(
+        IDbContextFactory<AppDbContext> dbFactory,
+        Guid sdkProjectId,
+        CancellationToken cancellationToken = default)
+    {
+        if (ProjectCache.TryGetValue(sdkProjectId, out var cached))
+            return cached;
+
+        var built = await BuildFromDbAsync(dbFactory, sdkProjectId, cancellationToken)
+            .ConfigureAwait(false);
+        ProjectCache[sdkProjectId] = built;
+        return built;
+    }
+
+    /// <summary>Legacy/file fallback when DB has no macro rows (unit tests / incomplete scan).</summary>
     public static SdkMacroSemanticCatalog? TryLoad(string? sdkRoot)
+    {
+        if (string.IsNullOrWhiteSpace(sdkRoot) || !Directory.Exists(sdkRoot))
+            return null;
+
+        var key = Path.GetFullPath(sdkRoot);
+        return RootCache.GetOrAdd(key, static root => BuildForRoot(root));
+    }
+
+    /// <summary>Test helper: drop process-memory caches.</summary>
+    internal static void ClearMemoryCacheForTests()
+    {
+        RootCache.Clear();
+        ProjectCache.Clear();
+    }
+
+    /// <summary>Drop SQLite-backed catalog for one project (after register re-parse).</summary>
+    internal static void InvalidateProject(Guid sdkProjectId)
+        => ProjectCache.TryRemove(sdkProjectId, out _);
+
+    private static async Task<SdkMacroSemanticCatalog?> BuildFromDbAsync(
+        IDbContextFactory<AppDbContext> dbFactory,
+        Guid sdkProjectId,
+        CancellationToken cancellationToken)
+    {
+        await using var db = await dbFactory.CreateDbContextAsync(cancellationToken)
+            .ConfigureAwait(false);
+
+        var macros = await db.RegisterMacroReferences.AsNoTracking()
+            .Where(x => x.SdkProjectId == sdkProjectId)
+            .Select(x => new { x.MacroName, x.MacroKind, x.Expansion, x.DefinitionFile })
+            .ToListAsync(cancellationToken)
+            .ConfigureAwait(false);
+
+        if (macros.Count == 0)
+            return null;
+
+        var fieldHints = await (
+                from f in db.RegisterFields.AsNoTracking()
+                join r in db.RegisterDefinitions.AsNoTracking() on f.RegisterDefinitionId equals r.Id
+                where r.SdkProjectId == sdkProjectId
+                select new
+                {
+                    f.PosMacroName,
+                    f.MskMacroName,
+                    f.BitPosition,
+                    f.Mask,
+                    Register = r.MemberName,
+                    Peri = r.PeripheralInstance != null
+                        ? r.PeripheralInstance.Name
+                        : r.StructName
+                })
+            .ToListAsync(cancellationToken)
+            .ConfigureAwait(false);
+
+        var catalog = new SdkMacroSemanticCatalog { Source = "sqlite" };
+
+        foreach (var m in macros)
+        {
+            if (string.IsNullOrWhiteSpace(m.MacroName)) continue;
+            if (!TryParseUint(m.Expansion ?? "", out var value)
+                && !TryParseUint(m.Expansion?.Trim('(', ')') ?? "", out value))
+                continue;
+
+            var info = Classify(m.MacroName, value, m.DefinitionFile ?? "RegisterMacroReferences");
+            if (string.Equals(m.MacroKind, "Pos", StringComparison.OrdinalIgnoreCase))
+                info.Kind = value < 64 ? SdkMacroSemanticKind.BitFieldPosition : info.Kind;
+            else if (string.Equals(m.MacroKind, "Msk", StringComparison.OrdinalIgnoreCase)
+                     || string.Equals(m.MacroKind, "Mask", StringComparison.OrdinalIgnoreCase))
+                info.Kind = SdkMacroSemanticKind.BitFieldMask;
+
+            catalog._macros[m.MacroName] = info;
+        }
+
+        foreach (var f in fieldHints)
+        {
+            void Enrich(string? name, uint? numeric, SdkMacroSemanticKind kind)
+            {
+                if (string.IsNullOrWhiteSpace(name)) return;
+                if (!catalog._macros.TryGetValue(name, out var info))
+                {
+                    if (numeric is null) return;
+                    info = Classify(name, numeric.Value, "RegisterFields");
+                    catalog._macros[name] = info;
+                }
+
+                info.Kind = kind;
+                info.RegisterHint ??= f.Register;
+                info.PeripheralHint ??= f.Peri;
+                if (numeric is uint nv)
+                    info.NumericValue = nv;
+            }
+
+            Enrich(f.PosMacroName,
+                f.BitPosition is int bp ? (uint)bp : null,
+                SdkMacroSemanticKind.BitFieldPosition);
+            Enrich(f.MskMacroName, f.Mask, SdkMacroSemanticKind.BitFieldMask);
+        }
+
+        catalog.CrossValidatePairs();
+        return catalog.Count > 0 ? catalog : null;
+    }
+
+    private static SdkMacroSemanticCatalog? BuildForRoot(string sdkRoot)
     {
         var chip = ChipHeaderAddressCatalog.TryLoad(sdkRoot);
         if (chip is null) return null;
 
-        var catalog = new SdkMacroSemanticCatalog();
+        var catalog = new SdkMacroSemanticCatalog { Source = "chip.h" };
         foreach (var path in new[] { chip.DeviceHeaderPath, chip.ChipHeaderPath, chip.ChipStructPath })
         {
             if (string.IsNullOrWhiteSpace(path) || !File.Exists(path)) continue;
@@ -36,19 +174,78 @@ internal sealed class SdkMacroSemanticCatalog
         return catalog.Count > 0 ? catalog : null;
     }
 
-    /// <summary>Also ingest an LL header so local helper macros are visible.</summary>
+    private static readonly Regex LlHelperDefine = new(
+        @"#define\s+(?<name>LL_[A-Za-z0-9_]+)\s+(?<val>\(?\s*(?:0x[0-9A-Fa-f]+|\d+)(?:UL|U|L)?\s*\)?)",
+        RegexOptions.Compiled | RegexOptions.CultureInvariant);
+
+    /// <summary>Also ingest an LL header so local helper macros are visible (once per path).</summary>
     public void IngestFile(string path)
     {
-        string text;
-        try { text = File.ReadAllText(path); }
+        if (string.IsNullOrWhiteSpace(path)) return;
+        string full;
+        try { full = Path.GetFullPath(path); }
         catch { return; }
 
-        foreach (Match m in UintDefine.Matches(text))
+        lock (_ingestLock)
         {
-            var name = m.Groups["name"].Value;
-            if (!TryParseUint(m.Groups["val"].Value, out var value)) continue;
-            var info = Classify(name, value, path);
-            _macros[name] = info;
+            if (!_ingestedPaths.Add(full))
+                return;
+
+            string text;
+            try { text = File.ReadAllText(full); }
+            catch
+            {
+                _ingestedPaths.Remove(full);
+                return;
+            }
+
+            foreach (Match m in UintDefine.Matches(text))
+            {
+                var name = m.Groups["name"].Value;
+                if (!TryParseUint(m.Groups["val"].Value, out var value)) continue;
+                var info = Classify(name, value, full);
+                _macros[name] = info;
+            }
+        }
+    }
+
+    /// <summary>
+    /// Fast path for SQLite-backed catalogs: only single-line numeric <c>LL_*</c> helpers.
+    /// Multi-line composite masks (OR of chip _Msk) are intentionally skipped — analyzer
+    /// treats <c>LL_*_MSK</c> names as opaque helper masks.
+    /// </summary>
+    public void IngestLlHelperDefines(string path)
+    {
+        if (string.IsNullOrWhiteSpace(path)) return;
+        string full;
+        try { full = Path.GetFullPath(path); }
+        catch { return; }
+
+        var key = "llhelp:" + full;
+        lock (_ingestLock)
+        {
+            if (!_ingestedPaths.Add(key))
+                return;
+
+            string text;
+            try { text = File.ReadAllText(full); }
+            catch
+            {
+                _ingestedPaths.Remove(key);
+                return;
+            }
+
+            foreach (Match m in LlHelperDefine.Matches(text))
+            {
+                var name = m.Groups["name"].Value;
+                if (!TryParseUint(m.Groups["val"].Value, out var value)) continue;
+                var info = Classify(name, value, full);
+                if (name.EndsWith("_MSK", StringComparison.OrdinalIgnoreCase)
+                    || name.EndsWith("_MASK", StringComparison.OrdinalIgnoreCase)
+                    || name.EndsWith("_BIT", StringComparison.OrdinalIgnoreCase))
+                    info.Kind = SdkMacroSemanticKind.BitFieldMask;
+                _macros[name] = info;
+            }
         }
     }
 

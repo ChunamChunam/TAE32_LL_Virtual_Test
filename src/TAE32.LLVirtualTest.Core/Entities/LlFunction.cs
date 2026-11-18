@@ -59,6 +59,15 @@ public class LlFunction
     public int? BodyStartLine { get; set; }
     public int? BodyEndLine { get; set; }
 
+    /// <summary>
+    /// Cached JSON list of <see cref="Models.StaticAnalysisDiagnostic"/> for this LL body.
+    /// Invalidated when <see cref="StaticAnalysisStamp"/> no longer matches source.
+    /// </summary>
+    public string? StaticAnalysisJson { get; set; }
+
+    /// <summary>Source stamp used to validate <see cref="StaticAnalysisJson"/> (file LastWriteTicks or SourceText hash).</summary>
+    public string? StaticAnalysisStamp { get; set; }
+
     public ICollection<LlFunctionParameter> ParseParameters { get; set; } = new List<LlFunctionParameter>();
     public ICollection<LlFunctionOperation> Operations { get; set; } = new List<LlFunctionOperation>();
     public ICollection<LlFunctionCall> Calls { get; set; } = new List<LlFunctionCall>();

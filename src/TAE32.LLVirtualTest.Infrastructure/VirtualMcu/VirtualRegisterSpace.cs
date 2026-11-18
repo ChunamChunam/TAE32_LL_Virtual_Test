@@ -16,11 +16,41 @@ internal sealed class VirtualRegisterSpace : IVirtualRegisterSpace
     public void Add(VirtualRegisterSlot slot)
     {
         // One storage cell per absolute address / name key.
-        if (slot.AbsoluteAddress is uint addr && _byAddress.ContainsKey(addr))
+        // Prefer a later slot that carries AbsoluteAddress over an earlier nameless-address copy
+        // (DB may emit both ADC_TypeDef.CFGR1 and ADC0_Type.CFGR1).
+        if (slot.AbsoluteAddress is uint addr && _byAddress.TryGetValue(addr, out var byAddr))
+        {
+            if (byAddr.AbsoluteAddress is not null)
+                return;
+            ReplaceSlot(byAddr, slot);
             return;
-        if (_byName.ContainsKey(slot.NameKey))
-            return;
+        }
 
+        if (_byName.TryGetValue(slot.NameKey, out var byName))
+        {
+            if (byName.AbsoluteAddress is not null || slot.AbsoluteAddress is null)
+                return;
+            ReplaceSlot(byName, slot);
+            return;
+        }
+
+        IndexSlot(slot);
+    }
+
+    private void ReplaceSlot(VirtualRegisterSlot oldSlot, VirtualRegisterSlot newSlot)
+    {
+        _all.Remove(oldSlot);
+        if (oldSlot.AbsoluteAddress is uint oa)
+            _byAddress.Remove(oa);
+        _byName.Remove(oldSlot.NameKey);
+        if (!string.IsNullOrEmpty(oldSlot.InstanceName))
+            _byName.Remove($"{oldSlot.InstanceName}.{oldSlot.MemberName}");
+        _byStructMember.Remove($"{oldSlot.StructName}.{oldSlot.MemberName}");
+        IndexSlot(newSlot);
+    }
+
+    private void IndexSlot(VirtualRegisterSlot slot)
+    {
         _all.Add(slot);
         _byName[slot.NameKey] = slot;
         if (!string.IsNullOrEmpty(slot.InstanceName))
@@ -35,6 +65,19 @@ internal sealed class VirtualRegisterSpace : IVirtualRegisterSpace
         var key = $"{instanceOrStruct}.{memberName}";
         if (_byName.TryGetValue(key, out slot)) return true;
         if (_byStructMember.TryGetValue(key, out slot)) return true;
+        // LL module EFLASH / empty DMA shell → chip instances FLASH / DMA0.
+        if (instanceOrStruct.Equals("EFLASH", StringComparison.OrdinalIgnoreCase))
+        {
+            if (_byName.TryGetValue($"FLASH.{memberName}", out slot)) return true;
+            if (_byStructMember.TryGetValue($"FLASH.{memberName}", out slot)) return true;
+        }
+
+        if (instanceOrStruct.Equals("DMA", StringComparison.OrdinalIgnoreCase))
+        {
+            if (_byName.TryGetValue($"DMA0.{memberName}", out slot)) return true;
+            if (_byStructMember.TryGetValue($"DMA0.{memberName}", out slot)) return true;
+        }
+
         slot = null;
         return false;
     }
@@ -69,20 +112,9 @@ internal sealed class VirtualRegisterSpace : IVirtualRegisterSpace
         IEnumerable<VirtualRegisterSlot> q = _all;
         if (!string.IsNullOrWhiteSpace(moduleName))
         {
-            // Exact ModuleName, or banked InstanceName/StructName under the same aggregate
-            // (legacy slots may store ModuleName=HRPWM_MST while host asks for HRPWM).
-            q = q.Where(x =>
-                string.Equals(x.ModuleName, moduleName, StringComparison.OrdinalIgnoreCase)
-                || string.Equals(
-                    VirtualMcuDefinitionLoader.NormalizeModuleToken(x.ModuleName),
-                    moduleName, StringComparison.OrdinalIgnoreCase)
-                || (x.InstanceName is not null
-                    && (x.InstanceName.Equals(moduleName, StringComparison.OrdinalIgnoreCase)
-                        || x.InstanceName.StartsWith(moduleName + "_", StringComparison.OrdinalIgnoreCase)))
-                || (x.StructName is not null
-                    && (x.StructName.StartsWith(moduleName + "_", StringComparison.OrdinalIgnoreCase)
-                        || x.StructName.Equals(moduleName + "_TypeDef", StringComparison.OrdinalIgnoreCase)
-                        || x.StructName.Equals(moduleName + "_Type", StringComparison.OrdinalIgnoreCase))));
+            // Exact ModuleName, or banked/numbered InstanceName/StructName under the same aggregate
+            // (legacy slots may store ModuleName=HRPWM_MST / ADC0 while host asks for HRPWM / ADC).
+            q = q.Where(x => BelongsToModule(x, moduleName));
         }
 
         if (!string.IsNullOrWhiteSpace(instanceName))
@@ -117,4 +149,49 @@ internal sealed class VirtualRegisterSpace : IVirtualRegisterSpace
             .Select(x => $"{x.NameKey}: {x.Limitation}")
             .Distinct(StringComparer.Ordinal)
             .Take(40);
+
+    /// <summary>
+    /// HRPWM_MST / ADC0 / GPIOA all belong to host module HRPWM / ADC / GPIO.
+    /// </summary>
+    internal static bool BelongsToModule(VirtualRegisterSlot x, string moduleName)
+    {
+        if (string.Equals(x.ModuleName, moduleName, StringComparison.OrdinalIgnoreCase))
+            return true;
+        if (string.Equals(
+                VirtualMcuDefinitionLoader.NormalizeModuleToken(x.ModuleName),
+                moduleName, StringComparison.OrdinalIgnoreCase))
+            return true;
+
+        if (x.InstanceName is not null
+            && (x.InstanceName.Equals(moduleName, StringComparison.OrdinalIgnoreCase)
+                || x.InstanceName.StartsWith(moduleName + "_", StringComparison.OrdinalIgnoreCase)
+                || MatchesNumberedOrLetterInstance(x.InstanceName, moduleName)))
+            return true;
+
+        if (x.StructName is not null
+            && (x.StructName.Equals(moduleName + "_TypeDef", StringComparison.OrdinalIgnoreCase)
+                || x.StructName.Equals(moduleName + "_Type", StringComparison.OrdinalIgnoreCase)
+                || x.StructName.StartsWith(moduleName + "_", StringComparison.OrdinalIgnoreCase)
+                || MatchesNumberedOrLetterInstance(
+                    x.StructName.EndsWith("_Type", StringComparison.OrdinalIgnoreCase)
+                        ? x.StructName[..^5]
+                        : x.StructName.EndsWith("_TypeDef", StringComparison.OrdinalIgnoreCase)
+                            ? x.StructName[..^8]
+                            : x.StructName,
+                    moduleName)))
+            return true;
+
+        return false;
+    }
+
+    /// <summary>ADC0 / TMR9 / GPIOA under module ADC / TMR / GPIO.</summary>
+    private static bool MatchesNumberedOrLetterInstance(string name, string moduleName)
+    {
+        if (!name.StartsWith(moduleName, StringComparison.OrdinalIgnoreCase))
+            return false;
+        if (name.Length == moduleName.Length)
+            return true;
+        var next = name[moduleName.Length];
+        return char.IsDigit(next) || (next is >= 'A' and <= 'F') || (next is >= 'a' and <= 'f');
+    }
 }

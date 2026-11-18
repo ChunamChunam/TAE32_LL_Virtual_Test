@@ -39,6 +39,23 @@ public class NativeTestHostHrpwmImageTests
     }
 
     [Fact]
+    public void ResolveAggregateImageBase_Adc_Aligns_Hisr_To_Peri_Base()
+    {
+        // Only high-offset member recovered (HISR @ ADC0_BASE+0x180) must still pack at +0x180,
+        // not treat 0x40038180 as ImageBase (that caused Host Map Slot MISSING / return 0).
+        const uint adc0Base = 0x40038000u;
+        const uint hisrAbs = adc0Base + 0x180u;
+        var regs = new List<VirtualRegisterView>
+        {
+            new() { InstanceName = "ADC0", MemberName = "HISR", AbsoluteAddress = hisrAbs },
+        };
+
+        var bas = NativeTestHost.ResolveAggregateImageBase("ADC", "ADC0", regs, structMin: 0x400);
+        bas.Should().Be(adc0Base);
+        ((int)(hisrAbs - bas)).Should().Be(0x180);
+    }
+
+    [Fact]
     public void AnalyzeBufferDeltas_Reports_Unmapped_Native_Writes()
     {
         const int size = 256;

@@ -147,8 +147,13 @@ public partial class SdkManagementViewModel : ObservableObject
 
             Directory.CreateDirectory(ScanResultsPath);
             StatusMessage = "正在扫描 SDK 并生成 JSON…";
+            await Task.Yield();
 
-            var scanResult = await _scan.ScanAsync(SdkRootPath, ScanResultsPath);
+            var sdkRoot = SdkRootPath;
+            var scanOut = ScanResultsPath;
+            // File walk + JSON write is CPU/IO heavy — keep off UI thread.
+            var scanResult = await Task.Run(() => _scan.ScanAsync(sdkRoot, scanOut))
+                .ConfigureAwait(true);
             if (!scanResult.Success)
             {
                 StatusMessage = $"扫描失败：{scanResult.Message}";
@@ -156,6 +161,7 @@ public partial class SdkManagementViewModel : ObservableObject
             }
 
             StatusMessage = $"{scanResult.Message} 正在写入数据库…";
+            await Task.Yield();
 
             // Ensure project exists / update paths
             SdkProject project;
@@ -183,7 +189,9 @@ public partial class SdkManagementViewModel : ObservableObject
                 }
             }
 
-            var importResult = await _import.ImportAsync(project.Id);
+            var projectId = project.Id;
+            var importResult = await Task.Run(() => _import.ImportAsync(projectId))
+                .ConfigureAwait(true);
             StatusMessage = importResult.Success
                 ? $"扫描+导入完成：芯片 {importResult.ChipCount}，外设 {importResult.PeripheralCount}，函数 {importResult.FunctionCount}。JSON：{scanResult.OutputDirectory}"
                 : $"扫描成功，但导入失败：{importResult.Message}";
@@ -245,7 +253,10 @@ public partial class SdkManagementViewModel : ObservableObject
             }
 
             StatusMessage = "正在导入已有扫描 JSON…";
-            var result = await _import.ImportAsync(SelectedProject.Id);
+            await Task.Yield();
+            var projectId = SelectedProject.Id;
+            var result = await Task.Run(() => _import.ImportAsync(projectId))
+                .ConfigureAwait(true);
             StatusMessage = result.Success
                 ? $"{result.Message} 新增 {result.InsertedCount}，更新 {result.UpdatedCount}。"
                 : $"导入失败：{result.Message}";

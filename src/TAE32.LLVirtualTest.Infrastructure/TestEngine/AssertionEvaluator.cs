@@ -42,6 +42,18 @@ internal static class AssertionEvaluator
 
     private static LlTestAssertionResult EvalReturn(LlTestAssertionSpec spec, uint? actual)
     {
+        static bool IsNonZeroToken(string? s)
+            => string.Equals(s, "nonzero", StringComparison.OrdinalIgnoreCase)
+               || string.Equals(s, "!0", StringComparison.OrdinalIgnoreCase)
+               || string.Equals(s, "!=0", StringComparison.OrdinalIgnoreCase);
+
+        if (IsNonZeroToken(spec.ExpectedExpression) || IsNonZeroToken(spec.ExpectedHex))
+        {
+            var okNz = actual is uint nz && nz != 0;
+            return Result(spec, okNz, "!= 0", actual is uint v0 ? $"0x{v0:X8}" : "null",
+                okNz ? "返回值非零" : "返回值不匹配（期望非零）");
+        }
+
         var expected = TestHarnessGenerator.ParseUIntExpression(spec.ExpectedHex ?? spec.ExpectedExpression);
         var ok = actual is uint a && a == expected;
         return Result(spec, ok, $"0x{expected:X8}", actual is uint v ? $"0x{v:X8}" : "null",

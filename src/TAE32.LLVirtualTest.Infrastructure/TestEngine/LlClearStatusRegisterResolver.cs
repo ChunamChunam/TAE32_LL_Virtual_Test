@@ -14,10 +14,28 @@ internal static class LlClearStatusRegisterResolver
         var fn = functionName ?? string.Empty;
         var peri = peripheral ?? string.Empty;
 
+        // SDK: ClearFlag_DONx → DISR; ClearFlag_HLFx → HISR; ClearFlag_FULx → FISR;
+        // ClearDataFlag → DISR (Mask param). Do not collapse HLFx/FULx onto DISR.
+        if (fn.Contains("ClearFlag_FULx", StringComparison.OrdinalIgnoreCase)
+            || fn.Contains("DMA_ClearFull", StringComparison.OrdinalIgnoreCase)
+            || (fn.Contains("DMA_Clear", StringComparison.OrdinalIgnoreCase)
+                && fn.Contains("Full", StringComparison.OrdinalIgnoreCase)))
+        {
+            memberName = "FISR";
+            flagMask = 1u;
+            return true;
+        }
+
+        if (fn.Contains("ClearFlag_HLFx", StringComparison.OrdinalIgnoreCase)
+            || fn.Contains("DMA_ClearHalf", StringComparison.OrdinalIgnoreCase))
+        {
+            memberName = "HISR";
+            flagMask = 1u;
+            return true;
+        }
+
         if (fn.Contains("ClearDataFlag", StringComparison.OrdinalIgnoreCase)
-            || fn.Contains("ClearFlag_DONx", StringComparison.OrdinalIgnoreCase)
-            || fn.Contains("ClearFlag_HLFx", StringComparison.OrdinalIgnoreCase)
-            || fn.Contains("ClearFlag_FULx", StringComparison.OrdinalIgnoreCase))
+            || fn.Contains("ClearFlag_DONx", StringComparison.OrdinalIgnoreCase))
         {
             memberName = "DISR";
             flagMask = 1u;

@@ -219,4 +219,54 @@ public class LlShiftStaticAnalyzerTests
             because: string.Join("; ", result.Diagnostics.Select(d => $"{d.RuleId}:{d.Description}")));
         result.Diagnostics.Should().NotContain(d => d.RuleId == "RegisterFieldMismatch");
     }
+
+    [Fact]
+    public void Ll_Helper_Composite_Mask_Is_Not_Unknown_Warning()
+    {
+        var sdk = FindSdkRoot();
+        if (sdk is null) return;
+        var header = Path.Combine(
+            sdk, "SDK", "Drivers", "TAE32G58xx_Driver", "LL", "tae32g58xx_ll_adc.h");
+        if (!File.Exists(header)) return;
+
+        var analyzer = new LlShiftStaticAnalyzer();
+        var result = analyzer.Analyze(sdk, header, "LL_ADC_AssertPreparingStart");
+
+        result.Diagnostics.Any(d =>
+                d.RuleId == "UnknownShiftOperand" || d.RuleId == "UnknownMaskOperand")
+            .Should().BeFalse(
+                because: string.Join("; ", result.Diagnostics.Select(d => $"{d.RuleId}:{d.Description}")));
+        LlShiftStaticAnalyzer.IsLlHelperMaskName("LL_ADC_CFGR1_PREPARING_START_MSK").Should().BeTrue();
+    }
+
+    [Fact]
+    public void RegisterHintsMatch_Accepts_Prefixed_Hint()
+    {
+        LlShiftStaticAnalyzer.RegisterHintsMatch("CFGR1", "CFGR1").Should().BeTrue();
+        LlShiftStaticAnalyzer.RegisterHintsMatch("CFGR1", "ADC0_CFGR1").Should().BeTrue();
+        LlShiftStaticAnalyzer.RegisterHintsMatch("CFGR1", "PSCR").Should().BeFalse();
+        LlShiftStaticAnalyzer.RegisterHintsMatch(
+                "BITTIME", "S", "CAN0_BITTIME_S_SJW_Msk")
+            .Should().BeTrue();
+        LlShiftStaticAnalyzer.RegisterHintsMatch(
+                "CTRL", "FD", "CAN0_CTRL_FD_ISO_Msk")
+            .Should().BeTrue();
+    }
+
+    [Fact]
+    public void Bit_Channel_Mask_Is_Not_RegisterFieldMismatch()
+    {
+        var sdk = FindSdkRoot();
+        if (sdk is null) return;
+        var header = Path.Combine(
+            sdk, "SDK", "Drivers", "TAE32G58xx_Driver", "LL", "tae32g58xx_ll_adc.h");
+        if (!File.Exists(header)) return;
+
+        var analyzer = new LlShiftStaticAnalyzer();
+        var result = analyzer.Analyze(sdk, header, "LL_ADC_SetChannelSingleDiff");
+
+        result.Diagnostics.Should().NotContain(d => d.RuleId == "RegisterFieldMismatch",
+            because: string.Join("; ", result.Diagnostics.Select(d => $"{d.RuleId}:{d.Description}")));
+        LlShiftStaticAnalyzer.IsNonFieldMacro("LL_ADC_CH_NUMS").Should().BeTrue();
+    }
 }

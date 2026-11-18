@@ -13,11 +13,16 @@ public sealed class LlFunctionParseService : ILLFunctionParser
 {
     private readonly IDbContextFactory<AppDbContext> _dbFactory;
     private readonly ILogger<LlFunctionParseService> _logger;
+    private readonly ILlStaticAnalysisPersistService _staticAnalysis;
 
-    public LlFunctionParseService(IDbContextFactory<AppDbContext> dbFactory, ILogger<LlFunctionParseService> logger)
+    public LlFunctionParseService(
+        IDbContextFactory<AppDbContext> dbFactory,
+        ILogger<LlFunctionParseService> logger,
+        ILlStaticAnalysisPersistService staticAnalysis)
     {
         _dbFactory = dbFactory;
         _logger = logger;
+        _staticAnalysis = staticAnalysis;
     }
 
     public async Task<LlParseSummary> ParseAsync(Guid sdkProjectId, CancellationToken cancellationToken = default)
@@ -160,6 +165,9 @@ public sealed class LlFunctionParseService : ILLFunctionParser
             sdkProjectId, matchedResults, diagnostics, env.ClangVersion,
             clearFunctionIds: null, cancellationToken);
 
+        var sa = await RunStaticAnalysisAfterParseAsync(
+            sdkProjectId, matchedResults.Select(x => x.FunctionId).Distinct().ToList(), cancellationToken);
+
         return new LlParseSummary
         {
             SdkProjectId = sdkProjectId,
@@ -171,7 +179,9 @@ public sealed class LlFunctionParseService : ILLFunctionParser
             DiagnosticCount = diagnostics.Count,
             UsedParseBridge = env.RequiresParseBridge,
             ClangVersion = env.ClangVersion,
-            Message = matched > 0 ? "Parse completed" : "Parse completed with no DB matches"
+            Message = matched > 0
+                ? $"Parse completed；{sa}"
+                : "Parse completed with no DB matches"
         };
     }
 
@@ -362,6 +372,9 @@ public sealed class LlFunctionParseService : ILLFunctionParser
             sdkProjectId, matchedResults, diagnostics, env.ClangVersion,
             clearFunctionIds: new[] { llFunctionId }, cancellationToken);
 
+        var sa = await RunStaticAnalysisAfterParseAsync(
+            sdkProjectId, new[] { llFunctionId }, cancellationToken);
+
         return new LlParseSummary
         {
             SdkProjectId = sdkProjectId,
@@ -374,9 +387,27 @@ public sealed class LlFunctionParseService : ILLFunctionParser
             UsedParseBridge = env.RequiresParseBridge,
             ClangVersion = env.ClangVersion,
             Message = matched > 0
-                ? $"单函数解析完成：{functionName}"
+                ? $"单函数解析完成：{functionName}；{sa}"
                 : $"单函数解析未匹配：{functionName}"
         };
+    }
+
+    private async Task<string> RunStaticAnalysisAfterParseAsync(
+        Guid sdkProjectId,
+        IReadOnlyList<Guid> functionIds,
+        CancellationToken cancellationToken)
+    {
+        try
+        {
+            var result = await _staticAnalysis.AnalyzeFunctionsAsync(
+                sdkProjectId, functionIds, cancellationToken).ConfigureAwait(false);
+            return result.Message;
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "Static analysis after LL deep parse failed for {ProjectId}", sdkProjectId);
+            return "静态分析跳过：" + ex.Message;
+        }
     }
 
     private async Task PersistResultsAsync(

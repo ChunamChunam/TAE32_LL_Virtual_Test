@@ -88,13 +88,16 @@ internal static class VirtualMcuDefinitionLoader
                 note = "复位值缺失，按 0";
 
             var instanceNameHint = r.PeripheralInstance?.Name
-                                   ?? (r.StructName.EndsWith("_Type", StringComparison.Ordinal)
-                                       ? r.StructName[..^5]
-                                       : null);
+                                   ?? InferInstanceFromStruct(r.StructName);
 
             uint? addr = null;
-            // Prefer instance bank Type (HRPWM_MST_Type) over aggregate TypeDef — nested Master.MCR0
-            // is not a direct member of HRPWM_TypeDef, so StructName=HRPWM_TypeDef would miss AbsoluteAddress.
+            // 1) Prefer SQLite AbsoluteAddress when Confirmed (written at SDK scan/import).
+            // 2) Else chip catalog (memory/disk cache of chip.h) — fills gaps / corrects stale DB.
+            // 3) Else BASE+OffsetBytes from PeripheralInstance.
+            var dbConfirmed = r.AbsoluteAddress is uint
+                              && string.Equals(
+                                  r.AbsoluteAddressStatus, "Confirmed", StringComparison.OrdinalIgnoreCase);
+
             if (chipAddresses is not null
                 && (chipAddresses.TryResolveAbsolute(
                         instanceNameHint, r.StructName, r.MemberName,
@@ -104,34 +107,38 @@ internal static class VirtualMcuDefinitionLoader
                             instanceNameHint, instanceNameHint + "_Type", r.MemberName,
                             out chipAbs, out chipBase, out chipOff))))
             {
-                addr = chipAbs;
-                // Keep DB/instance in sync mentally: chip header wins.
-                if (r.PeripheralInstance is not null
-                    && r.PeripheralInstance.BaseAddress != chipBase)
+                if (dbConfirmed && r.AbsoluteAddress == chipAbs)
                 {
-                    // Do not mutate tracked entity (AsNoTracking); only slot address matters.
+                    addr = r.AbsoluteAddress;
+                    if (string.IsNullOrEmpty(note))
+                        note = $"地址来自数据库 AbsoluteAddress（与 chip.h 一致）0x{chipAbs:X8}";
                 }
-
-                if (r.AbsoluteAddress is uint dbAbs && dbAbs != chipAbs)
+                else if (dbConfirmed && r.AbsoluteAddress is uint dbAbs && dbAbs != chipAbs)
                 {
+                    // chip.h wins over stale DB; catalog is cached on disk after first parse.
+                    addr = chipAbs;
                     note = string.IsNullOrEmpty(note)
                         ? $"地址以 chip.h 为准：0x{chipAbs:X8}=BASE 0x{chipBase:X8}+0x{chipOff:X}（DB 曾为 0x{dbAbs:X8}）"
                         : note + $"；地址覆盖为 chip.h 0x{chipAbs:X8}";
                 }
-                else if (string.IsNullOrEmpty(note))
+                else
                 {
-                    note = $"地址来自 chip.h：0x{chipAbs:X8}";
+                    addr = chipAbs;
+                    if (string.IsNullOrEmpty(note))
+                        note = $"地址来自 chip.h 缓存：0x{chipAbs:X8}";
                 }
             }
-            else
+            else if (r.AbsoluteAddress is uint dbAny)
             {
-                addr = r.AbsoluteAddress;
-                if (addr is null
-                    && r.PeripheralInstance?.BaseAddress is uint bas
-                    && r.OffsetBytes is int off)
-                {
-                    addr = bas + (uint)off;
-                }
+                addr = dbAny;
+                if (string.IsNullOrEmpty(note))
+                    note = $"地址来自数据库 AbsoluteAddress：0x{dbAny:X8}";
+            }
+            else if (r.PeripheralInstance?.BaseAddress is uint bas && r.OffsetBytes is int off)
+            {
+                addr = bas + (uint)off;
+                if (string.IsNullOrEmpty(note))
+                    note = $"地址=DB BASE+Offset：0x{addr:X8}";
             }
 
             if (addr is null)
@@ -216,9 +223,7 @@ internal static class VirtualMcuDefinitionLoader
             }
 
             var instanceName = r.PeripheralInstance?.Name
-                               ?? (r.StructName.EndsWith("_Type", StringComparison.Ordinal)
-                                   ? r.StructName[..^5]
-                                   : null);
+                               ?? InferInstanceFromStruct(r.StructName);
             var moduleName = NormalizeModuleToken(
                                  r.Peripheral?.Name
                                  ?? r.PeripheralInstance?.ModuleName
@@ -324,10 +329,38 @@ internal static class VirtualMcuDefinitionLoader
         return w;
     }
 
+    /// <summary>
+    /// Orphan RegisterDefinitions (PeripheralInstanceId=null) still need InstanceName
+    /// so GetRegister(FLASH,SR) / GetRegister(DMA0,STR) / GetRegister(HRPWM_MST,MCR0) resolve.
+    /// EFLASH_TypeDef shares chip FLASH_BASE → expose as FLASH (LL module tag stays EFLASH).
+    /// </summary>
+    internal static string? InferInstanceFromStruct(string? structName)
+    {
+        if (string.IsNullOrWhiteSpace(structName)) return null;
+        if (structName.EndsWith("_Type", StringComparison.Ordinal)
+            && !structName.EndsWith("_TypeDef", StringComparison.OrdinalIgnoreCase))
+            return structName[..^5]; // DMA0_Type → DMA0, FLASH_Type → FLASH, HRPWM_MST_Type → HRPWM_MST
+        if (structName.EndsWith("_TypeDef", StringComparison.OrdinalIgnoreCase))
+        {
+            var root = structName[..^8];
+            // Chip pointer is FLASH; EFLASH_TypeDef is the same peripheral image.
+            if (root.Equals("EFLASH", StringComparison.OrdinalIgnoreCase))
+                return "FLASH";
+            return root;
+        }
+
+        return null;
+    }
+
     private static string? InferModule(string structName, string? instanceName)
     {
-        if (structName.EndsWith("_TypeDef", StringComparison.Ordinal))
-            return NormalizeModuleToken(structName[..^8]);
+        if (structName.EndsWith("_TypeDef", StringComparison.OrdinalIgnoreCase))
+        {
+            var root = structName[..^8];
+            if (root.Equals("EFLASH", StringComparison.OrdinalIgnoreCase))
+                return "EFLASH";
+            return NormalizeModuleToken(root);
+        }
         if (structName.EndsWith("_Type", StringComparison.Ordinal))
             return NormalizeModuleToken(structName[..^5]);
         if (!string.IsNullOrEmpty(instanceName))

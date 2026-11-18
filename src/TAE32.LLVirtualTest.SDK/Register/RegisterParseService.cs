@@ -12,11 +12,16 @@ public sealed class RegisterParseService : IRegisterParser
 {
     private readonly IDbContextFactory<AppDbContext> _dbFactory;
     private readonly ILogger<RegisterParseService> _logger;
+    private readonly ILlStaticAnalysisPersistService _staticAnalysis;
 
-    public RegisterParseService(IDbContextFactory<AppDbContext> dbFactory, ILogger<RegisterParseService> logger)
+    public RegisterParseService(
+        IDbContextFactory<AppDbContext> dbFactory,
+        ILogger<RegisterParseService> logger,
+        ILlStaticAnalysisPersistService staticAnalysis)
     {
         _dbFactory = dbFactory;
         _logger = logger;
+        _staticAnalysis = staticAnalysis;
     }
 
     public async Task<RegisterParseSummary> ParseAsync(Guid sdkProjectId, CancellationToken cancellationToken = default)
@@ -150,6 +155,34 @@ public sealed class RegisterParseService : IRegisterParser
 
         await PersistAsync(sdkProjectId, instances, registers, fields, enums, macros, diagnostics, cancellationToken);
 
+        // Macros just refreshed — invalidate stamp by re-analyzing all LL bodies that have SourceText.
+        string saMsg;
+        try
+        {
+            // Clear stamps so AnalyzeProject re-runs against new macro catalog.
+            await using (var db = await _dbFactory.CreateDbContextAsync(cancellationToken))
+            {
+                await db.LlFunctions
+                    .Where(x => x.SdkProjectId == sdkProjectId && x.StaticAnalysisStamp != null)
+                    .ExecuteUpdateAsync(s => s
+                            .SetProperty(f => f.StaticAnalysisStamp, (string?)null)
+                            .SetProperty(f => f.StaticAnalysisJson, (string?)null),
+                        cancellationToken)
+                    .ConfigureAwait(false);
+            }
+
+            TAE32.LLVirtualTest.Infrastructure.TestEngine.SdkMacroSemanticCatalog
+                .InvalidateProject(sdkProjectId);
+            var sa = await _staticAnalysis.AnalyzeProjectAsync(sdkProjectId, cancellationToken)
+                .ConfigureAwait(false);
+            saMsg = sa.Message;
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "Static analysis after register parse failed for {ProjectId}", sdkProjectId);
+            saMsg = "静态分析跳过：" + ex.Message;
+        }
+
         _logger.LogInformation(
             "Register parse project {ProjectId}: device={Device} instances={Instances}, registers={Registers}, macros={Macros}, diagnostics={Diag}",
             sdkProjectId, usedDevice, instances.Count, registers.Count, macros.Count, diagnostics.Count);
@@ -167,9 +200,10 @@ public sealed class RegisterParseService : IRegisterParser
             DiagnosticCount = diagnostics.Count,
             FoundHeaders = probe.FoundDeviceIncludes.Concat(probe.ChipHeader is null ? Array.Empty<string>() : new[] { probe.ChipHeader }).ToList(),
             MissingHeaders = probe.MissingExpected,
-            Message = usedDevice
+            Message = (usedDevice
                 ? "Parsed with authoritative device/chip headers (CMSIS @offset + __IOM/__IM/__OM)."
-                : "Parsed from LL evidence only (device header still missing)."
+                : "Parsed from LL evidence only (device header still missing).")
+                + " " + saMsg
         };
     }
 

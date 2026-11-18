@@ -133,28 +133,16 @@ public class CrossModuleBitOpGenerateTests
             c.Assertions.Any(a => a.Kind == LlAssertionKind.RegisterValue && a.MemberName == member));
         semantic.Should().Contain(c => c.InitialRegisters.Any(r => r.MemberName == member));
 
+        // Companion naming still works, but cases are one-per-LL-function (no invented pair-check).
         if (expectPair)
         {
             companionName.Should().NotBeNullOrWhiteSpace();
             LlTestCaseGenerator.SuggestComplementFunctionName(functionName).Should().Be(companionName);
-            semantic.Should().Contain(c => c.Name.Contains("pair-check", StringComparison.OrdinalIgnoreCase));
-            semantic.Should().Contain(c => c.PreludeCalls.Count > 0
-                                           && c.PreludeCalls[0].FunctionName == companionName);
+        }
 
-            // Same net-zero bug as HRPWM Assert→Release: Initial must differ from final Expected.
-            var pair = semantic.First(c => c.Name.Contains("pair-check", StringComparison.OrdinalIgnoreCase));
-            var initHex = pair.InitialRegisters.Single(r => r.MemberName == member).ValueHex;
-            var finalExpect = pair.Assertions.First(a =>
-                a.Kind == LlAssertionKind.RegisterValue
-                && (a.RuleSourceDetail ?? "").Contains("成对", StringComparison.Ordinal)).ExpectedHex;
-            initHex.Should().NotBe(finalExpect,
-                because: $"{module} pair-check must leave a host delta for RegisterWrite sync");
-        }
-        else
-        {
-            semantic.Should().NotContain(c => c.Name.Contains("pair-check", StringComparison.OrdinalIgnoreCase),
-                because: "ADC Enable/Disable are not complementary CLEAR/SET on the same mask");
-        }
+        semantic.Should().NotContain(c => c.Name.Contains("pair-check", StringComparison.OrdinalIgnoreCase),
+            because: "do not invent Enable↔Disable companion pairs; one case per LL function");
+        semantic.Should().OnlyContain(c => c.PreludeCalls.Count == 0);
 
         await conn.DisposeAsync();
     }
