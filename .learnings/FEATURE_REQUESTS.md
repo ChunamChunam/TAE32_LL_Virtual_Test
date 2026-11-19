@@ -80,8 +80,8 @@ medium
 区分生成器/宿主假失败与真实 SDK 缺陷；SDK 问题单独记录，不改厂商头文件。
 
 ### Confirmed SDK defects
-1. `LL_WWDG_EnableIT_EWIE`：`SET_BIT(WWDGx->CR, WWDG_CVR_CV_Msk)` — 寄存器 CR 与掩码 CVR.CV 不一致（StaticAnalysis RegisterFieldMismatch）。
-2. `LL_ADC_ClearFlag_AWD1` / `IsActiveFlag_AWD1`：函数名 AWD1，注释/体为 AWDG0/`AWD0_Msk`（编号 quirks；测试按体宏对齐）。
+1. `LL_ADC_ClearFlag_AWD1` / `IsActiveFlag_AWD1`：函数名 AWD1，注释/体为 AWDG0/`AWD0_Msk`（编号 quirks；测试按体宏对齐）。
+（原 `LL_WWDG_EnableIT_EWIE` 误判已撤销：官方为 `WWDG_CR_EWIE_Msk`，本地脏副本/DB SourceText 过期导致。）
 
 ### Notes
 其余 Fail/Skip 桶优先按宿主 W1C sync、掩码解析、可信掩码角色、取反读、WRITE_REG `_Val` 修复；全量 regen 验证中。

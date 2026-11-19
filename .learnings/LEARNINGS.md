@@ -471,3 +471,30 @@ SPI 155、SYSCTRL 196、UART 137 Passed；WWDG 13 Passed + 1 已知 SDK `EnableI
 - Pattern-Key: composite-mask-digit-and-uart-dir-gate
 
 ---
+
+## [LRN-20261119-014] correction
+
+**Logged**: 2026-11-19T08:55:00+08:00
+**Priority**: high
+**Status**: resolved
+**Area**: tests
+
+### Summary
+`LL_WWDG_EnableIT_EWIE` 官方正确写法是 `SET_BIT(WWDGx->CR, WWDG_CR_EWIE_Msk)`，不是 SDK bug。
+
+### Details
+- Git HEAD / 官方源已是 `WWDG_CR_EWIE_Msk`。
+- 工作区曾被误改成 `WWDG_CVR_CV_Msk`，DB `LlFunctions.SourceText` 也缓存了错误体；引擎优先用 DB SourceText，故一直报 RegisterFieldMismatch。
+- 还原头文件并刷新 SourceText 后，WWDG **14/14 Passed**。
+
+### Suggested Action
+禁止改 `SDKContent`；发现静态分析与磁盘不一致时先 `git diff` SDK + 重解析/刷新 SourceText，勿把本地脏副本当 vendor bug。
+
+### Metadata
+- Source: user_feedback
+- Related Files: SDKContent/.../LL/tae32g58xx_ll_wwdg.h, LlTestEngine.cs
+- Tags: wwdg, sdk, source-text-stale
+- See Also: LRN-20261119-013
+- Pattern-Key: prefer-git-sdk-over-dirty-workspace
+
+---
