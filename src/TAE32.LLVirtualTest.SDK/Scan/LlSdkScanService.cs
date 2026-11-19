@@ -5,6 +5,7 @@ using System.Text.RegularExpressions;
 using Microsoft.Extensions.Logging;
 using TAE32.LLVirtualTest.Core.Interfaces;
 using TAE32.LLVirtualTest.Core.Models;
+using TAE32.LLVirtualTest.Core.Sdk;
 
 namespace TAE32.LLVirtualTest.SDK.Scan;
 
@@ -33,7 +34,7 @@ public sealed class LlSdkScanService : ISdkScanService
     private static readonly Regex ReMacroFunc = new(
         @"#\s*define\s+([A-Za-z_][A-Za-z0-9_]*)\s*\(([^)]*)\)\s*(.*)$",
         RegexOptions.Multiline | RegexOptions.Compiled);
-    private static readonly Regex ReFileModule = new(@"tae32g58xx_ll_([a-z0-9]+)\.h$", RegexOptions.IgnoreCase | RegexOptions.Compiled);
+    private static readonly Regex ReFileModule = new(@"tae32[a-z0-9]+_ll_([a-z0-9]+)\.h$", RegexOptions.IgnoreCase | RegexOptions.Compiled);
 
     private static readonly JsonSerializerOptions JsonOpts = new()
     {
@@ -229,10 +230,23 @@ public sealed class LlSdkScanService : ISdkScanService
 
     private static string? ResolveLlRoot(string packageRoot)
     {
+        var layout = SdkSeriesLayout.Discover(packageRoot);
+        if (!string.IsNullOrWhiteSpace(layout?.LlRoot) && Directory.Exists(layout.LlRoot))
+            return layout.LlRoot;
+
         var ll = Path.Combine(packageRoot, "LL");
         if (Directory.Exists(ll)) return ll;
         if (Directory.EnumerateFiles(packageRoot, "*.h").Any()) return packageRoot;
-        return Directory.EnumerateDirectories(packageRoot, "LL", SearchOption.AllDirectories).FirstOrDefault();
+        try
+        {
+            return Directory.EnumerateDirectories(packageRoot, "LL", SearchOption.AllDirectories)
+                .FirstOrDefault(d => Directory.EnumerateFiles(d, "tae32*_ll_*.h").Any())
+                   ?? Directory.EnumerateDirectories(packageRoot, "LL", SearchOption.AllDirectories).FirstOrDefault();
+        }
+        catch
+        {
+            return null;
+        }
     }
 
     private static string? DiscoverChip(List<FileData> files)
@@ -278,7 +292,7 @@ public sealed class LlSdkScanService : ISdkScanService
         var list = new List<PeripheralInfo>();
         foreach (var f in files)
         {
-            if (f.Name.Equals("tae32g58xx_ll.h", StringComparison.OrdinalIgnoreCase)
+            if (f.Name.EndsWith("_ll.h", StringComparison.OrdinalIgnoreCase)
                 || f.Name.EndsWith("_ll_def.h", StringComparison.OrdinalIgnoreCase))
                 continue;
 

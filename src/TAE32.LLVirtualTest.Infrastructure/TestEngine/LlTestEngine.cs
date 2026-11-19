@@ -325,8 +325,17 @@ public sealed class LlTestEngine : ILLTestEngine
             }
             L("开始编译真实 LL 内联函数…");
 
-            var header = Path.GetFileName(entity.SourceFile ?? "tae32g58xx_ll_gpio.h");
-            if (string.IsNullOrWhiteSpace(header)) header = "tae32g58xx_ll_gpio.h";
+            var seriesLayout = string.IsNullOrWhiteSpace(project?.SdkRootPath)
+                ? null
+                : Core.Sdk.SdkSeriesLayout.Discover(project.SdkRootPath);
+            var familyId = seriesLayout?.FamilyId;
+            var defaultLlHeader = string.IsNullOrWhiteSpace(familyId)
+                ? "tae32g58xx_ll_gpio.h"
+                : familyId + "_ll_gpio.h";
+            var header = Path.GetFileName(entity.SourceFile ?? defaultLlHeader);
+            if (string.IsNullOrWhiteSpace(header)) header = defaultLlHeader;
+            var deviceHeader = seriesLayout?.DeviceHeaderFileName
+                               ?? TestHarnessGenerator.ResolveDeviceHeaderFileName(null, header);
 
             // Recover params from signature when case JSON left them empty (old drafts).
             var defaultPeri = entity.PeripheralName ?? "PERI";
@@ -352,7 +361,8 @@ public sealed class LlTestEngine : ILLTestEngine
                 ReturnTypeOf(entity.FunctionSignature),
                 periHint,
                 edit.FunctionSignature ?? entity.FunctionSignature,
-                edit.PreludeCalls);
+                edit.PreludeCalls,
+                deviceHeader);
 
             // Reject unsafe harness (unsupported pointer params)
             if (harness.Contains("return -2;"))

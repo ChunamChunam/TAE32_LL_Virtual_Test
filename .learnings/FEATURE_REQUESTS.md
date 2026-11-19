@@ -87,3 +87,22 @@ medium
 其余 Fail/Skip 桶优先按宿主 W1C sync、掩码解析、可信掩码角色、取反读、WRITE_REG `_Val` 修复；全量 regen 验证中。
 
 ---
+
+## [FEAT-20261119-001] series_agnostic_sdk_layout
+
+**Logged**: 2026-11-19T10:10:00+08:00
+**Priority**: high
+**Status**: shipped
+**Area**: SDK Register/Parse/Scan
+
+### Requested Capability
+寄存器管理「解析寄存器」不能写死 `TAE32G58xx`；`SDKContent/TAE32F561x_FW_AlphaV2.0.0` 等其它系列也应能探测设备头/LL。
+
+### Implementation
+- 新增 `SdkSeriesLayout.Discover`：按 `tae32*_chip*.h` / `tae32*.h` / `tae32*_ll_*.h` 自动识别系列。
+- `RegisterEnvironmentProbe` / `RegisterLlEvidenceScanner` / `ClangEnvironment` / `ParseBridgeBuilder` / `LlSdkScanService` 改为跟系列走。
+
+### Notes
+G58 基线仍为当前产品确认范围；本改动解除硬编码探测，不代表 F561 全流程测试已验收。
+
+---

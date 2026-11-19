@@ -1,5 +1,6 @@
 using System.Text;
 using System.Text.RegularExpressions;
+using TAE32.LLVirtualTest.Core.Sdk;
 
 namespace TAE32.LLVirtualTest.SDK.Register;
 
@@ -67,12 +68,19 @@ public sealed class RegisterLlEvidenceScanner
         @"\b([A-Z][A-Za-z0-9_]*(?:_Pos|_Msk|_Shift|_BIT))\b",
         RegexOptions.Compiled);
 
-    public RegisterLlScanResult Scan(string llRoot)
+    public RegisterLlScanResult Scan(string llRoot, string? familyId = null)
     {
-        var headers = Directory.GetFiles(llRoot, "tae32g58xx_ll_*.h", SearchOption.TopDirectoryOnly)
-            .Where(p => !p.EndsWith("tae32g58xx_ll.h", StringComparison.OrdinalIgnoreCase)
-                        && !p.EndsWith("tae32g58xx_ll_def.h", StringComparison.OrdinalIgnoreCase))
-            .ToList();
+        familyId ??= DiscoverFamilyId(llRoot);
+        var headers = string.IsNullOrWhiteSpace(familyId)
+            ? Directory.GetFiles(llRoot, "tae32*_ll_*.h", SearchOption.TopDirectoryOnly)
+                .Where(p =>
+                {
+                    var n = Path.GetFileName(p);
+                    return !n.EndsWith("_ll.h", StringComparison.OrdinalIgnoreCase)
+                           && !n.EndsWith("_ll_def.h", StringComparison.OrdinalIgnoreCase);
+                })
+                .ToList()
+            : SdkSeriesLayout.EnumerateLlModuleHeaders(llRoot, familyId).ToList();
 
         var instances = new List<LlInstanceEvidence>();
         var members = new List<LlRegisterMemberEvidence>();
@@ -87,7 +95,8 @@ public sealed class RegisterLlEvidenceScanner
             if (!rel.StartsWith("LL/", StringComparison.OrdinalIgnoreCase))
                 rel = "LL/" + Path.GetFileName(file);
 
-            var module = ModuleFromHeader(Path.GetFileName(file));
+            var module = SdkSeriesLayout.ModuleFromLlHeader(Path.GetFileName(file), familyId)
+                         ?? ModuleFromHeader(Path.GetFileName(file));
             var lines = text.Replace("\r\n", "\n").Split('\n');
             var fileTypedefs = TypeDefParam.Matches(text).Select(m => m.Groups[1].Value).Distinct(StringComparer.Ordinal).ToList();
             if (fileTypedefs.Count > 0)
@@ -158,14 +167,23 @@ public sealed class RegisterLlEvidenceScanner
         });
     }
 
-    private static string ModuleFromHeader(string fileName)
+    private static string? DiscoverFamilyId(string llRoot)
     {
-        const string prefix = "tae32g58xx_ll_";
-        const string suffix = ".h";
-        if (fileName.StartsWith(prefix, StringComparison.OrdinalIgnoreCase) && fileName.EndsWith(suffix, StringComparison.OrdinalIgnoreCase))
-            return fileName[prefix.Length..^suffix.Length].ToUpperInvariant();
-        return Path.GetFileNameWithoutExtension(fileName).ToUpperInvariant();
+        if (!Directory.Exists(llRoot)) return null;
+        try
+        {
+            return Directory.EnumerateFiles(llRoot, "tae32*_ll_*.h", SearchOption.TopDirectoryOnly)
+                .Select(SdkSeriesLayout.TryFamilyIdFromLlHeader)
+                .FirstOrDefault(id => !string.IsNullOrWhiteSpace(id));
+        }
+        catch
+        {
+            return null;
+        }
     }
+
+    private static string ModuleFromHeader(string fileName)
+        => SdkSeriesLayout.ModuleFromLlHeader(fileName) ?? Path.GetFileNameWithoutExtension(fileName).ToUpperInvariant();
 
     private static string? GuessTypedef(string instance, IReadOnlyList<string> typedefs)
     {

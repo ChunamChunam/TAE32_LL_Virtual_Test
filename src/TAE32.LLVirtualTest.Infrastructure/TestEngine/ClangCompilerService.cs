@@ -73,8 +73,21 @@ public sealed class ClangCompilerService : ICompilerService
                 .FirstOrDefault();
         }
 
+        var layout = Core.Sdk.SdkSeriesLayout.Discover(project.SdkRootPath);
+        var seriesDefine = layout?.ChipModel ?? "TAE32G58xx";
         var defines = SplitCsv(profile.ExtraDefines);
-        if (defines.Count == 0) defines.Add("TAE32G58xx");
+        // Stale DB default ExtraDefines=TAE32G58xx must not stick when the active SDK is another series.
+        if (defines.Count == 0
+            || (defines.Count == 1
+                && defines[0].Equals("TAE32G58xx", StringComparison.OrdinalIgnoreCase)
+                && !seriesDefine.Equals("TAE32G58xx", StringComparison.OrdinalIgnoreCase)))
+        {
+            defines = new List<string> { seriesDefine };
+        }
+        else if (!defines.Any(d => d.Equals(seriesDefine, StringComparison.OrdinalIgnoreCase)))
+        {
+            defines.Insert(0, seriesDefine);
+        }
 
         foreach (var extra in SplitCsv(profile.ExtraIncludes))
             if (Directory.Exists(extra) && !includes.Contains(extra, StringComparer.OrdinalIgnoreCase))
@@ -288,9 +301,17 @@ public sealed class ClangCompilerService : ICompilerService
 
         Directory.CreateDirectory(Path.GetDirectoryName(outputDllPath)!);
 
+        await using var dbForRoot = await _dbFactory.CreateDbContextAsync(cancellationToken);
+        var sdkRootForDefines = await dbForRoot.SdkProjects.AsNoTracking()
+            .Where(p => p.Id == sdkProjectId)
+            .Select(p => p.SdkRootPath)
+            .FirstOrDefaultAsync(cancellationToken);
+        var compileLayout = string.IsNullOrWhiteSpace(sdkRootForDefines)
+            ? null
+            : Core.Sdk.SdkSeriesLayout.Discover(sdkRootForDefines);
         var hostDefines = new List<string>
         {
-            "TAE32G58xx",
+            compileLayout?.ChipModel ?? "TAE32G58xx",
             "TMR6=1",
             "__GNUC__=4",
             "__STDC__=1"
@@ -442,11 +463,16 @@ public sealed class ClangCompilerService : ICompilerService
         var profile = await db.LlCompilerProfiles
             .FirstOrDefaultAsync(x => x.SdkProjectId == null || x.SdkProjectId == sdkProjectId, ct);
         if (profile is not null) return profile;
+        var sdkRoot = await db.SdkProjects.AsNoTracking()
+            .Where(p => p.Id == sdkProjectId)
+            .Select(p => p.SdkRootPath)
+            .FirstOrDefaultAsync(ct);
+        var defaultDefine = Core.Sdk.SdkSeriesLayout.Discover(sdkRoot ?? "")?.ChipModel ?? "TAE32G58xx";
         profile = new LlCompilerProfile
         {
             SdkProjectId = sdkProjectId,
             Name = "default",
-            ExtraDefines = "TAE32G58xx",
+            ExtraDefines = defaultDefine,
             DefaultTimeoutMs = 10000
         };
         db.LlCompilerProfiles.Add(profile);
@@ -506,44 +532,63 @@ public sealed class ClangCompilerService : ICompilerService
     {
         var sdkRoot = Path.GetFullPath(sdkRootPath);
         var includes = new List<string>();
+        var layout = Core.Sdk.SdkSeriesLayout.Discover(sdkRoot);
+
+        void AddDir(string? path)
+        {
+            if (string.IsNullOrWhiteSpace(path) || !Directory.Exists(path)) return;
+            if (!includes.Contains(path, StringComparer.OrdinalIgnoreCase))
+                includes.Add(path);
+        }
+
+        if (layout is not null)
+        {
+            AddDir(layout.LlRoot);
+            if (layout.DeviceHeaderPath is not null)
+                AddDir(Path.GetDirectoryName(layout.DeviceHeaderPath));
+            if (layout.LlConfHeaderPath is not null)
+                AddDir(Path.GetDirectoryName(layout.LlConfHeaderPath));
+        }
+
         foreach (var rel in new[]
                  {
-                     "SDK/Drivers/TAE32G58xx_Driver/LL",
                      "LL",
-                     "SDK/Drivers/TAE32G58xx_Device/Inc",
                      "SDK/ProjectTemplateLL/User/Inc",
+                     "ProjectTemplateHAL/User/Inc",
+                     "ProjectTemplateLL/User/Inc",
                      "SDK/Drivers/CMSISv5/Core/Include",
                      "SDK/Drivers/CMSISv6/Core/Include",
+                     "Drivers/CMSISv5/Core/Include",
+                     "Drivers/CMSISv6/Core/Include",
                      "Drivers/CMSIS/Core/Include"
                  })
         {
-            var p = Path.Combine(sdkRoot, rel.Replace('/', Path.DirectorySeparatorChar));
-            if (Directory.Exists(p) && !includes.Contains(p, StringComparer.OrdinalIgnoreCase))
-                includes.Add(p);
+            AddDir(Path.Combine(sdkRoot, rel.Replace('/', Path.DirectorySeparatorChar)));
         }
 
-        // Also probe parent of LL root (common DFP layout).
-        var parent = Directory.GetParent(sdkRoot)?.FullName;
-        if (parent is not null)
+        try
         {
-            foreach (var rel in new[]
-                     {
-                         "SDK/Drivers/TAE32G58xx_Device/Inc",
-                         "SDK/Drivers/CMSISv5/Core/Include",
-                         "SDK/ProjectTemplateLL/User/Inc"
-                     })
-            {
-                var p = Path.Combine(parent, rel.Replace('/', Path.DirectorySeparatorChar));
-                if (Directory.Exists(p) && !includes.Contains(p, StringComparer.OrdinalIgnoreCase))
-                    includes.Add(p);
-            }
+            foreach (var cmsis in Directory.EnumerateDirectories(sdkRoot, "Include", SearchOption.AllDirectories)
+                         .Where(d => d.Contains("CMSIS", StringComparison.OrdinalIgnoreCase))
+                         .Take(8))
+                AddDir(cmsis);
+        }
+        catch
+        {
+            // ignore
         }
 
-        if (!includes.Any(p => File.Exists(Path.Combine(p, "tae32g58xx_ll_gpio.h"))
-                               || File.Exists(Path.Combine(p, "tae32g58xx_ll.h"))))
-            missing.Add("LL headers (tae32g58xx_ll_*.h)");
-        if (!includes.Any(p => File.Exists(Path.Combine(p, "tae32g58xx.h"))))
-            missing.Add("tae32g58xx.h");
+        var family = layout?.FamilyId;
+        var deviceName = layout?.DeviceHeaderFileName ?? "tae32*.h";
+        var llGlobHint = family is null ? "tae32*_ll_*.h" : family + "_ll_*.h";
+        if (family is null
+            || !includes.Any(p => File.Exists(Path.Combine(p, family + "_ll_gpio.h"))
+                                  || File.Exists(Path.Combine(p, family + "_ll.h"))
+                                  || Directory.Exists(p) && Directory.EnumerateFiles(p, family + "_ll_*.h").Any()))
+            missing.Add($"LL headers ({llGlobHint})");
+        if (family is null
+            || !includes.Any(p => File.Exists(Path.Combine(p, family + ".h"))))
+            missing.Add(deviceName);
         return includes;
     }
 

@@ -38,14 +38,18 @@ public sealed class ClangAstSession : IDisposable
         return new ParseTranslationResult(_tu, _tu.Cursor, diags, mainFileName, wrapperSourcePath);
     }
 
-    public static string CreateWrapperFile(string tempDir, string includeHeaderFileName, bool includeParseBridgeConf = true)
+    public static string CreateWrapperFile(
+        string tempDir,
+        string includeHeaderFileName,
+        bool includeParseBridgeConf = true,
+        string? llConfFileName = null)
     {
         Directory.CreateDirectory(tempDir);
         var wrapper = Path.Combine(tempDir, $"wrap_{includeHeaderFileName}.c");
         var sb = new StringBuilder();
         sb.AppendLine("/* Auto wrapper for Clang TU */");
         if (includeParseBridgeConf)
-            sb.AppendLine("#include \"tae32g58xx_ll_conf.h\"");
+            sb.AppendLine($"#include \"{llConfFileName ?? "tae32g58xx_ll_conf.h"}\"");
         sb.AppendLine($"#include \"{includeHeaderFileName}\"");
         File.WriteAllText(wrapper, sb.ToString(), Encoding.UTF8);
         return wrapper;

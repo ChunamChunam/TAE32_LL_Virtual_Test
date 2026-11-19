@@ -5,6 +5,7 @@ using TAE32.LLVirtualTest.Core.Enums;
 using TAE32.LLVirtualTest.Core.Interfaces;
 using TAE32.LLVirtualTest.Core.Models;
 using TAE32.LLVirtualTest.Infrastructure.Data;
+using TAE32.LLVirtualTest.Core.Sdk;
 using TAE32.LLVirtualTest.SDK.Import;
 
 namespace TAE32.LLVirtualTest.SDK.Parse;
@@ -50,7 +51,7 @@ public sealed class LlFunctionParseService : ILLFunctionParser
 
         if (env.RequiresParseBridge)
         {
-            var bridge = new ParseBridgeBuilder().Build(env.LlRoot, env.BridgeRoot, sdkProjectId);
+            var bridge = new ParseBridgeBuilder().Build(env.LlRoot, env.BridgeRoot, sdkProjectId, env.FamilyId);
             diagnostics.AddRange(bridge.Diagnostics);
         }
 
@@ -64,11 +65,7 @@ public sealed class LlFunctionParseService : ILLFunctionParser
                 .ToListAsync(cancellationToken);
         }
 
-        var headers = Directory.GetFiles(env.LlRoot, "tae32g58xx_ll_*.h", SearchOption.TopDirectoryOnly)
-            .Where(p => !p.EndsWith("tae32g58xx_ll.h", StringComparison.OrdinalIgnoreCase)
-                        && !p.EndsWith("tae32g58xx_ll_def.h", StringComparison.OrdinalIgnoreCase))
-            .OrderBy(p => p, StringComparer.OrdinalIgnoreCase)
-            .ToList();
+        var headers = SdkSeriesLayout.EnumerateLlModuleHeaders(env.LlRoot, env.FamilyId).ToList();
 
         var clangArgs = env.BuildClangArgs();
         var parsed = 0;
@@ -89,7 +86,7 @@ public sealed class LlFunctionParseService : ILLFunctionParser
 
             try
             {
-                var wrapper = ClangAstSession.CreateWrapperFile(wrapperDir, fileName);
+                var wrapper = ClangAstSession.CreateWrapperFile(wrapperDir, fileName, llConfFileName: env.LlConfFileName);
                 var parseResult = session.ParseHeader(wrapper, clangArgs, fileName);
 
                 if (parseResult.ClangDiagnostics.Count > 0)
@@ -231,7 +228,7 @@ public sealed class LlFunctionParseService : ILLFunctionParser
 
         if (env.RequiresParseBridge)
         {
-            var bridge = new ParseBridgeBuilder().Build(env.LlRoot, env.BridgeRoot, sdkProjectId);
+            var bridge = new ParseBridgeBuilder().Build(env.LlRoot, env.BridgeRoot, sdkProjectId, env.FamilyId);
             diagnostics.AddRange(bridge.Diagnostics);
         }
 
@@ -292,7 +289,7 @@ public sealed class LlFunctionParseService : ILLFunctionParser
 
         try
         {
-            var wrapper = ClangAstSession.CreateWrapperFile(wrapperDir, headerFileName);
+            var wrapper = ClangAstSession.CreateWrapperFile(wrapperDir, headerFileName, llConfFileName: env.LlConfFileName);
             var parseResult = session.ParseHeader(wrapper, clangArgs, headerFileName);
 
             if (parseResult.ClangDiagnostics.Count > 0)

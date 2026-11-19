@@ -16,7 +16,7 @@ public sealed class RegisterDeviceParseResult
 }
 
 /// <summary>
-/// Parses authoritative CMSIS device / chip headers (tae32g58xx.h + tae32g58xx_chip.h).
+/// Parses authoritative CMSIS device / chip headers (e.g. tae32*.h + tae32*_chip.h).
 /// Offsets prefer explicit CMSIS comments <c>(@ 0x....)</c>; access from __IOM/__IM/__OM.
 /// </summary>
 public sealed class RegisterDeviceHeaderParser

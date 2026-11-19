@@ -1,0 +1,22 @@
+--cpu=Cortex-M4.fp.sp --lto
+".\flash\objects\main.o"
+".\flash\objects\tae32f561x_hal_board.o"
+".\flash\objects\tae32f561x_hal_msp.o"
+".\flash\objects\tae32f561x_it.o"
+".\flash\objects\tae32f561x_hal.o"
+".\flash\objects\tae32f561x_hal_bstmr.o"
+".\flash\objects\tae32f561x_hal_cortex.o"
+".\flash\objects\tae32f561x_hal_dma.o"
+".\flash\objects\tae32f561x_hal_eflash.o"
+".\flash\objects\tae32f561x_hal_gpio.o"
+".\flash\objects\tae32f561x_hal_iwdg.o"
+".\flash\objects\tae32f561x_hal_wwdg.o"
+".\flash\objects\tae32f561x_hal_sysctrl.o"
+".\flash\objects\tae32f561x_hal_rcu.o"
+".\flash\objects\startup_tae32f561x.o"
+".\flash\objects\system_tae32f561x.o"
+".\flash\objects\user_debug.o"
+--library_type=microlib --diag_suppress 6314 --strict --scatter ".\FLASH\tae32f561x_ac6_flash.sct"
+--summary_stderr --info summarysizes --map --load_addr_map_info --xref --callgraph --symbols
+--info sizes --info totals --info unused --info veneers
+--list ".\FLASH\Listings\ProjectTemplateHAL.map" -o .\FLASH\Objects\ProjectTemplateHAL.axf

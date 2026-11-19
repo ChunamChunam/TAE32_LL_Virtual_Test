@@ -2,6 +2,7 @@ using System.Text;
 using System.Text.RegularExpressions;
 using TAE32.LLVirtualTest.Core.Entities;
 using TAE32.LLVirtualTest.Core.Enums;
+using TAE32.LLVirtualTest.Core.Sdk;
 
 namespace TAE32.LLVirtualTest.SDK.Parse;
 
@@ -27,12 +28,22 @@ public sealed class ParseBridgeBuilder
         @"#define\s+(IS_[A-Z0-9_]+)\s*\(",
         RegexOptions.Compiled);
 
-    public ParseBridgeResult Build(string llRoot, string bridgeRoot, Guid sdkProjectId)
+    public ParseBridgeResult Build(string llRoot, string bridgeRoot, Guid sdkProjectId, string? familyId = null)
     {
         Directory.CreateDirectory(bridgeRoot);
-        var headers = Directory.GetFiles(llRoot, "tae32g58xx_ll_*.h", SearchOption.TopDirectoryOnly)
-            .Where(p => !p.EndsWith("tae32g58xx_ll.h", StringComparison.OrdinalIgnoreCase))
-            .ToList();
+        familyId ??= SdkSeriesLayout.Discover(llRoot)?.FamilyId
+                     ?? Directory.EnumerateFiles(llRoot, "tae32*_ll_*.h", SearchOption.TopDirectoryOnly)
+                         .Select(SdkSeriesLayout.TryFamilyIdFromLlHeader)
+                         .FirstOrDefault(id => !string.IsNullOrWhiteSpace(id))
+                     ?? "tae32g58xx";
+
+        var headers = SdkSeriesLayout.EnumerateLlModuleHeaders(llRoot, familyId).ToList();
+        if (headers.Count == 0)
+        {
+            headers = Directory.GetFiles(llRoot, "tae32*_ll_*.h", SearchOption.TopDirectoryOnly)
+                .Where(p => !SdkSeriesLayout.IsLlUmbrellaOrDef(p, familyId))
+                .ToList();
+        }
 
         var instanceDefines = new HashSet<string>(StringComparer.Ordinal);
         var typedefNames = new HashSet<string>(StringComparer.Ordinal);
@@ -93,12 +104,14 @@ public sealed class ParseBridgeBuilder
 
         var diagnostics = new List<LlParseDiagnostic>();
 
-        var deviceHeader = Path.Combine(bridgeRoot, "tae32g58xx.h");
-        var confHeader = Path.Combine(bridgeRoot, "tae32g58xx_ll_conf.h");
+        var deviceName = familyId + ".h";
+        var confName = familyId + "_ll_conf.h";
+        var deviceHeader = Path.Combine(bridgeRoot, deviceName);
+        var confHeader = Path.Combine(bridgeRoot, confName);
         var cmsisHeader = Path.Combine(bridgeRoot, "bridge_cmsis.h");
 
-        WriteDeviceHeader(deviceHeader, typedefNames, membersByTypedef, instanceDefines, isMacros);
-        WriteConfHeader(confHeader, perFileInstances);
+        WriteDeviceHeader(deviceHeader, familyId, typedefNames, membersByTypedef, instanceDefines, isMacros);
+        WriteConfHeader(confHeader, confName, perFileInstances);
         WriteCmsisStub(cmsisHeader);
 
         diagnostics.Add(new LlParseDiagnostic
@@ -106,12 +119,12 @@ public sealed class ParseBridgeBuilder
             SdkProjectId = sdkProjectId,
             Severity = LlParseDiagnosticSeverity.Warning.ToString(),
             Category = LlParseDiagnosticCategory.ParseBridge.ToString(),
-            Message = "Parse Bridge generated: tae32g58xx.h / tae32g58xx_ll_conf.h are NOT authoritative SDK device headers.",
+            Message = $"Parse Bridge generated: {deviceName} / {confName} are NOT authoritative SDK device headers.",
             FilePath = deviceHeader,
-            Detail = $"Instances={instanceDefines.Count}, typedefs={typedefNames.Count}"
+            Detail = $"Family={familyId}; Instances={instanceDefines.Count}, typedefs={typedefNames.Count}"
         });
 
-        foreach (var h in new[] { "tae32g58xx.h", "tae32g58xx_ll_conf.h" })
+        foreach (var h in new[] { deviceName, confName })
         {
             diagnostics.Add(new LlParseDiagnostic
             {
@@ -149,10 +162,10 @@ public sealed class ParseBridgeBuilder
         File.WriteAllText(path, sb.ToString(), Encoding.UTF8);
     }
 
-    private static void WriteConfHeader(string path, Dictionary<string, List<string>> perFileInstances)
+    private static void WriteConfHeader(string path, string confFileName, Dictionary<string, List<string>> perFileInstances)
     {
         var sb = new StringBuilder();
-        sb.AppendLine("/* PARSE BRIDGE — tae32g58xx_ll_conf.h (inferred instance gates). NOT authoritative SDK. */");
+        sb.AppendLine($"/* PARSE BRIDGE — {confFileName} (inferred instance gates). NOT authoritative SDK. */");
         sb.AppendLine("#ifndef _PARSE_BRIDGE_LL_CONF_H_");
         sb.AppendLine("#define _PARSE_BRIDGE_LL_CONF_H_");
         sb.AppendLine("#include \"bridge_cmsis.h\"");
@@ -165,15 +178,17 @@ public sealed class ParseBridgeBuilder
 
     private static void WriteDeviceHeader(
         string path,
+        string familyId,
         HashSet<string> typedefNames,
         Dictionary<string, HashSet<string>> membersByTypedef,
         HashSet<string> instanceDefines,
         HashSet<string> isMacros)
     {
+        var guard = "_PARSE_BRIDGE_" + familyId.ToUpperInvariant() + "_H_";
         var sb = new StringBuilder();
-        sb.AppendLine("/* PARSE BRIDGE — tae32g58xx.h (inferred types/instances). NOT authoritative SDK. */");
-        sb.AppendLine("#ifndef _PARSE_BRIDGE_TAE32G58XX_H_");
-        sb.AppendLine("#define _PARSE_BRIDGE_TAE32G58XX_H_");
+        sb.AppendLine($"/* PARSE BRIDGE — {familyId}.h (inferred types/instances). NOT authoritative SDK. */");
+        sb.AppendLine($"#ifndef {guard}");
+        sb.AppendLine($"#define {guard}");
         sb.AppendLine("#include \"bridge_cmsis.h\"");
         sb.AppendLine("#include <stdint.h>");
         sb.AppendLine("#ifndef __IO");

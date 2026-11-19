@@ -7531,34 +7531,80 @@ public sealed class LlTestCaseGenerator
 
         if (ll is not null)
         {
-            // Walk up to SDK Drivers and probe Device/Inc chip headers.
+            var familyId = Core.Sdk.SdkSeriesLayout.TryFamilyIdFromLlHeader(Path.GetFileName(ll));
+            Core.Sdk.SdkSeriesLayout? layout = null;
             var dir = new DirectoryInfo(Path.GetDirectoryName(ll)!);
-            for (var i = 0; i < 6 && dir is not null; i++, dir = dir.Parent)
+            for (var i = 0; i < 8 && dir is not null; i++, dir = dir.Parent)
             {
-                foreach (var name in new[]
+                layout = Core.Sdk.SdkSeriesLayout.Discover(dir.FullName);
+                if (layout?.ChipHeaderPath is not null || layout?.DeviceHeaderPath is not null)
+                    break;
+            }
+
+            familyId ??= layout?.FamilyId;
+            if (layout?.ChipHeaderPath is not null && seen.Add(Path.GetFullPath(layout.ChipHeaderPath)))
+                yield return Path.GetFullPath(layout.ChipHeaderPath);
+            if (layout?.DeviceHeaderPath is not null && seen.Add(Path.GetFullPath(layout.DeviceHeaderPath)))
+                yield return Path.GetFullPath(layout.DeviceHeaderPath);
+
+            if (string.IsNullOrWhiteSpace(familyId))
+                yield break;
+
+            var headerNames = new[] { familyId + "_chip.h", familyId + "_chip_struct.h", familyId + ".h" };
+            foreach (var full in CollectSeriesChipHeaderPaths(Path.GetDirectoryName(ll)!, headerNames))
+            {
+                if (seen.Add(full))
+                    yield return full;
+            }
+        }
+    }
+
+    private static List<string> CollectSeriesChipHeaderPaths(string llDir, IReadOnlyList<string> headerNames)
+    {
+        var found = new List<string>();
+        var dir = new DirectoryInfo(llDir);
+        for (var i = 0; i < 6 && dir is not null; i++, dir = dir.Parent)
+        {
+            foreach (var name in headerNames)
+            {
+                foreach (var p in new[]
                          {
-                             "tae32g58xx_chip.h", "tae32g58xx_chip_struct.h", "tae32g58xx.h"
+                             Path.Combine(dir.FullName, name),
+                             Path.Combine(dir.FullName, "Inc", name)
                          })
                 {
-                    var probes = new[]
+                    if (File.Exists(p))
+                        found.Add(Path.GetFullPath(p));
+                }
+            }
+
+            try
+            {
+                var drivers = Path.Combine(dir.FullName, "Drivers");
+                var sdkDrivers = Path.Combine(dir.FullName, "SDK", "Drivers");
+                foreach (var driversRoot in new[] { drivers, sdkDrivers }.Where(Directory.Exists))
+                {
+                    foreach (var deviceInc in Directory.EnumerateDirectories(driversRoot, "*_Device", SearchOption.TopDirectoryOnly)
+                                 .Select(d => Path.Combine(d, "Inc"))
+                                 .Where(Directory.Exists)
+                                 .Take(6))
                     {
-                        Path.Combine(dir.FullName, name),
-                        Path.Combine(dir.FullName, "Inc", name),
-                        Path.Combine(dir.FullName, "TAE32G58xx_Device", "Inc", name),
-                        Path.Combine(dir.FullName, "Drivers", "TAE32G58xx_Device", "Inc", name),
-                    };
-                    foreach (var p in probes)
-                    {
-                        if (File.Exists(p))
+                        foreach (var name in headerNames)
                         {
-                            var full = Path.GetFullPath(p);
-                            if (seen.Add(full))
-                                yield return full;
+                            var p = Path.Combine(deviceInc, name);
+                            if (File.Exists(p))
+                                found.Add(Path.GetFullPath(p));
                         }
                     }
                 }
             }
+            catch
+            {
+                // ignore inaccessible trees
+            }
         }
+
+        return found;
     }
 
     private static readonly System.Collections.Concurrent.ConcurrentDictionary<string, string> DefineFileTextCache =

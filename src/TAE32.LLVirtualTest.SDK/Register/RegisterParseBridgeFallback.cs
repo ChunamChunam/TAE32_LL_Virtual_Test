@@ -31,7 +31,9 @@ public sealed class RegisterParseBridgeFallback
             SdkProjectId = sdkProjectId,
             Severity = RegisterParseDiagnosticSeverity.Error.ToString(),
             Category = RegisterParseDiagnosticCategory.MissingSdkHeader.ToString(),
-            Message = "Authoritative SDK device header (tae32g58xx.h) not found under SDK tree. Register offsets/addresses cannot be confirmed from definitions.",
+            Message = string.IsNullOrWhiteSpace(env.FamilyId)
+                ? "Authoritative SDK device header (tae32*.h) not found under SDK tree. Register offsets/addresses cannot be confirmed from definitions."
+                : $"Authoritative SDK device header ({env.FamilyId}.h) not found under SDK tree. Register offsets/addresses cannot be confirmed from definitions.",
             Detail = string.Join("; ", env.MissingExpected)
         });
 

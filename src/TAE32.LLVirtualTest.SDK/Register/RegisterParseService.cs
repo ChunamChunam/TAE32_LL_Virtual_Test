@@ -47,7 +47,7 @@ public sealed class RegisterParseService : IRegisterParser
             };
         }
 
-        var scan = new RegisterLlEvidenceScanner().Scan(probe.LlRoot);
+        var scan = new RegisterLlEvidenceScanner().Scan(probe.LlRoot, probe.FamilyId);
 
         List<Chip> chips;
         List<Peripheral> peripherals;
