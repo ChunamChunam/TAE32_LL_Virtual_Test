@@ -74,13 +74,13 @@ public sealed class ClangCompilerService : ICompilerService
         }
 
         var layout = Core.Sdk.SdkSeriesLayout.Discover(project.SdkRootPath);
-        var seriesDefine = layout?.ChipModel ?? "TAE32G58xx";
+        var seriesDefine = layout?.ChipModel ?? Core.Sdk.SdkSeriesLayout.FallbackChipModel;
         var defines = SplitCsv(profile.ExtraDefines);
         // Stale DB default ExtraDefines=TAE32G58xx must not stick when the active SDK is another series.
         if (defines.Count == 0
             || (defines.Count == 1
-                && defines[0].Equals("TAE32G58xx", StringComparison.OrdinalIgnoreCase)
-                && !seriesDefine.Equals("TAE32G58xx", StringComparison.OrdinalIgnoreCase)))
+                && defines[0].Equals(Core.Sdk.SdkSeriesLayout.FallbackChipModel, StringComparison.OrdinalIgnoreCase)
+                && !seriesDefine.Equals(Core.Sdk.SdkSeriesLayout.FallbackChipModel, StringComparison.OrdinalIgnoreCase)))
         {
             defines = new List<string> { seriesDefine };
         }
@@ -311,7 +311,7 @@ public sealed class ClangCompilerService : ICompilerService
             : Core.Sdk.SdkSeriesLayout.Discover(sdkRootForDefines);
         var hostDefines = new List<string>
         {
-            compileLayout?.ChipModel ?? "TAE32G58xx",
+            compileLayout?.ChipModel ?? Core.Sdk.SdkSeriesLayout.FallbackChipModel,
             "TMR6=1",
             "__GNUC__=4",
             "__STDC__=1"
@@ -467,7 +467,8 @@ public sealed class ClangCompilerService : ICompilerService
             .Where(p => p.Id == sdkProjectId)
             .Select(p => p.SdkRootPath)
             .FirstOrDefaultAsync(ct);
-        var defaultDefine = Core.Sdk.SdkSeriesLayout.Discover(sdkRoot ?? "")?.ChipModel ?? "TAE32G58xx";
+        var defaultDefine = Core.Sdk.SdkSeriesLayout.Discover(sdkRoot ?? "")?.ChipModel
+                            ?? Core.Sdk.SdkSeriesLayout.FallbackChipModel;
         profile = new LlCompilerProfile
         {
             SdkProjectId = sdkProjectId,
@@ -578,16 +579,14 @@ public sealed class ClangCompilerService : ICompilerService
             // ignore
         }
 
-        var family = layout?.FamilyId;
-        var deviceName = layout?.DeviceHeaderFileName ?? "tae32*.h";
-        var llGlobHint = family is null ? "tae32*_ll_*.h" : family + "_ll_*.h";
-        if (family is null
-            || !includes.Any(p => File.Exists(Path.Combine(p, family + "_ll_gpio.h"))
-                                  || File.Exists(Path.Combine(p, family + "_ll.h"))
-                                  || Directory.Exists(p) && Directory.EnumerateFiles(p, family + "_ll_*.h").Any()))
+        var family = layout?.FamilyId ?? Core.Sdk.SdkSeriesLayout.FallbackFamilyId;
+        var deviceName = layout?.DeviceHeaderFileName ?? Core.Sdk.SdkSeriesLayout.FallbackFamilyId + ".h";
+        var llGlobHint = family + "_ll_*.h";
+        if (!includes.Any(p => File.Exists(Path.Combine(p, family + "_ll_gpio.h"))
+                               || File.Exists(Path.Combine(p, family + "_ll.h"))
+                               || Directory.Exists(p) && Directory.EnumerateFiles(p, family + "_ll_*.h").Any()))
             missing.Add($"LL headers ({llGlobHint})");
-        if (family is null
-            || !includes.Any(p => File.Exists(Path.Combine(p, family + ".h"))))
+        if (!includes.Any(p => File.Exists(Path.Combine(p, family + ".h"))))
             missing.Add(deviceName);
         return includes;
     }

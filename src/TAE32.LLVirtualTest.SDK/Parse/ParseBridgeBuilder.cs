@@ -35,7 +35,7 @@ public sealed class ParseBridgeBuilder
                      ?? Directory.EnumerateFiles(llRoot, "tae32*_ll_*.h", SearchOption.TopDirectoryOnly)
                          .Select(SdkSeriesLayout.TryFamilyIdFromLlHeader)
                          .FirstOrDefault(id => !string.IsNullOrWhiteSpace(id))
-                     ?? "tae32g58xx";
+                     ?? Core.Sdk.SdkSeriesLayout.FallbackFamilyId;
 
         var headers = SdkSeriesLayout.EnumerateLlModuleHeaders(llRoot, familyId).ToList();
         if (headers.Count == 0)

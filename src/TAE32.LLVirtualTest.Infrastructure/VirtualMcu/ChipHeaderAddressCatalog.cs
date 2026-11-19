@@ -8,7 +8,7 @@ namespace TAE32.LLVirtualTest.Infrastructure.VirtualMcu;
 
 /// <summary>
 /// Live map of peripheral BASE + register offsets parsed from authoritative chip headers
-/// (<c>tae32g58xx_chip.h</c> / <c>tae32g58xx_chip_struct.h</c> / <c>tae32g58xx.h</c>).
+/// (<c>tae32*_chip.h</c> / <c>tae32*_chip_struct.h</c> / <c>tae32*.h</c>; fallback G58xx).
 /// Absolute address = BASE + member offset; overrides stale DB AbsoluteAddress when present.
 /// <para>
 /// Persistence: process memory cache + disk under
@@ -428,18 +428,59 @@ internal sealed class ChipHeaderAddressCatalog
         chipHeader = null;
         chipStruct = null;
 
-        foreach (var hit in SafeEnumerateFiles(sdkRoot, "tae32g58xx.h"))
+        var layout = Core.Sdk.SdkSeriesLayout.Discover(sdkRoot);
+        var familyId = layout?.FamilyId ?? Core.Sdk.SdkSeriesLayout.FallbackFamilyId;
+        var deviceName = familyId + ".h";
+        var chipName = familyId + "_chip.h";
+        var chipStructName = familyId + "_chip_struct.h";
+
+        if (layout?.DeviceHeaderPath is not null
+            && !layout.DeviceHeaderPath.Contains("ParseBridge", StringComparison.OrdinalIgnoreCase))
+            deviceHeader = layout.DeviceHeaderPath;
+        if (layout?.ChipHeaderPath is not null)
         {
-            if (hit.Contains("ParseBridge", StringComparison.OrdinalIgnoreCase))
-                continue;
-            deviceHeader = hit;
-            break;
+            var n = Path.GetFileName(layout.ChipHeaderPath);
+            if (n.Contains("chip_struct", StringComparison.OrdinalIgnoreCase))
+                chipStruct = layout.ChipHeaderPath;
+            else
+                chipHeader = layout.ChipHeaderPath;
         }
 
-        // Prefer Device/Inc next to device header; also search chip files directly.
+        if (deviceHeader is null)
+        {
+            foreach (var hit in SafeEnumerateFiles(sdkRoot, deviceName))
+            {
+                if (hit.Contains("ParseBridge", StringComparison.OrdinalIgnoreCase))
+                    continue;
+                deviceHeader = hit;
+                break;
+            }
+        }
+
+        // Prefer Device/Inc next to device header; also search chip files under *Device/Inc.
         var searchDirs = new List<string>();
         if (deviceHeader is not null)
             searchDirs.Add(Path.GetDirectoryName(deviceHeader)!);
+        try
+        {
+            foreach (var drivers in new[]
+                     {
+                         Path.Combine(sdkRoot, "Drivers"),
+                         Path.Combine(sdkRoot, "SDK", "Drivers")
+                     }.Where(Directory.Exists))
+            {
+                searchDirs.AddRange(Directory.EnumerateDirectories(drivers, "*_Device", SearchOption.TopDirectoryOnly)
+                    .Select(d => Path.Combine(d, "Inc"))
+                    .Where(Directory.Exists)
+                    .Take(8));
+            }
+        }
+        catch
+        {
+            // ignore
+        }
+
+        // G58 legacy layout fallback when discovery did not find Device folders.
         searchDirs.Add(Path.Combine(sdkRoot, "SDK", "Drivers", "TAE32G58xx_Device", "Inc"));
         searchDirs.Add(Path.Combine(sdkRoot, "Drivers", "TAE32G58xx_Device", "Inc"));
         searchDirs.Add(sdkRoot);
@@ -447,17 +488,43 @@ internal sealed class ChipHeaderAddressCatalog
         foreach (var dir in searchDirs.Distinct(StringComparer.OrdinalIgnoreCase))
         {
             if (!Directory.Exists(dir)) continue;
-            var chip = Path.Combine(dir, "tae32g58xx_chip.h");
-            var cs = Path.Combine(dir, "tae32g58xx_chip_struct.h");
+            var chip = Path.Combine(dir, chipName);
+            var cs = Path.Combine(dir, chipStructName);
             if (chipHeader is null && File.Exists(chip)) chipHeader = chip;
             if (chipStruct is null && File.Exists(cs)) chipStruct = cs;
         }
 
         if (chipHeader is null)
-            chipHeader = SafeEnumerateFiles(sdkRoot, "tae32g58xx_chip.h").FirstOrDefault();
+            chipHeader = SafeEnumerateFiles(sdkRoot, chipName).FirstOrDefault();
         if (chipStruct is null)
-            chipStruct = SafeEnumerateFiles(sdkRoot, "tae32g58xx_chip_struct.h").FirstOrDefault();
+            chipStruct = SafeEnumerateFiles(sdkRoot, chipStructName).FirstOrDefault();
 
+        // Absolute last resort: G58 filenames if current family had nothing.
+        if (deviceHeader is null && chipHeader is null && chipStruct is null
+            && !familyId.Equals(Core.Sdk.SdkSeriesLayout.FallbackFamilyId, StringComparison.OrdinalIgnoreCase))
+        {
+            return TryLocateHeadersForFamily(
+                sdkRoot,
+                Core.Sdk.SdkSeriesLayout.FallbackFamilyId,
+                out deviceHeader,
+                out chipHeader,
+                out chipStruct);
+        }
+
+        return deviceHeader is not null || chipHeader is not null || chipStruct is not null;
+    }
+
+    private static bool TryLocateHeadersForFamily(
+        string sdkRoot,
+        string familyId,
+        out string? deviceHeader,
+        out string? chipHeader,
+        out string? chipStruct)
+    {
+        deviceHeader = SafeEnumerateFiles(sdkRoot, familyId + ".h")
+            .FirstOrDefault(h => !h.Contains("ParseBridge", StringComparison.OrdinalIgnoreCase));
+        chipHeader = SafeEnumerateFiles(sdkRoot, familyId + "_chip.h").FirstOrDefault();
+        chipStruct = SafeEnumerateFiles(sdkRoot, familyId + "_chip_struct.h").FirstOrDefault();
         return deviceHeader is not null || chipHeader is not null || chipStruct is not null;
     }
 

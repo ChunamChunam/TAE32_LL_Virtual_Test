@@ -283,7 +283,8 @@ public sealed class LlSdkScanService : ISdkScanService
     private static string NormalizeChip(string token)
     {
         var up = token.ToUpperInvariant();
-        if (up.Contains("G58")) return "TAE32G58xx";
+        // Keep established G58 series spelling from baseline / Doxygen.
+        if (up.Contains("G58")) return SdkSeriesLayout.FallbackChipModel;
         return token;
     }
 

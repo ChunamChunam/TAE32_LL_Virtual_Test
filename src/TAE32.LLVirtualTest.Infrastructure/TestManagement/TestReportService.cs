@@ -2,6 +2,7 @@ using System.Globalization;
 using System.IO;
 using System.Reflection;
 using System.Text;
+using System.Text.Encodings.Web;
 using System.Text.Json;
 using Microsoft.EntityFrameworkCore;
 using TAE32.LLVirtualTest.Core.Entities;
@@ -385,25 +386,35 @@ public sealed class TestReportService : ITestReportService
             if (!string.IsNullOrWhiteSpace(r.AccessTraceJson))
             {
                 sb.AppendLine("<p><b>寄存器访问轨迹（摘录）</b></p>");
-                sb.AppendLine($"<pre>{Escape(r.AccessTraceJson)}</pre>");
+                sb.AppendLine($"<pre>{Escape(FormatAssertionJsonForReport(r.AccessTraceJson))}</pre>");
             }
             sb.AppendLine("</details>");
         }
     }
 
+    /// <summary>
+    /// Pretty-print JSON for HTML/CSV reports. Uses relaxed escaping so Chinese
+    /// (and other non-ASCII) appear as readable UTF-8 instead of <c>\uXXXX</c>.
+    /// </summary>
     private static string FormatAssertionJsonForReport(string? json)
     {
         if (string.IsNullOrWhiteSpace(json)) return "";
         try
         {
             using var doc = JsonDocument.Parse(json);
-            return JsonSerializer.Serialize(doc, new JsonSerializerOptions { WriteIndented = true });
+            return JsonSerializer.Serialize(doc, ReportJsonOptions);
         }
         catch
         {
             return json;
         }
     }
+
+    private static readonly JsonSerializerOptions ReportJsonOptions = new()
+    {
+        WriteIndented = true,
+        Encoder = JavaScriptEncoder.UnsafeRelaxedJsonEscaping
+    };
 
     private static string BuildCsv(
         SdkProject project,

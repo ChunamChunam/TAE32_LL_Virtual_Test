@@ -39,7 +39,7 @@ public sealed class VirtualMcuService : IVirtualMcuService
         if (options.ChipId is Guid cid) q = q.Where(c => c.Id == cid);
         if (options.SdkProjectId is Guid pid) q = q.Where(c => c.SdkProjectId == pid);
         var chip = await q.FirstOrDefaultAsync(cancellationToken);
-        return chip?.ModelName ?? "TAE32G58xx";
+        return chip?.ModelName ?? Core.Sdk.SdkSeriesLayout.FallbackChipModel;
     }
 
     public async Task InitializeAsync(Guid mcuId, CancellationToken cancellationToken = default)

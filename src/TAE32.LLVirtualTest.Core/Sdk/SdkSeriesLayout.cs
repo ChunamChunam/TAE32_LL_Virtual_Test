@@ -8,6 +8,12 @@ namespace TAE32.LLVirtualTest.Core.Sdk;
 /// </summary>
 public sealed class SdkSeriesLayout
 {
+    /// <summary>Last-resort family when discovery fails (established Phase-1 baseline).</summary>
+    public const string FallbackFamilyId = "tae32g58xx";
+
+    /// <summary>Last-resort chip model when discovery fails.</summary>
+    public const string FallbackChipModel = "TAE32G58xx";
+
     private static readonly Regex ChipHeaderName = new(
         @"^(?<fam>tae32[a-z0-9]+)_chip(?:_struct)?\.h$",
         RegexOptions.IgnoreCase | RegexOptions.Compiled | RegexOptions.CultureInvariant);

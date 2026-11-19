@@ -25,7 +25,7 @@ internal static class VirtualMcuDefinitionLoader
         var chip = await chipQuery.FirstOrDefaultAsync(cancellationToken);
         var chipModel = chip?.ModelName
                         ?? options.ChipModelName
-                        ?? "TAE32G58xx";
+                        ?? Core.Sdk.SdkSeriesLayout.FallbackChipModel;
 
         var regQuery = db.RegisterDefinitions.AsNoTracking()
             .Include(r => r.Fields)
@@ -53,7 +53,7 @@ internal static class VirtualMcuDefinitionLoader
             .OrderBy(r => r.StructName).ThenBy(r => r.OffsetBytes ?? int.MaxValue).ThenBy(r => r.MemberName)
             .ToListAsync(cancellationToken);
 
-        // Authoritative addresses from tae32g58xx_chip.h / chip_struct.h (override stale DB values).
+        // Authoritative addresses from discovered tae32*_chip*.h (override stale DB values).
         string? sdkRoot = null;
         var projectId = options.SdkProjectId ?? chip?.SdkProjectId;
         if (projectId is Guid spid)
@@ -62,6 +62,14 @@ internal static class VirtualMcuDefinitionLoader
                 .Where(p => p.Id == spid)
                 .Select(p => p.SdkRootPath)
                 .FirstOrDefaultAsync(cancellationToken);
+        }
+
+        if (string.IsNullOrWhiteSpace(chip?.ModelName)
+            && string.IsNullOrWhiteSpace(options.ChipModelName)
+            && !string.IsNullOrWhiteSpace(sdkRoot))
+        {
+            chipModel = Core.Sdk.SdkSeriesLayout.Discover(sdkRoot)?.ChipModel
+                        ?? Core.Sdk.SdkSeriesLayout.FallbackChipModel;
         }
 
         var chipAddresses = ChipHeaderAddressCatalog.TryLoad(sdkRoot);

@@ -330,7 +330,7 @@ public sealed class LlTestEngine : ILLTestEngine
                 : Core.Sdk.SdkSeriesLayout.Discover(project.SdkRootPath);
             var familyId = seriesLayout?.FamilyId;
             var defaultLlHeader = string.IsNullOrWhiteSpace(familyId)
-                ? "tae32g58xx_ll_gpio.h"
+                ? Core.Sdk.SdkSeriesLayout.FallbackFamilyId + "_ll_gpio.h"
                 : familyId + "_ll_gpio.h";
             var header = Path.GetFileName(entity.SourceFile ?? defaultLlHeader);
             if (string.IsNullOrWhiteSpace(header)) header = defaultLlHeader;

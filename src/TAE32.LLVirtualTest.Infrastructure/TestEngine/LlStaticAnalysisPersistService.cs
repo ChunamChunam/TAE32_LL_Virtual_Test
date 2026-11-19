@@ -207,8 +207,41 @@ public sealed class LlStaticAnalysisPersistService : ILlStaticAnalysisPersistSer
         {
             var underSdk = Path.Combine(sdkRoot, normalized);
             if (File.Exists(underSdk)) return underSdk;
-            var byName = Path.Combine(sdkRoot, "SDK", "Drivers", "TAE32G58xx_Driver", "LL", Path.GetFileName(normalized));
-            if (File.Exists(byName)) return byName;
+
+            var fileName = Path.GetFileName(normalized);
+            var layout = Core.Sdk.SdkSeriesLayout.Discover(sdkRoot);
+            if (!string.IsNullOrWhiteSpace(layout?.LlRoot))
+            {
+                var underLl = Path.Combine(layout.LlRoot, fileName);
+                if (File.Exists(underLl)) return underLl;
+            }
+
+            // Series-aware *Driver/LL fallbacks, then G58 legacy path.
+            foreach (var drivers in new[]
+                     {
+                         Path.Combine(sdkRoot, "Drivers"),
+                         Path.Combine(sdkRoot, "SDK", "Drivers")
+                     }.Where(Directory.Exists))
+            {
+                try
+                {
+                    foreach (var llDir in Directory.EnumerateDirectories(drivers, "*_Driver", SearchOption.TopDirectoryOnly)
+                                 .Select(d => Path.Combine(d, "LL"))
+                                 .Where(Directory.Exists)
+                                 .Take(6))
+                    {
+                        var hit = Path.Combine(llDir, fileName);
+                        if (File.Exists(hit)) return hit;
+                    }
+                }
+                catch
+                {
+                    // ignore
+                }
+            }
+
+            var g58Legacy = Path.Combine(sdkRoot, "SDK", "Drivers", "TAE32G58xx_Driver", "LL", fileName);
+            if (File.Exists(g58Legacy)) return g58Legacy;
         }
 
         if (!string.IsNullOrWhiteSpace(workspace))

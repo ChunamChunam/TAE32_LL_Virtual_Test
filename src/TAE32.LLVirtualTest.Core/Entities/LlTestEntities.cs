@@ -1,3 +1,5 @@
+using TAE32.LLVirtualTest.Core.Sdk;
+
 namespace TAE32.LLVirtualTest.Core.Entities;
 
 public class LlTestCase
@@ -66,7 +68,7 @@ public class LlCompilerProfile
     public string Name { get; set; } = "default";
     public string? ClangPath { get; set; }
     public string ExtraArgs { get; set; } = string.Empty;
-    public string ExtraDefines { get; set; } = "TAE32G58xx";
+    public string ExtraDefines { get; set; } = SdkSeriesLayout.FallbackChipModel;
     public string ExtraIncludes { get; set; } = string.Empty;
     public int DefaultTimeoutMs { get; set; } = 10000;
     public DateTime UpdatedAtUtc { get; set; } = DateTime.UtcNow;

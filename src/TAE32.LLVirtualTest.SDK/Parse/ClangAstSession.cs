@@ -1,5 +1,6 @@
 using System.Text;
 using ClangSharp.Interop;
+using TAE32.LLVirtualTest.Core.Sdk;
 
 namespace TAE32.LLVirtualTest.SDK.Parse;
 
@@ -49,7 +50,8 @@ public sealed class ClangAstSession : IDisposable
         var sb = new StringBuilder();
         sb.AppendLine("/* Auto wrapper for Clang TU */");
         if (includeParseBridgeConf)
-            sb.AppendLine($"#include \"{llConfFileName ?? "tae32g58xx_ll_conf.h"}\"");
+            sb.AppendLine(
+                $"#include \"{llConfFileName ?? SdkSeriesLayout.FallbackFamilyId + "_ll_conf.h"}\"");
         sb.AppendLine($"#include \"{includeHeaderFileName}\"");
         File.WriteAllText(wrapper, sb.ToString(), Encoding.UTF8);
         return wrapper;

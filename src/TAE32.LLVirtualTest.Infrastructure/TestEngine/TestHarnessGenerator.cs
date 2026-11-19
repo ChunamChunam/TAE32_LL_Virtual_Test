@@ -607,7 +607,7 @@ public static class TestHarnessGenerator
         if (!string.IsNullOrWhiteSpace(fam))
             return fam + ".h";
 
-        return "tae32g58xx.h";
+        return Core.Sdk.SdkSeriesLayout.FallbackFamilyId + ".h";
     }
 
     private static string Sanitize(string name)

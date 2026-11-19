@@ -1210,6 +1210,51 @@ public class LlTestCaseGeneratorBitOpTests
         await conn.DisposeAsync();
     }
 
+    [Fact]
+    public async Task Generate_SetPLL0GVCO_LiteralClearField_Produces_WriteCheck()
+    {
+        // F561/G58 style: MODIFY_REG(reg, 0xc000UL, (((vco)) & 0x3UL) << 14UL) — no named _Msk.
+        var dir = Path.Combine(Path.GetTempPath(), "tae32_pll_gvco_" + Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(dir);
+        var path = Path.Combine(dir, "tae32f561x_ll_rcu.h");
+        File.WriteAllText(path, """
+            __STATIC_INLINE void LL_RCU_SetPLL0GVCO(RCU_TypeDef *RCUx, uint32_t vco)
+            {
+                MODIFY_REG(RCUx->PLLCR, 0xc000UL, (((vco)) & 0x3UL) << 14UL);
+            }
+            """);
+
+        var (options, conn, fnId) = await SeedBitOpFnAsync(
+            dir, path, "RCU", "RCU", "RCU", "PLLCR",
+            "LL_RCU_SetPLL0GVCO", "void",
+            "RCU_TypeDef *RCUx, uint32_t vco",
+            ("RCUx", "RCU_TypeDef *", true),
+            ("vco", "uint32_t", false));
+
+        var cases = await new LlTestCaseGenerator(new SharedConnectionFactory(options)).GenerateAsync(fnId);
+        var writes = cases.Where(c => c.Name.Contains("write-check", StringComparison.OrdinalIgnoreCase)).ToList();
+        writes.Should().ContainSingle("literal clear+shift MODIFY must emit write-check, not draft");
+        writes.Should().NotContain(c => c.Name.Contains("/draft", StringComparison.OrdinalIgnoreCase));
+
+        const uint clearMask = 0xc000u;
+        var write = writes.Single();
+        write.Status.Should().Be(nameof(LlTestCaseStatus.Ready));
+        write.InitialRegisters.Should().ContainSingle(r => r.MemberName == "PLLCR");
+        var vco = TestHarnessGenerator.ParseUIntExpression(
+            write.Parameters.First(p => p.Name.Equals("vco", StringComparison.OrdinalIgnoreCase)).ValueExpression);
+        var setMask = ((vco & 0x3u) << 14) & clearMask;
+        setMask.Should().NotBe(0u);
+
+        var target = write.Assertions.Should().Contain(a =>
+            a.Kind == LlAssertionKind.RegisterValue && a.ExpectedMask == clearMask).Subject;
+        TestHarnessGenerator.ParseUIntExpression(target.ExpectedHex!)
+            .Should().Be(setMask, because: write.Name);
+        (target.RuleSourceDetail ?? "").Should().Contain("lit-clear");
+
+        Directory.Delete(dir, true);
+        await conn.DisposeAsync();
+    }
+
     private static async Task<(DbContextOptions<AppDbContext> Options, Microsoft.Data.Sqlite.SqliteConnection Conn, Guid FnId)>
         SeedBitOpFnAsync(
             string dir,

@@ -21,7 +21,7 @@ public sealed class ClangEnvironment
     {
         var sdkRoot = Path.GetFullPath(sdkRootPath);
         var layout = SdkSeriesLayout.Discover(sdkRoot);
-        var familyId = layout?.FamilyId ?? "tae32g58xx";
+        var familyId = layout?.FamilyId ?? Core.Sdk.SdkSeriesLayout.FallbackFamilyId;
         var llRoot = layout?.LlRoot ?? sdkRoot;
 
         var missing = new List<string>();
