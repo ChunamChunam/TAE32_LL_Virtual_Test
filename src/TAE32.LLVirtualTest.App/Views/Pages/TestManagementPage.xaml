@@ -86,7 +86,10 @@
               <TextBlock Text="名称" Foreground="{StaticResource BrushTextMuted}" Margin="0,8,0,0"/>
               <TextBox Text="{Binding PlanName, UpdateSourceTrigger=PropertyChanged}"/>
               <TextBlock Text="芯片型号" Foreground="{StaticResource BrushTextMuted}" Margin="0,8,0,0"/>
-              <TextBox Text="{Binding PlanChip, UpdateSourceTrigger=PropertyChanged}"/>
+              <ComboBox ItemsSource="{Binding ChipFilterOptions}"
+                        SelectedItem="{Binding PlanChip}"
+                        IsEditable="False"
+                        ToolTip="来自当前 SDK 项目解析入库的芯片（Chips），刷新数据后自动选中"/>
               <TextBlock Text="外设范围" Foreground="{StaticResource BrushTextMuted}" Margin="0,8,0,0"/>
               <ComboBox ItemsSource="{Binding PeripheralFilters}"
                         SelectedItem="{Binding PlanPeripheral}"
@@ -105,7 +108,7 @@
                         Style="{StaticResource GhostButtonStyle}"
                         ToolTip="将已归档计划恢复为 Active"/>
                 <Button Content="生成并按计划执行" Command="{Binding RunPlanCommand}"
-                        ToolTip="先按外设范围生成用例，再批量执行（不限制用例条数）"/>
+                        ToolTip="自动保存/保留当前计划（名称为空则按芯片·外设·时间生成），再按外设范围生成用例并批量执行"/>
               </WrapPanel>
             </StackPanel>
           </Border>

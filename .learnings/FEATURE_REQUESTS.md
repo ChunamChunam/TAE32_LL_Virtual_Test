@@ -106,3 +106,23 @@ medium
 G58 基线仍为当前产品确认范围；本改动解除硬编码探测，不代表 F561 全流程测试已验收。
 
 ---
+
+## FR-20261119-001: 生成并按计划执行自动保留计划
+- **Requested**: 2026-11-19
+- **Area**: TestManagement / RunPlan
+- **Problem**: 「生成并按计划执行」在名称为空时不落库；新建计划 Upsert 后未按 Id 回绑 SelectedPlan，列表常仍为空
+- **Request**: 点击该按钮应始终保存/保留计划（可自动命名），并能在计划列表与后续执行历史中看到
+- **Status**: shipped
+- **Notes**: `EnsurePlanNameForRun` + `SavePlanInnerAsync` 返回实体并按 Id 选中；执行结束后再 ReloadPlans
+
+---
+
+## FR-20261120-001: Installer clean uninstall + force-close
+- **Requested**: 2026-11-20
+- **Area**: installer / Inno Setup
+- **Problem**: 卸载留残留（`{app}\data`、`%LocalAppData%\TAE32.LLVirtualTest`）；运行中卸载不强制结束进程
+- **Request**: 卸载清空全部相关内容；运行时卸载强制关闭主程序/NativeRunner
+- **Status**: shipped
+- **Notes**: `CloseApplications=force` + `taskkill /F /T` in InitializeUninstall/PrepareToInstall; `[UninstallDelete]` + post DelTree for `{app}` and LocalAppData; smoke leaves app running then verifies clean
+
+---

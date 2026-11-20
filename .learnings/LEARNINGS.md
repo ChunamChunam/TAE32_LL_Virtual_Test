@@ -498,3 +498,55 @@ SPI 155、SYSCTRL 196、UART 137 Passed；WWDG 13 Passed + 1 已知 SDK `EnableI
 - Pattern-Key: prefer-git-sdk-over-dirty-workspace
 
 ---
+
+## [LRN-20261119-015] insight
+
+**Logged**: 2026-11-19T13:53:00+08:00
+**Priority**: medium
+**Status**: promoted
+**Area**: TestManagement / UX
+
+### Summary
+用户在「测试管理」看不到计划/执行历史/导出批次，实际不是刷新或筛选 bug：库里 `TestPlans=0`、`TestBatchRuns=0`，而自动化测试已写入 `LlTestRuns=163 Passed`。
+
+### Details
+- 「测试计划」只读 `TestPlans`（Active/Archived），不会出现「完成」状态。
+- 「执行历史」「导出批次」只读 `TestBatchRuns`，仅由测试管理批量执行（`ITestBatchService.RunAsync`）写入。
+- 「自动化测试」经 `LlTestEngine` 只写 `LlTestRuns`，不创建 Plan/Batch。
+- 「报告管理」右侧「项目汇总」可基于全项目 `LlTestRuns` 导出，故无批次也能有报告；左侧导出批次仍为空。
+
+### Suggested Action
+若期望自动化跑完自动出现在执行历史：需把 Automation 批量跑包装成 `TestBatchRun`（或提供从 LlTestRuns 合成批次的入口）。短期用法：在测试管理填名称→保存计划→「生成并按计划执行」。
+
+### Metadata
+- Source: user_feedback
+- Related Files: TestManagementViewModel.cs, TestBatchService.cs, LlTestEngine.cs, TestReportService.cs
+- Tags: test-management, batch-run, empty-history, ux
+- Pattern-Key: automation-runs-vs-test-batch-runs
+
+---
+
+## [LRN-20261119-016] correction
+
+**Logged**: 2026-11-19T13:59:00+08:00
+**Priority**: high
+**Status**: promoted
+**Area**: AutomationTest / WPF DataGrid
+
+### Summary
+用例表勾选显示打勾但「已勾选用例 0」：DataGrid 内 CheckBox 未 `UpdateSourceTrigger=PropertyChanged`，IsSelected 未写回 VM，运行只会落到当前行或提示未勾选。
+
+### Details
+- 用户截图：4 行勾选 + 计数 0。
+- `GetSelectedCaseIds` 依赖 `_checkedCaseIds` / `CasePickItem.IsSelected`；绑定未提交则两者皆空，最多跑 `SelectedCase` 一行。
+
+### Suggested Action
+DataGrid 勾选列一律 `Mode=TwoWay, UpdateSourceTrigger=PropertyChanged` + `Focusable=False`。
+
+### Metadata
+- Source: user_feedback
+- Related Files: AutomationTestPage.xaml, AutomationTestViewModel.cs
+- Tags: wpf, datagrid, checkbox, selection
+- Pattern-Key: datagrid-checkbox-propertchanged
+
+---

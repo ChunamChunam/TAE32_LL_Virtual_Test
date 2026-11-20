@@ -131,22 +131,31 @@ if (-not $SkipSmokeTest) {
         throw "Install succeeded but exe missing: $installedExe"
     }
 
-    Write-Host "    Launching installed exe (5s smoke)..."
+    Write-Host "    Launching installed exe (leave running for force-close uninstall)..."
     $app = Start-Process -FilePath $installedExe -PassThru -WorkingDirectory $dest
     Start-Sleep -Seconds 5
     if ($app.HasExited -and $app.ExitCode -ne 0) {
         throw "App exited early with code $($app.ExitCode)"
     }
-    if (-not $app.HasExited) {
-        Stop-Process -Id $app.Id -Force -ErrorAction SilentlyContinue
-        Start-Sleep -Seconds 1
+    if ($app.HasExited) {
+        Write-Warning "App exited before uninstall smoke (exit $($app.ExitCode)); continuing"
+    } else {
+        Write-Host "    App still running (pid $($app.Id)) — uninstall must force-close it"
     }
-    Write-Host "    App launch smoke OK"
+
+    # Touch runtime leftovers that uninstall must remove (beside exe + LocalAppData).
+    $dataDir = Join-Path $dest "data"
+    New-Item -ItemType Directory -Force -Path $dataDir | Out-Null
+    Set-Content -Path (Join-Path $dataDir "smoke.marker") -Value "uninstall-me"
+    $localData = Join-Path $env:LOCALAPPDATA "TAE32.LLVirtualTest"
+    $localSmoke = Join-Path $localData "smoke-uninstall"
+    New-Item -ItemType Directory -Force -Path $localSmoke | Out-Null
+    Set-Content -Path (Join-Path $localSmoke "marker.txt") -Value "uninstall-me"
 
     $uninstallers = Get-ChildItem $dest -Filter "unins*.exe" -ErrorAction SilentlyContinue
     if ($uninstallers) {
         $unins = $uninstallers | Select-Object -First 1
-        Write-Host "    Uninstalling via $($unins.Name)"
+        Write-Host "    Uninstalling via $($unins.Name) while app may still be running"
         $u = Start-Process -FilePath $unins.FullName -ArgumentList @(
             "/VERYSILENT",
             "/SUPPRESSMSGBOXES",
@@ -158,8 +167,25 @@ if (-not $SkipSmokeTest) {
         } else {
             Write-Host "    Uninstall OK"
         }
+
+        Start-Sleep -Seconds 1
+        $stillRunning = Get-Process -Name "TAE32.LLVirtualTest.App" -ErrorAction SilentlyContinue
+        if ($stillRunning) {
+            Stop-Process -Name "TAE32.LLVirtualTest.App" -Force -ErrorAction SilentlyContinue
+            throw "Uninstall did not force-close TAE32.LLVirtualTest.App.exe"
+        }
+        if (Test-Path (Join-Path $dataDir "smoke.marker")) {
+            throw "Uninstall left install-dir data: $dataDir"
+        }
+        if (Test-Path $localSmoke) {
+            throw "Uninstall left LocalAppData: $localSmoke"
+        }
+        Write-Host "    Force-close + clean uninstall verified"
     } else {
         Write-Warning "No unins*.exe found under $dest; skip uninstall smoke"
+        if (-not $app.HasExited) {
+            Stop-Process -Id $app.Id -Force -ErrorAction SilentlyContinue
+        }
     }
 
     Write-Host "==> Smoke test passed"

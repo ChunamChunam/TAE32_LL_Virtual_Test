@@ -37,6 +37,9 @@ public partial class TestManagementViewModel : ObservableObject
     public ObservableCollection<FailurePickItem> FailureRows { get; } = new();
     public ObservableCollection<TestReportArtifact> Artifacts { get; } = new();
     public ObservableCollection<string> PeripheralFilters { get; } = new();
+    /// <summary>Parsed chip ModelName list for the active SDK project (from Chips table).</summary>
+    public ObservableCollection<string> ChipFilterOptions { get; } = new();
+    private readonly Dictionary<string, Guid> _chipIdsByModel = new(StringComparer.OrdinalIgnoreCase);
     public ObservableCollection<int> AvailableCasePageSizeOptions { get; } = new() { 50, 100, 200, 300 };
     public ObservableCollection<string> SectionTabs { get; } = new()
     {
@@ -60,7 +63,7 @@ public partial class TestManagementViewModel : ObservableObject
     [ObservableProperty] private bool _isAllFailuresOnPageSelected;
     private bool _suppressFailureAllSelectedSync;
     [ObservableProperty] private string _planName = string.Empty;
-    [ObservableProperty] private string _planChip = "TAE32G58xx";
+    [ObservableProperty] private string _planChip = string.Empty;
     [ObservableProperty] private string _planPeripheral = "(全部)";
     [ObservableProperty] private string _planTestType = "VirtualMcu";
     [ObservableProperty] private string _planSearchText = string.Empty;
@@ -225,10 +228,48 @@ public partial class TestManagementViewModel : ObservableObject
         if (string.IsNullOrWhiteSpace(PlanPeripheral))
             PlanPeripheral = "(全部)";
 
+        await ReloadChipOptionsAsync(project.Id);
+
         // Only load the active tab (+ shared plan list used by suite/run actions).
         await ReloadPlansAsync();
         await ReloadSectionAsync(SelectedSection);
         StatusText = "测试管理已刷新（虚拟 MCU 数据）";
+    }
+
+    private async Task ReloadChipOptionsAsync(Guid projectId)
+    {
+        var chips = await _data.GetChipsAsync(projectId);
+        _chipIdsByModel.Clear();
+        ChipFilterOptions.Clear();
+        foreach (var c in chips)
+        {
+            if (string.IsNullOrWhiteSpace(c.ModelName)) continue;
+            if (_chipIdsByModel.ContainsKey(c.ModelName)) continue;
+            _chipIdsByModel[c.ModelName] = c.Id;
+            ChipFilterOptions.Add(c.ModelName);
+        }
+
+        // Keep an existing plan chip visible even if not in current parse set.
+        if (!string.IsNullOrWhiteSpace(PlanChip)
+            && !ChipFilterOptions.Contains(PlanChip, StringComparer.OrdinalIgnoreCase))
+            ChipFilterOptions.Insert(0, PlanChip);
+
+        if (ChipFilterOptions.Count == 0)
+        {
+            PlanChip = string.Empty;
+            return;
+        }
+
+        // Prefer current selection if still valid; otherwise auto-select parsed chip.
+        if (string.IsNullOrWhiteSpace(PlanChip)
+            || !ChipFilterOptions.Contains(PlanChip, StringComparer.OrdinalIgnoreCase))
+            PlanChip = ChipFilterOptions[0];
+    }
+
+    private Guid? ResolveSelectedChipId()
+    {
+        if (string.IsNullOrWhiteSpace(PlanChip)) return null;
+        return _chipIdsByModel.TryGetValue(PlanChip.Trim(), out var id) ? id : null;
     }
 
     partial void OnSelectedSectionChanged(string value) => _ = ReloadSectionAsync(value);
@@ -261,7 +302,16 @@ public partial class TestManagementViewModel : ObservableObject
     }
 
     [RelayCommand(CanExecute = nameof(CanExecuteWhileIdle))]
-    private async Task SavePlanAsync() => await SavePlanInnerAsync();
+    private async Task SavePlanAsync()
+    {
+        if (string.IsNullOrWhiteSpace(PlanName))
+        {
+            StatusText = "请填写计划名称，或使用「生成并按计划执行」（可自动命名并保留计划）";
+            return;
+        }
+
+        await SavePlanInnerAsync();
+    }
 
     [RelayCommand]
     private async Task DuplicatePlanAsync()
@@ -574,21 +624,18 @@ public partial class TestManagementViewModel : ObservableObject
     private async Task RunPlanAsync()
     {
         if (ActiveProjectId is not Guid pid) return;
-        if (string.IsNullOrWhiteSpace(PlanName) && SelectedPlan is null)
-        {
-            StatusText = "请先填写并保存测试计划";
-            return;
-        }
+
+        // Always persist a plan before generate/execute (auto-name when blank).
+        EnsurePlanNameForRun();
 
         IsBusy = true;
         BusyOverlayText = "正在保存测试计划…";
         try
         {
-            await SavePlanInnerAsync();
-            var plan = SelectedPlan ?? Plans.FirstOrDefault(p => p.Name == PlanName.Trim());
+            var plan = await SavePlanInnerAsync();
             if (plan is null)
             {
-                StatusText = "请先保存测试计划";
+                StatusText = "保存测试计划失败";
                 return;
             }
 
@@ -627,6 +674,22 @@ public partial class TestManagementViewModel : ObservableObject
                 ScopeKind = "Plan",
                 ScopeValue = IsAllPeripherals(periFilter) ? "(全部)" : periFilter
             }, manageBusyFlag: false);
+
+            await ReloadPlansAsync();
+            SelectedPlan = Plans.FirstOrDefault(x => x.Id == plan.Id) ?? SelectedPlan;
+
+            // Keep batch outcome visible (do not hide TotalCount=0 behind a generic "完成").
+            var batch = SelectedBatch;
+            if (batch is null)
+                StatusText = $"计划已保存：{plan.Name}（未拿到批次结果）";
+            else if (batch.TotalCount == 0)
+                StatusText =
+                    $"计划已保存：{plan.Name}；生成 {generatedCount} 条，但批次可执行用例为 0" +
+                    $"（外设={batch.ScopeValue ?? periFilter ?? "(全部)"}）。请检查该外设是否已有 Ready 用例。";
+            else
+                StatusText =
+                    $"计划已保存并执行：{plan.Name}；生成 {generatedCount}，" +
+                    $"批次 {batch.Status} Total={batch.TotalCount} Passed={batch.PassedCount} Failed={batch.FailedCount}";
         }
         catch (Exception ex)
         {
@@ -639,15 +702,41 @@ public partial class TestManagementViewModel : ObservableObject
         }
     }
 
-    private async Task SavePlanInnerAsync()
+    /// <summary>
+    /// Fill <see cref="PlanName"/> before run/save when blank so the plan is always retained.
+    /// </summary>
+    private void EnsurePlanNameForRun()
     {
-        if (ActiveProjectId is not Guid pid || string.IsNullOrWhiteSpace(PlanName)) return;
-        await _plans.UpsertAsync(new TestPlanEditModel
+        if (!string.IsNullOrWhiteSpace(PlanName))
+        {
+            PlanName = PlanName.Trim();
+            return;
+        }
+
+        if (SelectedPlan is not null && !string.IsNullOrWhiteSpace(SelectedPlan.Name))
+        {
+            PlanName = SelectedPlan.Name;
+            return;
+        }
+
+        var peri = NormalizePeripheralFilter(PlanPeripheral);
+        var periPart = IsAllPeripherals(peri) ? "全部外设" : peri!;
+        var chip = string.IsNullOrWhiteSpace(PlanChip)
+            ? (ChipFilterOptions.FirstOrDefault() ?? "未识别芯片")
+            : PlanChip.Trim();
+        PlanName = $"{chip} · {periPart} · {DateTime.Now:yyyyMMdd-HHmmss}";
+    }
+
+    private async Task<TestPlan?> SavePlanInnerAsync()
+    {
+        if (ActiveProjectId is not Guid pid || string.IsNullOrWhiteSpace(PlanName)) return null;
+        var entity = await _plans.UpsertAsync(new TestPlanEditModel
         {
             Id = SelectedPlan?.Id,
             SdkProjectId = pid,
+            ChipId = ResolveSelectedChipId() ?? SelectedPlan?.ChipId,
             Name = PlanName.Trim(),
-            ChipModelName = PlanChip,
+            ChipModelName = string.IsNullOrWhiteSpace(PlanChip) ? null : PlanChip.Trim(),
             PeripheralFilter = NormalizePeripheralFilter(PlanPeripheral) is var p && !IsAllPeripherals(p) ? p : null,
             TestType = PlanTestType,
             SdkVersion = (await _projects.GetByIdAsync(pid))?.Version,
@@ -655,6 +744,16 @@ public partial class TestManagementViewModel : ObservableObject
         });
         StatusText = "测试计划已保存";
         await ReloadPlansAsync();
+        SelectedPlan = Plans.FirstOrDefault(x => x.Id == entity.Id);
+        if (SelectedPlan is null)
+        {
+            // Prefer explicit select by id; fall back so run path still has a plan handle.
+            SelectedPlan = entity;
+            if (Plans.All(x => x.Id != entity.Id))
+                Plans.Insert(0, entity);
+        }
+
+        return SelectedPlan;
     }
 
     [RelayCommand]
@@ -1078,7 +1177,13 @@ public partial class TestManagementViewModel : ObservableObject
     {
         if (value is null) return;
         PlanName = value.Name;
-        PlanChip = value.ChipModelName ?? "TAE32G58xx";
+        var chip = value.ChipModelName;
+        if (!string.IsNullOrWhiteSpace(chip)
+            && !ChipFilterOptions.Contains(chip, StringComparer.OrdinalIgnoreCase))
+            ChipFilterOptions.Insert(0, chip);
+        PlanChip = !string.IsNullOrWhiteSpace(chip)
+            ? chip
+            : (ChipFilterOptions.FirstOrDefault() ?? string.Empty);
         PlanPeripheral = NormalizePeripheralFilter(value.PeripheralFilter);
         PlanTestType = value.TestType ?? "VirtualMcu";
         _ = ReloadSuitesAsync();

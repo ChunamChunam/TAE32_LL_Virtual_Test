@@ -225,7 +225,10 @@
                   <DataGridTemplateColumn Header="选" Width="36">
                     <DataGridTemplateColumn.CellTemplate>
                       <DataTemplate>
-                        <CheckBox IsChecked="{Binding IsSelected, Mode=TwoWay}" HorizontalAlignment="Center"/>
+                        <!-- PropertyChanged + Focusable=False: DataGrid 默认不提交勾选，会导致「已勾选 0」却仍显示打勾 -->
+                        <CheckBox IsChecked="{Binding IsSelected, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"
+                                  Focusable="False" HorizontalAlignment="Center"
+                                  VerticalAlignment="Center"/>
                       </DataTemplate>
                     </DataGridTemplateColumn.CellTemplate>
                   </DataGridTemplateColumn>
@@ -337,7 +340,8 @@
                       <DataGridTemplateColumn Header="选" Width="36">
                         <DataGridTemplateColumn.CellTemplate>
                           <DataTemplate>
-                            <CheckBox IsChecked="{Binding IsSelected, Mode=TwoWay}" HorizontalAlignment="Center"/>
+                            <CheckBox IsChecked="{Binding IsSelected, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"
+                                      Focusable="False" HorizontalAlignment="Center" VerticalAlignment="Center"/>
                           </DataTemplate>
                         </DataGridTemplateColumn.CellTemplate>
                       </DataGridTemplateColumn>

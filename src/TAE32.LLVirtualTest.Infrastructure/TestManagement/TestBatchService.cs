@@ -346,14 +346,9 @@ public sealed class TestBatchService : ITestBatchService
                 {
                     q = q.Where(c => c.PeripheralName == peri);
                 }
-                // Chip on plan is series label; do not drop cases with empty ChipModelName.
-                if (!string.IsNullOrWhiteSpace(plan.ChipModelName))
-                {
-                    var chip = plan.ChipModelName;
-                    q = q.Where(c => c.ChipModelName == null
-                                     || c.ChipModelName == ""
-                                     || c.ChipModelName == chip);
-                }
+                // Do NOT filter by plan.ChipModelName here: UI/series labels (e.g. TAE32G58xx)
+                // often differ from case ChipModelName (e.g. TAE32F561x_LL_Driver). SdkProjectId
+                // already scopes the query; a strict chip equality made batches complete with 0 cases.
                 if (!string.IsNullOrWhiteSpace(plan.FunctionFilter))
                     q = q.Where(c => c.FunctionName.Contains(plan.FunctionFilter));
                 break;
