@@ -79,8 +79,7 @@ public partial class LlFunctionLibraryViewModel : ObservableObject
     [RelayCommand(CanExecute = nameof(CanDeepParse))]
     private async Task DeepParseAsync()
     {
-        var projects = await _projects.GetAllAsync();
-        var project = projects.FirstOrDefault(p => p.IsActive) ?? projects.FirstOrDefault();
+        var project = await _projects.GetCurrentAsync();
         if (project is null)
         {
             ParseSummaryText = "无可用 SDK 项目";
@@ -246,7 +245,24 @@ public partial class LlFunctionLibraryViewModel : ObservableObject
     partial void OnSelectedChipChanged(string? value)
     {
         if (_suppressFilterReload) return;
-        _ = ResetAndReloadAsync();
+        _ = OnChipWorkspaceChangedAsync();
+    }
+
+    private async Task OnChipWorkspaceChangedAsync()
+    {
+        if (SelectedChip is not null and not "(全部)")
+        {
+            var chips = await _data.GetChipsAsync();
+            var match = chips.FirstOrDefault(c =>
+                string.Equals(c.ModelName, SelectedChip, StringComparison.OrdinalIgnoreCase));
+            if (match is not null)
+            {
+                try { await _projects.SetCurrentAsync(match.SdkProjectId); }
+                catch { /* project removed */ }
+            }
+        }
+
+        await ResetAndReloadAsync();
     }
 
     partial void OnSelectedFormChanged(string? value)
@@ -325,18 +341,21 @@ public partial class LlFunctionLibraryViewModel : ObservableObject
             ? null
             : SelectedParseStatusFilter;
         var search = NullIfEmpty(SearchText);
+        var (sdkProjectId, chipQuery) = await ResolveFunctionListScopeAsync(chip);
 
         TotalCount = await _data.CountFunctionsAsync(
-            search: search, peripheralName: peri, chipName: chip, form: form, parseStatus: parseStatus);
+            sdkProjectId: sdkProjectId, search: search, peripheralName: peri, chipName: chipQuery, form: form,
+            parseStatus: parseStatus);
         TotalPages = Math.Max(1, (int)Math.Ceiling(TotalCount / (double)PageSize));
         if (PageIndex > TotalPages) PageIndex = TotalPages;
         if (PageIndex < 1) PageIndex = 1;
 
         var skip = (PageIndex - 1) * PageSize;
         var list = await _data.GetFunctionsAsync(
+            sdkProjectId: sdkProjectId,
             search: search,
             peripheralName: peri,
-            chipName: chip,
+            chipName: chipQuery,
             form: form,
             skip: skip,
             take: PageSize,
@@ -458,6 +477,21 @@ public partial class LlFunctionLibraryViewModel : ObservableObject
         DetailSignature = DetailParameters = DetailReturn = DetailSource = DetailOperations =
             DetailRegisters = DetailMacros = DetailCallGraph = DetailDiagnostics = "尚未解析";
         ParseStatusText = LlParseStatus.NotParsed.ToString();
+    }
+
+    private async Task<(Guid? SdkProjectId, string? ChipName)> ResolveFunctionListScopeAsync(string? chipFilter)
+    {
+        if (!string.IsNullOrWhiteSpace(chipFilter) && chipFilter != "(全部)")
+        {
+            var chips = await _data.GetChipsAsync();
+            var match = chips.FirstOrDefault(c =>
+                string.Equals(c.ModelName, chipFilter, StringComparison.OrdinalIgnoreCase));
+            if (match is not null)
+                return (match.SdkProjectId, null);
+            return (null, chipFilter);
+        }
+
+        return ((await _projects.GetCurrentAsync())?.Id, null);
     }
 
     private static string? NullIfEmpty(string? s) => string.IsNullOrWhiteSpace(s) ? null : s.Trim();

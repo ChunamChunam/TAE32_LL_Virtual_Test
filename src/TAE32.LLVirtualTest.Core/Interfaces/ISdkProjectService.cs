@@ -6,6 +6,12 @@ public interface ISdkProjectService
 {
     Task<IReadOnlyList<SdkProject>> GetAllAsync(CancellationToken cancellationToken = default);
 
+    /// <summary>Current workspace SDK (exactly one <c>IsActive</c> when possible).</summary>
+    Task<SdkProject?> GetCurrentAsync(CancellationToken cancellationToken = default);
+
+    /// <summary>Marks the project used for LL / tests / virtual MCU and clears other actives.</summary>
+    Task SetCurrentAsync(Guid id, CancellationToken cancellationToken = default);
+
     Task<SdkProject?> GetByIdAsync(Guid id, CancellationToken cancellationToken = default);
 
     Task<SdkProject> AddAsync(string name, string sdkRootPath, string scanResultsPath, CancellationToken cancellationToken = default);

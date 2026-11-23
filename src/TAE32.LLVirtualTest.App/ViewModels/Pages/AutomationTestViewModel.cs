@@ -26,11 +26,14 @@ public partial class AutomationTestViewModel : ObservableObject
     private readonly HashSet<Guid> _checkedCaseIds = new();
     private CancellationTokenSource? _busyCts;
     private bool _suppressAllSelectedSync;
+    private bool _suppressChipFilterReload;
+    private readonly Dictionary<string, Chip> _chipsByModel = new(StringComparer.OrdinalIgnoreCase);
     private bool _contentLoaded;
     private Guid? _contentProjectId;
     private bool _compilerChecked;
 
     public ObservableCollection<string> PeripheralFilters { get; } = new();
+    public ObservableCollection<string> ChipFilters { get; } = new();
     public ObservableCollection<FunctionPickItem> Functions { get; } = new();
     public ObservableCollection<CasePickItem> Cases { get; } = new();
     public ObservableCollection<RunPickItem> Runs { get; } = new();
@@ -60,6 +63,7 @@ public partial class AutomationTestViewModel : ObservableObject
     };
 
     [ObservableProperty] private string _selectedPeripheral = "(全部)";
+    [ObservableProperty] private string _selectedChip = "(全部)";
     [ObservableProperty] private string _functionSearchText = string.Empty;
     [ObservableProperty] private FunctionPickItem? _selectedFunctionItem;
     [ObservableProperty] private CasePickItem? _selectedCaseItem;
@@ -136,8 +140,7 @@ public partial class AutomationTestViewModel : ObservableObject
 
     private async Task RefreshCoreAsync(bool force)
     {
-        var projects = await _projects.GetAllAsync();
-        var project = projects.FirstOrDefault(p => p.IsActive) ?? projects.FirstOrDefault();
+        var project = await _projects.GetCurrentAsync();
         ActiveProjectId = project?.Id;
         if (project is null)
         {
@@ -169,6 +172,9 @@ public partial class AutomationTestViewModel : ObservableObject
                 SelectedPeripheral = "(全部)";
         }
 
+        if (force || ChipFilters.Count == 0)
+            await ReloadChipFiltersFromAllAsync(project.Id);
+
         await Task.WhenAll(ReloadFunctionsAsync(), ReloadCasesAsync(), ReloadRunsAsync());
 
         if (!_compilerChecked)
@@ -185,8 +191,11 @@ public partial class AutomationTestViewModel : ObservableObject
     private async Task CheckCompilerAsync()
     {
         if (ActiveProjectId is not Guid pid) return;
-        var env = await _engine.CheckCompilerAsync(pid);
-        ClangPath = env.ClangPath ?? ClangPath;
+        var typed = string.IsNullOrWhiteSpace(ClangPath) ? null : ClangPath.Trim();
+        if (typed is not null && File.Exists(typed))
+            await _compiler.SaveClangPathAsync(typed);
+        var env = await _engine.CheckCompilerAsync(pid, typed);
+        ClangPath = env.ClangPath ?? typed ?? ClangPath;
         CompilerSummary = env.Summary;
         StatusText = env.Summary;
     }
@@ -199,15 +208,20 @@ public partial class AutomationTestViewModel : ObservableObject
     }
 
     [RelayCommand]
-    private void BrowseClang()
+    private async Task BrowseClangAsync()
     {
         var dlg = new OpenFileDialog
         {
             Filter = "clang.exe|clang.exe|All|*.*",
             Title = "选择 clang.exe"
         };
+        if (!string.IsNullOrWhiteSpace(ClangPath) && File.Exists(ClangPath.Trim()))
+            dlg.InitialDirectory = Path.GetDirectoryName(ClangPath.Trim());
         if (dlg.ShowDialog() == true)
+        {
             ClangPath = dlg.FileName;
+            await CheckCompilerAsync();
+        }
     }
 
     [RelayCommand]
@@ -711,6 +725,60 @@ public partial class AutomationTestViewModel : ObservableObject
         _ = ReloadCasesAsync();
     }
 
+    partial void OnSelectedChipChanged(string value)
+    {
+        if (_suppressChipFilterReload) return;
+        _ = OnChipSelectionChangedAsync();
+    }
+
+    private async Task OnChipSelectionChangedAsync()
+    {
+        if (string.IsNullOrWhiteSpace(SelectedChip) || SelectedChip == "(全部)")
+        {
+            FunctionPageIndex = 1;
+            _checkedFunctionIds.Clear();
+            SyncCheckedCount();
+            await ReloadFunctionsAsync();
+            return;
+        }
+
+        if (!_chipsByModel.TryGetValue(SelectedChip.Trim(), out var chip))
+        {
+            StatusText = $"未找到芯片「{SelectedChip}」对应 SDK 工程";
+            return;
+        }
+
+        try
+        {
+            await _projects.SetCurrentAsync(chip.SdkProjectId);
+        }
+        catch (Exception ex)
+        {
+            StatusText = $"切换 SDK 失败：{ex.Message}";
+            return;
+        }
+
+        ActiveProjectId = chip.SdkProjectId;
+        _contentProjectId = null;
+        _contentLoaded = false;
+
+        PeripheralFilters.Clear();
+        PeripheralFilters.Add("(全部)");
+        foreach (var p in await _data.GetPeripheralsAsync(chip.SdkProjectId))
+            PeripheralFilters.Add(p.Name);
+        if (!PeripheralFilters.Contains(SelectedPeripheral))
+            SelectedPeripheral = "(全部)";
+
+        FunctionPageIndex = 1;
+        _checkedFunctionIds.Clear();
+        SyncCheckedCount();
+
+        var proj = await _projects.GetByIdAsync(chip.SdkProjectId);
+        await ReloadFunctionsAsync();
+        await ReloadCasesAsync();
+        StatusText = $"已按芯片 {chip.ModelName} 加载 LL 内容（SDK：{proj?.Name ?? "—"}）";
+    }
+
     [RelayCommand]
     private async Task SearchFunctionsAsync()
     {
@@ -1142,6 +1210,47 @@ public partial class AutomationTestViewModel : ObservableObject
         ProgressValue = 0;
         _busyCts?.Dispose();
         _busyCts = null;
+    }
+
+    private async Task ReloadChipFiltersFromAllAsync(Guid preferProjectId)
+    {
+        _suppressChipFilterReload = true;
+        try
+        {
+            var allChips = await _data.GetChipsAsync();
+            ChipFilters.Clear();
+            _chipsByModel.Clear();
+            foreach (var c in allChips
+                         .Where(c => !string.IsNullOrWhiteSpace(c.ModelName))
+                         .OrderBy(c => c.ModelName, StringComparer.OrdinalIgnoreCase))
+            {
+                var name = c.ModelName.Trim();
+                if (_chipsByModel.ContainsKey(name)) continue;
+                _chipsByModel[name] = c;
+                ChipFilters.Add(name);
+            }
+
+            if (ChipFilters.Count == 0)
+            {
+                SelectedChip = "(全部)";
+                return;
+            }
+
+            var preferred = allChips.FirstOrDefault(c =>
+                c.SdkProjectId == preferProjectId && !string.IsNullOrWhiteSpace(c.ModelName));
+            var pick = preferred?.ModelName.Trim();
+            if (string.IsNullOrWhiteSpace(SelectedChip)
+                || (!ChipFilters.Contains(SelectedChip) && SelectedChip != "(全部)"))
+            {
+                SelectedChip = !string.IsNullOrWhiteSpace(pick) && ChipFilters.Contains(pick)
+                    ? pick
+                    : ChipFilters[0];
+            }
+        }
+        finally
+        {
+            _suppressChipFilterReload = false;
+        }
     }
 
     private async Task ReloadFunctionsAsync()

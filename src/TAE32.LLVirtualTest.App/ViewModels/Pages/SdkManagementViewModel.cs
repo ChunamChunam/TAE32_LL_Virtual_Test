@@ -293,6 +293,19 @@ public partial class SdkManagementViewModel : ObservableObject
         NewName = value.Name;
         SdkRootPath = value.SdkRootPath;
         ScanResultsPath = value.ScanResultsPath;
+        _ = ApplyCurrentWorkspaceAsync(value.Id);
+    }
+
+    private async Task ApplyCurrentWorkspaceAsync(Guid projectId)
+    {
+        try
+        {
+            await _projects.SetCurrentAsync(projectId);
+        }
+        catch
+        {
+            // Ignore if project was removed during async selection change.
+        }
     }
 
     private static string Sanitize(string name)

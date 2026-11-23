@@ -89,7 +89,7 @@
               <ComboBox ItemsSource="{Binding ChipFilterOptions}"
                         SelectedItem="{Binding PlanChip}"
                         IsEditable="False"
-                        ToolTip="来自当前 SDK 项目解析入库的芯片（Chips），刷新数据后自动选中"/>
+                        ToolTip="已导入 SDK 解析入库的全部芯片型号（每包通常 1 个）；默认选中当前激活 SDK 对应型号"/>
               <TextBlock Text="外设范围" Foreground="{StaticResource BrushTextMuted}" Margin="0,8,0,0"/>
               <ComboBox ItemsSource="{Binding PeripheralFilters}"
                         SelectedItem="{Binding PlanPeripheral}"

@@ -6,6 +6,7 @@ public interface ICompilerService
 {
     Task<CompilerEnvironmentInfo> CheckEnvironmentAsync(
         Guid sdkProjectId,
+        string? clangPathOverride = null,
         CancellationToken cancellationToken = default);
 
     Task SaveClangPathAsync(string? clangPath, CancellationToken cancellationToken = default);

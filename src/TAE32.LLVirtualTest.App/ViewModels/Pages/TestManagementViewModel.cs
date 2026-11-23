@@ -37,7 +37,7 @@ public partial class TestManagementViewModel : ObservableObject
     public ObservableCollection<FailurePickItem> FailureRows { get; } = new();
     public ObservableCollection<TestReportArtifact> Artifacts { get; } = new();
     public ObservableCollection<string> PeripheralFilters { get; } = new();
-    /// <summary>Parsed chip ModelName list for the active SDK project (from Chips table).</summary>
+    /// <summary>All parsed chip ModelName values across imported SDK projects.</summary>
     public ObservableCollection<string> ChipFilterOptions { get; } = new();
     private readonly Dictionary<string, Guid> _chipIdsByModel = new(StringComparer.OrdinalIgnoreCase);
     public ObservableCollection<int> AvailableCasePageSizeOptions { get; } = new() { 50, 100, 200, 300 };
@@ -212,8 +212,7 @@ public partial class TestManagementViewModel : ObservableObject
     [RelayCommand(CanExecute = nameof(CanExecuteWhileIdle))]
     public async Task RefreshAsync()
     {
-        var projects = await _projects.GetAllAsync();
-        var project = projects.FirstOrDefault(p => p.IsActive) ?? projects.FirstOrDefault();
+        var project = await _projects.GetCurrentAsync();
         ActiveProjectId = project?.Id;
         if (project is null)
         {
@@ -236,17 +235,26 @@ public partial class TestManagementViewModel : ObservableObject
         StatusText = "测试管理已刷新（虚拟 MCU 数据）";
     }
 
-    private async Task ReloadChipOptionsAsync(Guid projectId)
+    private async Task ReloadChipOptionsAsync(Guid activeProjectId)
     {
-        var chips = await _data.GetChipsAsync(projectId);
+        var allChips = await _data.GetChipsAsync();
+        var activeProjectChips = allChips.Where(c => c.SdkProjectId == activeProjectId).ToList();
+
         _chipIdsByModel.Clear();
         ChipFilterOptions.Clear();
-        foreach (var c in chips)
+
+        // One SDK package normally yields one chip family; merge options from every imported project.
+        foreach (var group in allChips
+                     .Where(c => !string.IsNullOrWhiteSpace(c.ModelName))
+                     .GroupBy(c => c.ModelName.Trim(), StringComparer.OrdinalIgnoreCase)
+                     .OrderByDescending(g => g.Any(c => c.SdkProjectId == activeProjectId))
+                     .ThenBy(g => g.Key, StringComparer.OrdinalIgnoreCase))
         {
-            if (string.IsNullOrWhiteSpace(c.ModelName)) continue;
-            if (_chipIdsByModel.ContainsKey(c.ModelName)) continue;
-            _chipIdsByModel[c.ModelName] = c.Id;
-            ChipFilterOptions.Add(c.ModelName);
+            var preferred = group.FirstOrDefault(c => c.SdkProjectId == activeProjectId) ?? group.First();
+            var model = preferred.ModelName.Trim();
+            if (_chipIdsByModel.ContainsKey(model)) continue;
+            _chipIdsByModel[model] = preferred.Id;
+            ChipFilterOptions.Add(model);
         }
 
         // Keep an existing plan chip visible even if not in current parse set.
@@ -260,10 +268,15 @@ public partial class TestManagementViewModel : ObservableObject
             return;
         }
 
-        // Prefer current selection if still valid; otherwise auto-select parsed chip.
+        // Prefer current selection; else default to the active SDK project's parsed chip.
         if (string.IsNullOrWhiteSpace(PlanChip)
             || !ChipFilterOptions.Contains(PlanChip, StringComparer.OrdinalIgnoreCase))
-            PlanChip = ChipFilterOptions[0];
+        {
+            var defaultName = activeProjectChips.FirstOrDefault(c => !string.IsNullOrWhiteSpace(c.ModelName))?.ModelName.Trim();
+            PlanChip = !string.IsNullOrWhiteSpace(defaultName) && ChipFilterOptions.Contains(defaultName, StringComparer.OrdinalIgnoreCase)
+                ? defaultName
+                : ChipFilterOptions[0];
+        }
     }
 
     private Guid? ResolveSelectedChipId()

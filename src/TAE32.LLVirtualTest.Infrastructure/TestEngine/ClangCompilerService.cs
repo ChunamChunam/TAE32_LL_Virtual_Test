@@ -43,12 +43,16 @@ public sealed class ClangCompilerService : ICompilerService
     public static string EmbeddedClangPath => Path.Combine(EmbeddedLlvmRoot, "bin", "clang.exe");
 
     public async Task<CompilerEnvironmentInfo> CheckEnvironmentAsync(
-        Guid sdkProjectId, CancellationToken cancellationToken = default)
+        Guid sdkProjectId,
+        string? clangPathOverride = null,
+        CancellationToken cancellationToken = default)
     {
+        var overrideNorm = string.IsNullOrWhiteSpace(clangPathOverride) ? null : clangPathOverride.Trim();
         lock (EnvCacheLock)
         {
             if (_envCache is not null &&
                 _envCacheProjectId == sdkProjectId &&
+                string.IsNullOrWhiteSpace(overrideNorm) &&
                 DateTime.UtcNow - _envCacheUtc < EnvCacheTtl)
             {
                 return _envCache;
@@ -58,7 +62,8 @@ public sealed class ClangCompilerService : ICompilerService
         var project = await _projects.GetByIdAsync(sdkProjectId, cancellationToken)
                       ?? throw new InvalidOperationException("SDK 项目不存在");
         var profile = await GetOrCreateProfileAsync(sdkProjectId, cancellationToken);
-        var clang = ResolveClangPath(profile.ClangPath);
+        var configured = overrideNorm ?? await GetStoredClangPathAsync(sdkProjectId, profile, cancellationToken);
+        var clang = ResolveClangPath(configured);
         var missing = new List<string>();
         if (clang is null)
             missing.Add("clang 可执行文件（可点「获取内置 Clang」或手动配置）");
@@ -148,14 +153,53 @@ public sealed class ClangCompilerService : ICompilerService
 
     public async Task SaveClangPathAsync(string? clangPath, CancellationToken cancellationToken = default)
     {
+        var normalized = string.IsNullOrWhiteSpace(clangPath) ? null : clangPath.Trim();
         await using var db = await _dbFactory.CreateDbContextAsync(cancellationToken);
-        var profile = await db.LlCompilerProfiles.FirstOrDefaultAsync(cancellationToken)
-                      ?? new LlCompilerProfile { Name = "default" };
-        if (profile.Id == Guid.Empty || !await db.LlCompilerProfiles.AnyAsync(x => x.Id == profile.Id, cancellationToken))
-            db.LlCompilerProfiles.Add(profile);
-        profile.ClangPath = string.IsNullOrWhiteSpace(clangPath) ? null : clangPath.Trim();
-        profile.UpdatedAtUtc = DateTime.UtcNow;
+        var profiles = await db.LlCompilerProfiles.ToListAsync(cancellationToken);
+        if (profiles.Count == 0)
+        {
+            db.LlCompilerProfiles.Add(new LlCompilerProfile
+            {
+                Name = "default",
+                ClangPath = normalized,
+                UpdatedAtUtc = DateTime.UtcNow
+            });
+        }
+        else
+        {
+            foreach (var p in profiles)
+            {
+                p.ClangPath = normalized;
+                p.UpdatedAtUtc = DateTime.UtcNow;
+            }
+        }
+
         await db.SaveChangesAsync(cancellationToken);
+        InvalidateEnvironmentCache();
+    }
+
+    public static void InvalidateEnvironmentCache()
+    {
+        lock (EnvCacheLock)
+        {
+            _envCache = null;
+            _envCacheProjectId = null;
+            _envCacheUtc = DateTime.MinValue;
+        }
+    }
+
+    private async Task<string?> GetStoredClangPathAsync(
+        Guid sdkProjectId, LlCompilerProfile primary, CancellationToken cancellationToken)
+    {
+        if (!string.IsNullOrWhiteSpace(primary.ClangPath))
+            return primary.ClangPath.Trim();
+
+        await using var db = await _dbFactory.CreateDbContextAsync(cancellationToken);
+        var paths = await db.LlCompilerProfiles.AsNoTracking()
+            .Where(x => x.SdkProjectId == null || x.SdkProjectId == sdkProjectId)
+            .Select(x => x.ClangPath)
+            .ToListAsync(cancellationToken);
+        return paths.FirstOrDefault(p => !string.IsNullOrWhiteSpace(p))?.Trim();
     }
 
     public async Task<EmbeddedClangResult> EnsureEmbeddedClangAsync(
@@ -286,7 +330,7 @@ public sealed class ClangCompilerService : ICompilerService
         IReadOnlyList<string>? extraDefines = null,
         CancellationToken cancellationToken = default)
     {
-        var env = await CheckEnvironmentAsync(sdkProjectId, cancellationToken);
+        var env = await CheckEnvironmentAsync(sdkProjectId, cancellationToken: cancellationToken);
         if (!env.ClangFound || string.IsNullOrWhiteSpace(env.ClangPath))
         {
             return new CompileJobResult

@@ -8,7 +8,10 @@ namespace TAE32.LLVirtualTest.Core.Interfaces;
 /// </summary>
 public interface ILLTestEngine
 {
-    Task<CompilerEnvironmentInfo> CheckCompilerAsync(Guid sdkProjectId, CancellationToken cancellationToken = default);
+    Task<CompilerEnvironmentInfo> CheckCompilerAsync(
+        Guid sdkProjectId,
+        string? clangPathOverride = null,
+        CancellationToken cancellationToken = default);
 
     Task<IReadOnlyList<LlTestCaseEditModel>> GenerateCasesAsync(
         Guid llFunctionId,

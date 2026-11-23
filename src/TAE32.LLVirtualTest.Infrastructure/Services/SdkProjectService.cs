@@ -23,9 +23,42 @@ public sealed class SdkProjectService : ISdkProjectService
         await using var db = await _dbFactory.CreateDbContextAsync(cancellationToken);
         return await db.SdkProjects
             .AsNoTracking()
-            .Where(x => x.IsActive)
             .OrderBy(x => x.Name)
             .ToListAsync(cancellationToken);
+    }
+
+    public async Task<SdkProject?> GetCurrentAsync(CancellationToken cancellationToken = default)
+    {
+        await using var db = await _dbFactory.CreateDbContextAsync(cancellationToken);
+        var actives = await db.SdkProjects.AsNoTracking()
+            .Where(x => x.IsActive)
+            .OrderByDescending(x => x.UpdatedAtUtc ?? x.CreatedAtUtc)
+            .ToListAsync(cancellationToken);
+        if (actives.Count == 1)
+            return actives[0];
+        if (actives.Count > 1)
+            return actives.OrderByDescending(x => x.UpdatedAtUtc ?? x.CreatedAtUtc).First();
+
+        return await db.SdkProjects.AsNoTracking()
+            .OrderByDescending(x => x.CreatedAtUtc)
+            .FirstOrDefaultAsync(cancellationToken);
+    }
+
+    public async Task SetCurrentAsync(Guid id, CancellationToken cancellationToken = default)
+    {
+        await using var db = await _dbFactory.CreateDbContextAsync(cancellationToken);
+        var all = await db.SdkProjects.ToListAsync(cancellationToken);
+        if (all.Count == 0)
+            throw new InvalidOperationException("没有已导入的 SDK 工程。");
+        if (all.All(x => x.Id != id))
+            throw new InvalidOperationException("SDK 工程不存在。");
+
+        foreach (var p in all)
+            p.IsActive = p.Id == id;
+        var current = all.First(p => p.Id == id);
+        current.UpdatedAtUtc = DateTime.UtcNow;
+        await db.SaveChangesAsync(cancellationToken);
+        _logger.LogInformation("Current SDK workspace project set to {Name} ({Id})", current.Name, current.Id);
     }
 
     public async Task<SdkProject?> GetByIdAsync(Guid id, CancellationToken cancellationToken = default)
@@ -55,6 +88,8 @@ public sealed class SdkProjectService : ISdkProjectService
         };
 
         db.SdkProjects.Add(entity);
+        foreach (var other in db.SdkProjects.Where(x => x.Id != entity.Id))
+            other.IsActive = false;
         await db.SaveChangesAsync(cancellationToken);
         _logger.LogInformation("Added SDK project {Name} ({Id}). Original SDK files are never deleted by this app.", entity.Name, entity.Id);
         return entity;

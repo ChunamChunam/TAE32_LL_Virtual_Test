@@ -42,7 +42,7 @@ public sealed class TestBatchService : ITestBatchService
                       ?? throw new InvalidOperationException("SDK 项目不存在");
 
         CompilerEnvironmentInfo? env = null;
-        try { env = await _compiler.CheckEnvironmentAsync(request.SdkProjectId, cancellationToken); } catch { /* optional */ }
+        try { env = await _compiler.CheckEnvironmentAsync(request.SdkProjectId, cancellationToken: cancellationToken); } catch { /* optional */ }
 
         var batch = new TestBatchRun
         {

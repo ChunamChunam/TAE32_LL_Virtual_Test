@@ -61,8 +61,7 @@ public partial class RegisterManagementViewModel : ObservableObject
     [RelayCommand(CanExecute = nameof(CanParse))]
     private async Task ParseRegistersAsync()
     {
-        var projects = await _projects.GetAllAsync();
-        var project = projects.FirstOrDefault(p => p.IsActive) ?? projects.FirstOrDefault();
+        var project = await _projects.GetCurrentAsync();
         if (project is null)
         {
             ParseSummaryText = "无可用 SDK 项目";

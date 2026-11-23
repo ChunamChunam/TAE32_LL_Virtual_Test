@@ -41,8 +41,11 @@ public sealed class LlTestEngine : ILLTestEngine
         Directory.CreateDirectory(_workRoot);
     }
 
-    public Task<CompilerEnvironmentInfo> CheckCompilerAsync(Guid sdkProjectId, CancellationToken cancellationToken = default)
-        => _compiler.CheckEnvironmentAsync(sdkProjectId, cancellationToken);
+    public Task<CompilerEnvironmentInfo> CheckCompilerAsync(
+        Guid sdkProjectId,
+        string? clangPathOverride = null,
+        CancellationToken cancellationToken = default)
+        => _compiler.CheckEnvironmentAsync(sdkProjectId, clangPathOverride, cancellationToken);
 
     public Task<IReadOnlyList<LlTestCaseEditModel>> GenerateCasesAsync(
         Guid llFunctionId, CancellationToken cancellationToken = default)
@@ -220,7 +223,7 @@ public sealed class LlTestEngine : ILLTestEngine
         Guid? mcuId = null;
         try
         {
-            var env = await _compiler.CheckEnvironmentAsync(entity.SdkProjectId, cancellationToken);
+            var env = await _compiler.CheckEnvironmentAsync(entity.SdkProjectId, cancellationToken: cancellationToken);
             stages.Add(new LlTestStageResult
             {
                 Stage = LlTestExecutionStage.EnvironmentCheck,

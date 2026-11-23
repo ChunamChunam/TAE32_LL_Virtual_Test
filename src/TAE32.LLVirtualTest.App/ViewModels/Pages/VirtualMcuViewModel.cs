@@ -14,6 +14,7 @@ public partial class VirtualMcuViewModel : ObservableObject
     private readonly IAppDataService _data;
     private readonly ISdkProjectService _projects;
     private bool _suppressMcuSelectionReload;
+    private bool _suppressChipWorkspaceReload;
     private bool _suppressPageReload;
     private int _reloadGate;
     private List<VirtualRegisterRow> _registerCache = new();
@@ -57,14 +58,51 @@ public partial class VirtualMcuViewModel : ObservableObject
         _projects = projects;
     }
 
+    partial void OnSelectedChipChanged(Chip? value)
+    {
+        if (_suppressChipWorkspaceReload || value is null) return;
+        _ = ApplyChipWorkspaceAsync(value);
+    }
+
+    private async Task ApplyChipWorkspaceAsync(Chip chip)
+    {
+        try
+        {
+            await _projects.SetCurrentAsync(chip.SdkProjectId);
+            var proj = await _projects.GetByIdAsync(chip.SdkProjectId);
+            StatusText = $"工作 SDK 已切换为 {proj?.Name ?? chip.ModelName}（芯片 {chip.ModelName}）";
+        }
+        catch (Exception ex)
+        {
+            StatusText = $"切换芯片工作区失败：{ex.Message}";
+        }
+    }
+
     [RelayCommand]
     public async Task RefreshAsync()
     {
         var chips = await _data.GetChipsAsync();
+        var current = await _projects.GetCurrentAsync();
         ChipFilters.Clear();
-        foreach (var c in chips) ChipFilters.Add(c);
-        if (SelectedChip is null)
-            SelectedChip = ChipFilters.FirstOrDefault();
+        foreach (var c in chips.OrderBy(x => x.ModelName, StringComparer.OrdinalIgnoreCase))
+            ChipFilters.Add(c);
+
+        _suppressChipWorkspaceReload = true;
+        try
+        {
+            if (SelectedChip is not null && ChipFilters.Any(x => x.Id == SelectedChip.Id))
+            {
+                // keep selection
+            }
+            else if (current is not null)
+                SelectedChip = ChipFilters.FirstOrDefault(c => c.SdkProjectId == current.Id) ?? ChipFilters.FirstOrDefault();
+            else
+                SelectedChip = ChipFilters.FirstOrDefault();
+        }
+        finally
+        {
+            _suppressChipWorkspaceReload = false;
+        }
 
         await ReloadMcuListAsync();
     }
@@ -81,11 +119,10 @@ public partial class VirtualMcuViewModel : ObservableObject
         IsBusy = true;
         try
         {
-            var projects = await _projects.GetAllAsync();
-            var project = projects.FirstOrDefault(p => p.IsActive) ?? projects.FirstOrDefault();
             var chipId = SelectedChip.Id;
             var chipName = SelectedChip.ModelName;
-            var sdkProjectId = project?.Id ?? SelectedChip.SdkProjectId;
+            var sdkProjectId = SelectedChip.SdkProjectId;
+            await _projects.SetCurrentAsync(sdkProjectId);
             // Create+init loads register space / chip.h — keep off UI thread.
             var info = await Task.Run(async () =>
             {

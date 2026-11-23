@@ -25,11 +25,13 @@
                 <Button Style="{StaticResource GhostButtonStyle}" HorizontalAlignment="Left" Margin="0,0,6,0"
                         Content="获取内置" Command="{Binding FetchEmbeddedClangCommand}"/>
                 <Button Style="{StaticResource GhostButtonStyle}" HorizontalAlignment="Left" Margin="0,0,6,0"
-                        Content="检查" Command="{Binding CheckCompilerCommand}"/>
+                        Content="检查" Command="{Binding CheckCompilerCommand}"
+                        ToolTip="会保存文本框中的路径并验证 clang.exe 是否可用"/>
                 <Button Style="{StaticResource GhostButtonStyle}" HorizontalAlignment="Left" Margin="0,0,6,0"
                         Content="浏览" Command="{Binding BrowseClangCommand}"/>
                 <Button Style="{StaticResource GhostButtonStyle}" HorizontalAlignment="Left"
-                        Content="保存路径" Command="{Binding SaveClangPathCommand}"/>
+                        Content="保存路径" Command="{Binding SaveClangPathCommand}"
+                        ToolTip="仅保存路径；建议直接使用「检查」"/>
               </WrapPanel>
               <TextBox Text="{Binding ClangPath, UpdateSourceTrigger=PropertyChanged}" MinHeight="28"/>
             </DockPanel>
@@ -53,7 +55,11 @@
         <DockPanel>
           <StackPanel DockPanel.Dock="Top" Margin="0,0,0,6">
             <TextBlock Text="LL 函数" FontWeight="SemiBold" Foreground="{StaticResource BrushTextPrimary}"/>
-            <ComboBox Margin="0,6,0,0" ItemsSource="{Binding PeripheralFilters}" SelectedItem="{Binding SelectedPeripheral}"/>
+            <TextBlock Margin="0,8,0,0" FontSize="11" Foreground="{StaticResource BrushTextMuted}" Text="芯片型号"/>
+            <ComboBox Margin="0,4,0,0" ItemsSource="{Binding ChipFilters}" SelectedItem="{Binding SelectedChip}"
+                      ToolTip="切换芯片将同步切换工作 SDK，并加载该芯片对应的 LL 函数与外设列表"/>
+            <TextBlock Margin="0,8,0,0" FontSize="11" Foreground="{StaticResource BrushTextMuted}" Text="外设"/>
+            <ComboBox Margin="0,4,0,0" ItemsSource="{Binding PeripheralFilters}" SelectedItem="{Binding SelectedPeripheral}"/>
             <DockPanel Margin="0,6,0,0">
               <Button DockPanel.Dock="Right" Style="{StaticResource GhostButtonStyle}" Content="查询"
                       Command="{Binding SearchFunctionsCommand}" Margin="6,0,0,0" Padding="8,4"

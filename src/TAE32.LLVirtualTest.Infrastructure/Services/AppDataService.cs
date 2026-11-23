@@ -437,7 +437,10 @@ public sealed class AppDataService : IAppDataService
         if (!string.IsNullOrWhiteSpace(peripheralName))
             q = q.Where(x => x.PeripheralName == peripheralName);
         if (!string.IsNullOrWhiteSpace(chipName))
-            q = q.Where(x => x.ChipName == chipName);
+        {
+            var cn = chipName.Trim();
+            q = q.Where(x => x.ChipName != null && x.ChipName.ToUpper() == cn.ToUpper());
+        }
         if (!string.IsNullOrWhiteSpace(form))
             q = q.Where(x => x.Form == form);
         if (!string.IsNullOrWhiteSpace(parseStatus))
