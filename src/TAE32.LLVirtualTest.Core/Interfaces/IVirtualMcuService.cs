@@ -134,4 +134,7 @@ public interface IVirtualMcuService
         CancellationToken cancellationToken = default);
 
     Task ClearAccessTraceAsync(Guid mcuId, CancellationToken cancellationToken = default);
+
+    /// <summary>Drop in-memory MCU runtimes after database restore / full clear (DB ids may have changed).</summary>
+    void DiscardAllInMemoryInstances();
 }

@@ -122,6 +122,10 @@ public interface ISystemMaintenanceService
 {
     Task<string> BackupDatabaseAsync(string? destinationDirectory = null, CancellationToken ct = default);
     Task RestoreDatabaseAsync(string backupFilePath, CancellationToken ct = default);
+
+    /// <summary>Delete all application rows from SQLite (keeps schema/migrations). Returns pre-clear backup path if created.</summary>
+    Task<string?> ClearAllDataAsync(CancellationToken ct = default);
+
     Task<int> TrimLogsAsync(TimeSpan olderThan, CancellationToken ct = default);
     Task<string> GetDiagnosticsSummaryAsync(CancellationToken ct = default);
 }

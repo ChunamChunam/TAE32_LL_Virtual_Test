@@ -320,5 +320,11 @@ public class TestManagementTests
         diag.Should().Contain("Projects=1");
         var trimmed = await svc.TrimLogsAsync(TimeSpan.FromDays(14));
         trimmed.Should().BeGreaterThan(0);
+
+        var preClear = await svc.ClearAllDataAsync();
+        preClear.Should().NotBeNullOrEmpty();
+        var afterClear = await svc.GetDiagnosticsSummaryAsync();
+        afterClear.Should().Contain("Projects=0");
+        afterClear.Should().Contain("Functions=0");
     }
 }

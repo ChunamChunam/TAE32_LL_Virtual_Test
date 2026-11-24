@@ -4,6 +4,7 @@ using CommunityToolkit.Mvvm.ComponentModel;
 using TAE32.LLVirtualTest.App.Services;
 using TAE32.LLVirtualTest.App.ViewModels.Pages;
 using TAE32.LLVirtualTest.Core.Enums;
+using TAE32.LLVirtualTest.Core.Interfaces;
 
 namespace TAE32.LLVirtualTest.App.ViewModels;
 
@@ -21,6 +22,7 @@ public partial class MainViewModel : ObservableObject
     private readonly AutomationTestViewModel _automationTest;
     private readonly TestManagementViewModel _testManagement;
     private readonly SettingsViewModel _settings;
+    private readonly IRuntimeCacheCoordinator _runtimeCache;
     private bool _navReady;
 
     [ObservableProperty] private object? _currentPage;
@@ -45,9 +47,13 @@ public partial class MainViewModel : ObservableObject
         VirtualMcuViewModel virtualMcu,
         AutomationTestViewModel automationTest,
         TestManagementViewModel testManagement,
-        SettingsViewModel settings)
+        SettingsViewModel settings,
+        DataStoreSessionService dataStoreSession,
+        IRuntimeCacheCoordinator runtimeCache)
     {
         Ui = ui;
+        _runtimeCache = runtimeCache;
+        dataStoreSession.ReloadAllPagesAsync = ReloadAfterDataStoreMutationAsync;
         Ui.PropertyChanged += (_, e) =>
         {
             if (e.PropertyName is nameof(UiScaleService.Scale) or nameof(UiScaleService.ScaleTransform))
@@ -167,5 +173,24 @@ public partial class MainViewModel : ObservableObject
                 break;
         }
         StatusText = "就绪";
+    }
+
+    public async Task ReloadAfterDataStoreMutationAsync()
+    {
+        _runtimeCache.InvalidateAfterDatabaseMutation();
+        StatusText = "正在重新加载数据…";
+        await Task.WhenAll(
+            _dashboard.RefreshAsync(),
+            _sdk.RefreshAsync(),
+            _chips.RefreshAsync(),
+            _peripherals.RefreshAsync(),
+            _functions.RefreshAsync(),
+            _callGraph.RefreshAsync(),
+            _registers.RefreshAsync(),
+            _virtualMcu.RefreshAsync(),
+            _automationTest.RefreshAsync(),
+            _testManagement.RefreshAsync());
+        await _settings.RefreshDiagnosticsCommand.ExecuteAsync(null);
+        await LoadPageAsync(SelectedNav);
     }
 }

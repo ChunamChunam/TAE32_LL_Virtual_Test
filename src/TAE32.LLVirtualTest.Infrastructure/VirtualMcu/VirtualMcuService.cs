@@ -91,6 +91,16 @@ public sealed class VirtualMcuService : IVirtualMcuService
         return Task.CompletedTask;
     }
 
+    public void DiscardAllInMemoryInstances()
+    {
+        foreach (var id in _mcus.Keys.ToArray())
+        {
+            if (_mcus.TryRemove(id, out var runtime))
+                runtime.Destroy();
+        }
+        _legacyChipBoundId = null;
+    }
+
     public Task<IReadOnlyList<VirtualMcuInfo>> ListAsync(CancellationToken cancellationToken = default)
     {
         IReadOnlyList<VirtualMcuInfo> list = _mcus.Values

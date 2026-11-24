@@ -148,5 +148,6 @@ public class NativeTestHostAdcImageTests
             => throw new NotSupportedException();
         public Task ClearAccessTraceAsync(Guid mcuId, CancellationToken cancellationToken = default)
             => throw new NotSupportedException();
+        public void DiscardAllInMemoryInstances() { }
     }
 }

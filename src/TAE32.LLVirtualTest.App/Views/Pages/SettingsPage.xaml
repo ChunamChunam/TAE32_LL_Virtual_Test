@@ -54,9 +54,11 @@
         <StackPanel VerticalAlignment="Top">
           <TextBlock Text="运维" FontWeight="SemiBold" Foreground="{StaticResource BrushTextPrimary}" Margin="0,0,0,12"/>
           <TextBlock FontSize="12" Foreground="{StaticResource BrushTextMuted}" TextWrapping="Wrap" Margin="0,0,0,12"
-                     Text="备份在 data 目录生成带时间戳的 .db 副本；恢复前会自动另存 pre_restore 副本。"/>
+                     Text="备份在 data 目录生成带时间戳的 .db 副本；恢复/清空前会自动另存 pre_restore 或 pre_clear 副本；恢复后会自动刷新各页面。"/>
           <Button HorizontalAlignment="Left" Content="备份数据库" Command="{Binding BackupDatabaseCommand}" Margin="0,0,0,8"/>
           <Button HorizontalAlignment="Left" Content="从备份恢复…" Command="{Binding RestoreDatabaseCommand}"
+                  Margin="0,0,0,8" Background="#FF6B3A3A"/>
+          <Button HorizontalAlignment="Left" Content="清空全部数据…" Command="{Binding ClearAllDataCommand}"
                   Margin="0,0,0,16" Background="#FF6B3A3A"/>
           <TextBlock Text="界面缩放" FontSize="12" FontWeight="SemiBold" Foreground="{StaticResource BrushTextPrimary}" Margin="0,0,0,8"/>
           <TextBlock FontSize="11" Foreground="{StaticResource BrushTextMuted}" TextWrapping="Wrap" Margin="0,0,0,6"

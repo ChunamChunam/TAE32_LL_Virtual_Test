@@ -28,6 +28,7 @@ public static class DependencyInjection
 
         services.AddSingleton<ISdkProjectService, SdkProjectService>();
         services.AddSingleton<IAppDataService, AppDataService>();
+        services.AddSingleton<IRuntimeCacheCoordinator, RuntimeCacheCoordinator>();
 
         services.AddSingleton<IVirtualMcuService, VirtualMcuService>();
         services.AddSingleton<ICompilerService, ClangCompilerService>();

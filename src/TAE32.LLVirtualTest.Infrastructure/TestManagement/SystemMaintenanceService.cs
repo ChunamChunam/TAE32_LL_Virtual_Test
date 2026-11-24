@@ -1,5 +1,7 @@
+using System.Data;
 using System.Reflection;
 using System.Text;
+using Microsoft.Data.Sqlite;
 using Microsoft.EntityFrameworkCore;
 using TAE32.LLVirtualTest.Core.Interfaces;
 using TAE32.LLVirtualTest.Infrastructure.Data;
@@ -36,20 +38,119 @@ public sealed class SystemMaintenanceService : ISystemMaintenanceService
         return Task.FromResult(dest);
     }
 
-    public Task RestoreDatabaseAsync(string backupFilePath, CancellationToken ct = default)
+    public Task RestoreDatabaseAsync(string backupFilePath, CancellationToken ct = default) =>
+        Task.Run(() => RestoreDatabaseCore(backupFilePath), ct);
+
+    private void RestoreDatabaseCore(string backupFilePath)
     {
         if (!File.Exists(backupFilePath))
             throw new FileNotFoundException("备份文件不存在", backupFilePath);
         var dir = Path.GetDirectoryName(_databasePath)!;
         Directory.CreateDirectory(dir);
-        // Safety copy of current DB first.
+
+        SqliteConnection.ClearAllPools();
+
         if (File.Exists(_databasePath))
         {
             var safety = Path.Combine(dir, $"pre_restore_{DateTime.Now:yyyyMMdd_HHmmss}.db");
             File.Copy(_databasePath, safety, overwrite: false);
         }
+
         File.Copy(backupFilePath, _databasePath, overwrite: true);
-        return Task.CompletedTask;
+        DeleteSqliteSidecarFiles(_databasePath);
+        SqliteConnection.ClearAllPools();
+    }
+
+    internal static void DeleteSqliteSidecarFiles(string databasePath)
+    {
+        foreach (var suffix in new[] { "-wal", "-shm", "-journal" })
+        {
+            var path = databasePath + suffix;
+            if (!File.Exists(path)) continue;
+            try { File.Delete(path); }
+            catch { /* ignore locked sidecars */ }
+        }
+    }
+
+    public Task<string?> ClearAllDataAsync(CancellationToken ct = default) =>
+        Task.Run(async () => await ClearAllDataCoreAsync(ct).ConfigureAwait(false), ct);
+
+    private async Task<string?> ClearAllDataCoreAsync(CancellationToken ct)
+    {
+        string? safetyPath = null;
+        if (File.Exists(_databasePath))
+        {
+            var dir = Path.GetDirectoryName(_databasePath)!;
+            Directory.CreateDirectory(dir);
+            safetyPath = Path.Combine(dir, $"pre_clear_{DateTime.Now:yyyyMMdd_HHmmss}.db");
+            await CopyDatabaseFileAsync(_databasePath, safetyPath, ct).ConfigureAwait(false);
+        }
+
+        // Do not use EF / Cache=Shared here: other pages hold pooled connections and VACUUM would block the UI.
+        SqliteConnection.ClearAllPools();
+        var cs = new SqliteConnectionStringBuilder
+        {
+            DataSource = _databasePath,
+            Mode = SqliteOpenMode.ReadWriteCreate,
+            Cache = SqliteCacheMode.Private,
+            Pooling = false,
+            DefaultTimeout = 60
+        }.ToString();
+
+        await using var conn = new SqliteConnection(cs);
+        await conn.OpenAsync(ct).ConfigureAwait(false);
+        await ExecuteNonQueryAsync(conn, null, "PRAGMA busy_timeout=60000;", ct).ConfigureAwait(false);
+
+        var tables = await ListUserTablesAsync(conn, ct).ConfigureAwait(false);
+
+        await using (var tx = (SqliteTransaction)await conn.BeginTransactionAsync(ct).ConfigureAwait(false))
+        {
+            await ExecuteNonQueryAsync(conn, tx, "PRAGMA foreign_keys = OFF;", ct).ConfigureAwait(false);
+            foreach (var table in tables)
+            {
+                if (!IsSafeSqlIdentifier(table)) continue;
+                await ExecuteNonQueryAsync(conn, tx, $"DELETE FROM \"{table}\";", ct).ConfigureAwait(false);
+            }
+            await ExecuteNonQueryAsync(conn, tx, "PRAGMA foreign_keys = ON;", ct).ConfigureAwait(false);
+            await tx.CommitAsync(ct).ConfigureAwait(false);
+        }
+
+        SqliteConnection.ClearAllPools();
+        return safetyPath;
+    }
+
+    private static async Task CopyDatabaseFileAsync(string source, string dest, CancellationToken ct)
+    {
+        await using var src = new FileStream(source, FileMode.Open, FileAccess.Read, FileShare.ReadWrite);
+        await using var dst = new FileStream(dest, FileMode.CreateNew, FileAccess.Write, FileShare.None);
+        await src.CopyToAsync(dst, ct).ConfigureAwait(false);
+    }
+
+    private static bool IsSafeSqlIdentifier(string name) =>
+        !string.IsNullOrEmpty(name) && name.All(static c => char.IsAsciiLetterOrDigit(c) || c == '_');
+
+    private static async Task ExecuteNonQueryAsync(
+        SqliteConnection conn,
+        SqliteTransaction? tx,
+        string sql,
+        CancellationToken ct)
+    {
+        await using var cmd = conn.CreateCommand();
+        cmd.Transaction = tx;
+        cmd.CommandText = sql;
+        await cmd.ExecuteNonQueryAsync(ct).ConfigureAwait(false);
+    }
+
+    private static async Task<IReadOnlyList<string>> ListUserTablesAsync(SqliteConnection conn, CancellationToken ct)
+    {
+        var list = new List<string>();
+        await using var cmd = conn.CreateCommand();
+        cmd.CommandText =
+            "SELECT name FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%' AND name <> '__EFMigrationsHistory'";
+        await using var reader = await cmd.ExecuteReaderAsync(ct).ConfigureAwait(false);
+        while (await reader.ReadAsync(ct).ConfigureAwait(false))
+            list.Add(reader.GetString(0));
+        return list;
     }
 
     public Task<int> TrimLogsAsync(TimeSpan olderThan, CancellationToken ct = default)

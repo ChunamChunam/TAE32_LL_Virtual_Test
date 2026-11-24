@@ -98,6 +98,7 @@ public partial class App : Application
         });
         services.AddInfrastructure(AppPaths.DatabasePath, AppPaths.LogDirectory);
         services.AddSdkServices();
+        services.AddSingleton<DataStoreSessionService>();
         services.AddSingleton<UiScaleService>();
         services.AddSingleton<NavigationService>();
         services.AddSingleton<DashboardViewModel>();
